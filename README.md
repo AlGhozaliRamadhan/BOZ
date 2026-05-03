@@ -1,34 +1,91 @@
-# BOZ
+<p align="center">
+  <img src="src/img/logo.png" alt="BOZ logo" width="140" />
+</p>
 
-AI-powered intraday market analyzer built with TypeScript.
+<p align="center">
+  <strong>Behavioral Outlook Zone</strong><br/>
+  AI-powered intraday market intelligence
+</p>
 
-BOZ (Behavioral Outlook Zone) combines market data, technical indicators, macro context, news, and crowd sentiment into structured AI analysis. It currently runs an intraday NVDA-focused pipeline and supports both GitHub Models and offline Ollama-compatible inference.
+<p align="center">
+  <a href="https://www.typescriptlang.org/">
+    <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat&logo=typescript&logoColor=white"/>
+  </a>
+  <a href="https://nodejs.org/">
+    <img src="https://img.shields.io/badge/Node.js-18%2B-339933?style=flat&logo=nodedotjs&logoColor=white"/>
+  </a>
+  <a href="https://opensource.org/licenses/ISC">
+    <img src="https://img.shields.io/badge/License-ISC-1f6feb?style=flat"/>
+  </a>
+  <a href="https://github.com/AlGhozaliRamadhan">
+    <img src="https://img.shields.io/badge/Author-AGR-111111?style=flat"/>
+  </a>
+</p>
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?style=flat&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![License](https://img.shields.io/badge/License-ISC-1f6feb?style=flat)](https://opensource.org/licenses/ISC)
-[![Author](https://img.shields.io/badge/Author-AGR-111111?style=flat)](https://github.com/AlGhozaliRamadhan)
+---
 
-## Overview
+## What is BOZ?
 
-Boz is designed for short-horizon market decision support. The engine aggregates:
+**BOZ (Behavioral Outlook Zone)** an AI-driven intraday market analysis engine designed to turn fragmented signals into **clear, structured decision support**.
 
-- Price and volume data from Yahoo Finance
-- Technical indicators (SMA, EMA, RSI, MACD, Bollinger Bands, ATR, OBV)
-- Crowd sentiment (Fear and Greed + StockTwits)
-- Macro context from benchmark ETFs
-- AI synthesis into a structured prediction format
+It combines:
 
-The current production flow is intraday and ticker-specific (NVDA), while project direction is evolving toward broader market coverage.
+* Technical indicators
+* Market structure and price action
+* Macro context
+* News signals
+* Crowd sentiment
 
-## Key Features
+…into a single AI-generated output focused on **short-horizon trading insight (2–6 hours)**.
 
-- Intraday analysis workflow (next 2-6 hour context)
-- Multi-source signal fusion
-- AI provider switching (GitHub Models or offline)
-- Model fallback chain for resiliency
-- Structured output with prediction, confidence, target, and stop
-- Modular codebase for extension
+> Current implementation is optimized for **NVDA intraday analysis**, with expansion planned.
+
+---
+
+## Core Principles
+
+* **Signal Fusion** → No single indicator bias
+* **Structured Output** → Prediction, confidence, targets
+* **Provider Flexibility** → Cloud or local AI
+* **Deterministic Pipeline** → Transparent data → AI synthesis
+* **Extensible Design** → Built for expansion
+
+---
+
+## Features
+
+* Intraday analysis pipeline (2–6 hour horizon)
+* Multi-source signal aggregation
+* Technical indicators: SMA, EMA, RSI, MACD, Bollinger Bands, ATR, OBV
+* Sentiment integration (Fear & Greed + StockTwits)
+* Macro context via benchmark ETFs
+* AI provider switching (GitHub Models / Ollama)
+* Model fallback chain for resiliency
+* Structured AI output:
+
+  * Direction
+  * Confidence
+  * Target
+  * Stop
+
+---
+
+## Architecture Overview
+
+```mermaid
+flowchart LR
+    MD[Market Data] --> SP[Signal Processing]
+    IND[Indicators] --> SP
+
+    SP --> AI[AI Synthesis]
+
+    SENT[Sentiment] --> AI
+    MACRO[Macro] --> AI
+
+    AI --> OUT[Structured Output]
+```
+
+---
 
 ## Quick Start
 
@@ -39,12 +96,14 @@ npm install
 npm run dev
 ```
 
+---
+
 ## Configuration
 
-Create a .env file in the repository root:
+Create a `.env` file:
 
 ```env
-# Provider: github (default) or offline
+# AI Provider: github (default) or offline
 AI_PROVIDER=github
 
 # GitHub Models
@@ -57,52 +116,62 @@ OFFLINE_AI_URL=http://localhost:11434
 OFFLINE_AI_MODEL=qwen3-14b-t4
 ```
 
-Notes:
+### Notes
 
-- If AI_PROVIDER is not set, Boz defaults to github.
-- If GITHUB_TOKEN is missing in github mode, AI analysis cannot run.
-- Offline mode requires a reachable Ollama-compatible endpoint.
+* Defaults to `github` if not specified
+* Missing `GITHUB_TOKEN` disables AI in GitHub mode
+* Offline mode requires a running Ollama-compatible endpoint
+* You can enter offline URL interactively when selecting offline in CLI startup or via `/model offline`
+* Interactive offline URL is session-only and is not written to `.env`
 
-## CLI Commands
+---
 
-- /run: execute intraday NVDA analysis
-- /model [github|offline] [url]: switch provider
-- /model github --pick: choose model interactively
-- /status: show active provider/model/endpoint
-- /help: show command list
-- /exit: terminate session
+## CLI Usage
+
+| Command                          | Description                    |
+| -------------------------------- | ------------------------------ |
+| `/run`                           | Execute intraday NVDA analysis |
+| `/model [github\|offline] [url]` | Switch AI provider             |
+| `/model github --pick`           | Select model interactively     |
+| `/status`                        | Show current configuration     |
+| `/help`                          | List commands                  |
+| `/exit`                          | Exit session                   |
+
+---
 
 ## Scripts
 
-| Command | Description |
-|---|---|
-| npm run dev | Run with tsx in development |
-| npm run build | Compile TypeScript to dist |
-| npm run start | Run compiled build |
-| npm run test | Placeholder test script |
+| Command         | Description              |
+| --------------- | ------------------------ |
+| `npm run dev`   | Run in development (tsx) |
+| `npm run build` | Compile TypeScript       |
+| `npm run start` | Run compiled output      |
+| `npm run test`  | Test placeholder         |
 
-## Roadmap
-
-- Generalize runtime from NVDA-only to multi-ticker input
-- Add deterministic tests for signal and parser logic
-- Improve API-level output options (JSON/export)
-- Expand documentation for deployment and monitoring
+---
 
 ## Contributing
 
 Contributions are welcome.
 
-1. Fork the repository.
-2. Create a branch for your change.
-3. Commit with a clear message.
-4. Open a pull request with context and impact.
+1. Fork the repo
+2. Create a feature branch
+3. Commit clearly
+4. Open a PR with context and impact
 
-## Security and Data Notes
+---
 
-- Never commit .env or secret tokens.
-- Review third-party API reliability and rate limits before production usage.
-- Validate AI-generated trade suggestions against your own risk rules.
+## Security Notes
+
+* Never commit `.env` or API keys
+* Be aware of API rate limits
+* Validate all AI-generated outputs before acting
+
+---
 
 ## Disclaimer
 
-Boz is an educational and research tool. It is not financial advice. All trading and investment decisions remain your responsibility.
+BOZ is a research and educational tool.
+It does not provide financial advice.
+
+All trading decisions are your responsibility.
