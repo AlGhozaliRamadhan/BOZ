@@ -1,5 +1,6 @@
+#!/usr/bin/env node
 import dotenv from 'dotenv';
-dotenv.config(); // MUST be first, before any other imports read process.env
+dotenv.config({ override: true }); // .env must win over inherited environment values
 
 import { CLI } from './cli/cli.js';
 

@@ -1,7 +1,17 @@
 import * as readline from 'readline';
-import { NVDAAnalyzer } from '../analyzers/nvda.analyzer.js';
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
+import { createRequire } from 'module';
+import { NVDAIntradayAnalyzer } from '../analyzers/nvda.intraday.analyzer.js';
+import { NVDALongTermAnalyzer } from '../analyzers/nvda.longterm.analyzer.js';
 import { config, type AIProvider } from '../config/config.js';
-import { githubConfig } from '../config/github.config.js';
+import { githubConfig, GITHUB_TOKEN_URL } from '../config/github.config.js';
+
+// ─── Version ──────────────────────────────────────────────────────────────────
+
+const _require = createRequire(import.meta.url);
+const PKG_VERSION: string = (_require('../../package.json') as { version: string }).version;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,6 +38,7 @@ const c = {
   yellow: '\x1b[33m',
   red:    '\x1b[31m',
   white:  '\x1b[97m',
+  cyan:   '\x1b[36m',
   wrap: (color: string, text: string) => `${color}${text}\x1b[0m`,
 } as const;
 
@@ -44,11 +55,6 @@ const GITHUB_MODELS: { id: string; label: string }[] = [
 ];
 
 // ─── Horizontal picker  (left / right arrow) ──────────────────────────────────
-//
-// Renders on a single line, e.g.:
-//   > Github     Ollama
-//   or:
-//     Github   > Ollama
 
 function renderHPicker(options: string[], selected: number): void {
   const parts = options.map((opt, i) =>
@@ -62,26 +68,21 @@ function renderHPicker(options: string[], selected: number): void {
 function hPick(options: string[], defaultIdx = 0): Promise<number> {
   return new Promise((resolve) => {
     let sel = defaultIdx;
-
     if (process.stdin.isTTY) { process.stdin.setRawMode(true); process.stdin.resume(); }
     readline.emitKeypressEvents(process.stdin);
-
     renderHPicker(options, sel);
 
     function onKey(_: unknown, key: any) {
       if (!key) return;
       if (key.ctrl && key.name === 'c') { process.stdout.write('\n  Bye.\n'); process.exit(0); }
-
       if (key.name === 'left')  { sel = (sel - 1 + options.length) % options.length; renderHPicker(options, sel); return; }
       if (key.name === 'right') { sel = (sel + 1) % options.length;                  renderHPicker(options, sel); return; }
-
       if (key.name === 'return' || key.name === 'enter') {
         process.stdin.removeListener('keypress', onKey);
         process.stdout.write('\n');
         resolve(sel);
       }
     }
-
     process.stdin.on('keypress', onKey);
   });
 }
@@ -89,7 +90,6 @@ function hPick(options: string[], defaultIdx = 0): Promise<number> {
 // ─── Vertical picker  (up / down arrow) ───────────────────────────────────────
 
 function renderVPicker(options: string[], selected: number, indent: string): void {
-  // Erase all lines upward then redraw
   options.forEach(() => process.stdout.write('\x1b[1A\x1b[K'));
   options.forEach((opt, i) => {
     const marker = i === selected ? c.wrap(c.white, '>') : ' ';
@@ -101,11 +101,9 @@ function renderVPicker(options: string[], selected: number, indent: string): voi
 function vPick(options: string[], defaultIdx = 0, indent = '    '): Promise<number> {
   return new Promise((resolve) => {
     let sel = defaultIdx;
-
     if (process.stdin.isTTY) { process.stdin.setRawMode(true); process.stdin.resume(); }
     readline.emitKeypressEvents(process.stdin);
 
-    // Initial render
     options.forEach((opt, i) => {
       const marker = i === sel ? c.wrap(c.white, '>') : ' ';
       const text   = i === sel ? c.wrap(c.white, opt) : c.wrap(c.ghost, opt);
@@ -115,30 +113,24 @@ function vPick(options: string[], defaultIdx = 0, indent = '    '): Promise<numb
     function onKey(_: unknown, key: any) {
       if (!key) return;
       if (key.ctrl && key.name === 'c') { process.stdout.write('\n  Bye.\n'); process.exit(0); }
-
       if (key.name === 'up')   { sel = (sel - 1 + options.length) % options.length; renderVPicker(options, sel, indent); return; }
       if (key.name === 'down') { sel = (sel + 1) % options.length;                  renderVPicker(options, sel, indent); return; }
-
       if (key.name === 'return' || key.name === 'enter') {
         process.stdin.removeListener('keypress', onKey);
         resolve(sel);
       }
     }
-
     process.stdin.on('keypress', onKey);
   });
 }
 
-// ─── Plain text question (pauses raw mode) ────────────────────────────────────
+// ─── Plain text question ──────────────────────────────────────────────────────
 
 function askQuestion(prompt: string): Promise<string> {
   return new Promise((resolve) => {
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(prompt, (answer) => {
-      rl.close();
-      resolve(answer.trim());
-    });
+    rl.question(prompt, (answer) => { rl.close(); resolve(answer.trim()); });
   });
 }
 
@@ -147,28 +139,105 @@ function restoreRawMode(): void {
   readline.emitKeypressEvents(process.stdin);
 }
 
+// ─── Mascot ───────────────────────────────────────────────────────────────────
+
+function printMascot(): void {
+  const W  = c.wrap;
+  const Wh = (s: string) => W(c.white,  s);
+  const Gh = (s: string) => W(c.ghost,  s);
+  const Di = (s: string) => W(c.dim,    s);
+  const Ye = (s: string) => W(c.yellow, s);
+
+  process.stdout.write('\n');
+  process.stdout.write(`   ${Wh('/\\_____/\\')}\n`);
+  process.stdout.write(`   ${Wh('(')} ${Ye('◉')}   ${Ye('◉')} ${Wh(')')}\n`);
+  process.stdout.write(`    ${Wh('(')} ${Wh('=ω=')} ${Wh(')')}\n`);
+  process.stdout.write(`    ${Wh(')')}     ${Wh('(')}\n`);
+  process.stdout.write(`   ${Wh('(_______)')}\n`);
+  process.stdout.write(`\n  ${Wh('Boz')}  ${Gh('· NVDA Intraday Analyzer')}  ${Di('v' + PKG_VERSION)}\n`);
+  process.stdout.write(`  ${Di('─'.repeat(37))}\n`);
+  process.stdout.write(`  ${Gh('AI-powered · Multi-timeframe · Live data')}\n`);
+  process.stdout.write('\n');
+}
+
+// ─── Token setup ─────────────────────────────────────────────────────────────
+
+function printTokenHelp(): void {
+  process.stdout.write('\n');
+  process.stdout.write(`  ${c.wrap(c.yellow, '!')}  ${c.wrap(c.white, 'GITHUB_TOKEN is not set.')}\n`);
+  process.stdout.write(`  ${c.wrap(c.dim,    '   GitHub Models requires a free personal access token.')}\n\n`);
+  process.stdout.write(`  ${c.wrap(c.ghost,  '   Get one here:')}\n`);
+  process.stdout.write(`  ${c.wrap(c.cyan,   '   ' + GITHUB_TOKEN_URL)}\n\n`);
+  process.stdout.write(`  ${c.wrap(c.ghost,  '   Then add it to your .env:')}\n`);
+  process.stdout.write(`  ${c.wrap(c.dim,    '   GITHUB_TOKEN=ghp_your_token_here')}\n\n`);
+}
+
+function openBrowser(url: string): void {
+  try {
+    const cmd =
+      process.platform === 'win32'  ? `start "" "${url}"` :
+      process.platform === 'darwin' ? `open "${url}"` :
+                                      `xdg-open "${url}"`;
+    execSync(cmd, { stdio: 'ignore' });
+  } catch (err) {
+    console.warn('openBrowser: failed to open URL', err instanceof Error ? err.message : String(err));
+  }
+}
+
+function upsertEnvVar(key: string, value: string): void {
+  const envPath = path.resolve(process.cwd(), '.env');
+  let contents  = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+  const lineRe  = new RegExp(`^${key}=.*$`, 'm');
+  const line    = `${key}=${value}`;
+  if (lineRe.test(contents)) {
+    contents = contents.replace(lineRe, line);
+  } else {
+    contents = contents.trimEnd();
+    contents = contents ? `${contents}\n${line}\n` : `${line}\n`;
+  }
+  fs.writeFileSync(envPath, contents, 'utf8');
+}
+
+async function promptForGitHubToken(): Promise<void> {
+  process.stdout.write(`\n  ${c.wrap(c.yellow, '⚠  GITHUB_TOKEN is not set.')}\n`);
+  process.stdout.write(`  Opening the GitHub token creation page in your browser…\n`);
+  process.stdout.write(`  ${c.wrap(c.dim, GITHUB_TOKEN_URL)}\n\n`);
+
+  openBrowser(GITHUB_TOKEN_URL);
+
+  // Must be out of raw mode for readline to work
+  if (process.stdin.isTTY) process.stdin.setRawMode(false);
+
+  let token = '';
+  while (!token.trim()) {
+    token = await askQuestion('  Paste your GitHub token here: ');
+    if (!token.trim()) {
+      process.stdout.write(`  ${c.wrap(c.red, 'Token cannot be empty — please try again.')}\n`);
+    }
+  }
+
+  token = token.trim();
+  upsertEnvVar('GITHUB_TOKEN', token);
+  process.env.GITHUB_TOKEN = token;
+  // githubConfig.token is a lazy getter on process.env, so it picks this up immediately
+
+  process.stdout.write(`\n  ${c.wrap(c.green, '✔ Token saved to .env')}\n\n`);
+}
+
 // ─── Startup Wizard ───────────────────────────────────────────────────────────
 
 async function runStartupWizard(): Promise<void> {
+  // Re-read token each time so a stale empty .env doesn't fool the check
   const hasGithubToken = Boolean(githubConfig.token);
   const hasOfflineUrl  = Boolean(process.env.OFFLINE_AI_URL);
 
-  if (!hasGithubToken && !hasOfflineUrl) {
-    process.stdout.write(
-      `  ${c.wrap(c.yellow, 'No AI provider configured.')}` +
-      ` Set GITHUB_TOKEN or OFFLINE_AI_URL in .env and restart.\n\n`,
-    );
-    return;
-  }
-
-  // ── Step 1: provider  ─────────────────────────────────────────────────────
-
+  // ── Step 1: provider ──────────────────────────────────────────────────────
   process.stdout.write(
     `  ${c.wrap(c.ghost, 'AI provider')}  ` +
     `${c.wrap(c.ghost, 'left / right to select, Enter to confirm')}\n\n`,
   );
 
-  const defaultProviderIdx = hasGithubToken ? 0 : 1;
+  const defaultProviderIdx = hasGithubToken || !hasOfflineUrl ? 0 : 1;
   const providerIdx = await hPick(['Github', 'Ollama'], defaultProviderIdx);
   const chosenProvider: AIProvider = providerIdx === 0 ? 'github' : 'offline';
 
@@ -176,20 +245,16 @@ async function runStartupWizard(): Promise<void> {
     `\n  provider  ${c.wrap(c.green, providerIdx === 0 ? 'github' : 'ollama')}\n\n`,
   );
 
-  // ── Step 2: provider-specific config ─────────────────────────────────────
-
+  // ── Step 2: provider-specific config ──────────────────────────────────────
   if (chosenProvider === 'github') {
-    if (!hasGithubToken) {
-      process.stdout.write(`  ${c.wrap(c.yellow, 'GITHUB_TOKEN not set — API calls may fail.')}\n\n`);
+    // Re-read token here too — may have been set after dotenv loaded
+    if (!githubConfig.token) {
+      await promptForGitHubToken();
     }
-
     config.setAIProvider('github');
 
-    // Model picker
     const envModel   = process.env.GITHUB_AI_MODEL;
-    const defaultIdx = envModel
-      ? Math.max(0, GITHUB_MODELS.findIndex((m) => m.id === envModel))
-      : 0;
+    const defaultIdx = envModel ? Math.max(0, GITHUB_MODELS.findIndex((m) => m.id === envModel)) : 0;
 
     process.stdout.write(
       `  ${c.wrap(c.ghost, 'Model')}  ` +
@@ -197,14 +262,12 @@ async function runStartupWizard(): Promise<void> {
     );
 
     const modelIdx = await vPick(GITHUB_MODELS.map((m) => m.label), defaultIdx);
-
     githubConfig.model = GITHUB_MODELS[modelIdx].id;
-    config.setAIProvider('github'); // re-apply so aiModel getter updates
+    config.setAIProvider('github');
 
     process.stdout.write(`\n  model  ${c.wrap(c.green, GITHUB_MODELS[modelIdx].id)}\n\n`);
 
   } else {
-    // Ollama URL — temporary, not written to .env
     process.stdout.write(
       `  ${c.wrap(c.ghost, 'Ollama endpoint')}  ` +
       `${c.wrap(c.ghost, '(session only, not saved)')}\n\n`,
@@ -212,7 +275,6 @@ async function runStartupWizard(): Promise<void> {
 
     const url = await askQuestion(`  URL [http://localhost:11434]: `);
     restoreRawMode();
-
     const resolvedUrl = url || 'http://localhost:11434';
     config.setOfflineEndpoint(resolvedUrl);
     config.setAIProvider('offline');
@@ -291,11 +353,37 @@ export class CLI {
     return [
       {
         name: 'run',
-        description: 'Run the NVDA market analysis',
+        description: 'Run the NVDA market analysis  (/run → pick mode)',
         handler: async () => {
           process.stdout.write('\n');
-          const analyzer = new NVDAAnalyzer();
-          await analyzer.runAnalysis();
+
+          // ── Token guard ───────────────────────────────────────────────
+          if (config.aiProvider === 'github' && !githubConfig.token) {
+            printTokenHelp();
+            process.stdout.write(
+              `  ${c.wrap(c.ghost, 'Switch to Ollama with')} ${c.wrap(c.white, '/model offline')}` +
+              ` ${c.wrap(c.ghost, 'or add GITHUB_TOKEN to .env and restart.')}\n\n`,
+            );
+            return;
+          }
+          process.stdout.write(
+            `  ${c.wrap(c.ghost, 'Mode')}  ` +
+            `${c.wrap(c.ghost, 'left / right to select, Enter to confirm')}\n\n`,
+          );
+          const modeIdx = await hPick(['Intraday  (2–6 h)', 'Long-term  (3–12 mo)']);
+          process.stdout.write(
+            `\n  mode  ${
+              modeIdx === 0
+                ? c.wrap(c.green, 'intraday')
+                : c.wrap(c.cyan,  'long-term')
+            }\n`,
+          );
+          process.stdout.write('\n');
+          if (modeIdx === 0) {
+            await new NVDAIntradayAnalyzer().runAnalysis();
+          } else {
+            await new NVDALongTermAnalyzer().runAnalysis();
+          }
           process.stdout.write('\n');
         },
       },
@@ -362,6 +450,15 @@ export class CLI {
         handler: async () => {
           process.stdout.write('\n');
           this.printHelp();
+        },
+      },
+      {
+        name: 'version',
+        description: 'Show Boz version',
+        handler: async () => {
+          process.stdout.write(
+            `\n  ${c.wrap(c.white, 'Boz')}  ${c.wrap(c.ghost, 'v' + PKG_VERSION)}\n\n`,
+          );
         },
       },
       {
@@ -483,17 +580,8 @@ export class CLI {
   // ─── Entry Point ───────────────────────────────────────────────────────────
 
   public async run(): Promise<void> {
-    process.stdout.write(
-      `\n  ${c.wrap(c.white, 'Boz')} ${c.wrap(c.ghost, '| Market Analyzer')}\n` +
-      `  ${c.wrap(c.ghost, '─'.repeat(34))}\n\n`,
-    );
-
+    printMascot();
     await runStartupWizard();
-
-    process.stdout.write(
-      `  ${c.wrap(c.white, '/run')} to start analysis,` +
-      ` ${c.wrap(c.white, '/help')} for all commands.\n\n`,
-    );
 
     readline.emitKeypressEvents(process.stdin);
     this.enterRawMode();

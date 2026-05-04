@@ -1,11 +1,14 @@
 {
   "name": "boz",
-  "version": "1.0.0",
+  "version": "1.3.2",
   "description": "Open-source AI market analyzer that combines real-time data, technical indicators, macro context, news, and sentiment into structured insights.",
-  "main": "index.js",
+  "main": "dist/main.js",
+  "bin": {
+    "boz": "./dist/main.js"
+  },
   "scripts": {
     "dev": "tsx src/main.ts",
-    "build": "tsc",
+    "build": "tsc && npm link",
     "start": "node dist/main.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -32,17 +35,14 @@
   "dependencies": {
     "@azure-rest/ai-inference": "^1.0.0-beta.6",
     "@azure/core-auth": "^1.10.1",
-    "@types/node": "^25.6.0",
-    "@types/prompts": "^2.4.9",
     "axios": "^1.16.0",
     "dotenv": "^17.4.2",
-    "prompts": "^2.4.2",
     "technicalindicators": "^3.1.0",
-    "ts-node": "^10.9.2",
     "typescript": "^6.0.3",
     "yahoo-finance2": "^3.14.0"
   },
   "devDependencies": {
+    "@types/node": "^25.6.0",
     "tsx": "^4.21.0"
   }
 }
