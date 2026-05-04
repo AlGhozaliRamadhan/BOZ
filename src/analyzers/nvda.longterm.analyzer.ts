@@ -1,11 +1,15 @@
+import { createRequire } from 'module';
 import { MarketAnalyzer } from './market.analyzer.js';
-import { ChartAnalyzer } from './chart.analyzer.js';
+import { ChartAnalyzer, ChartPatternResult } from './chart.analyzer.js';
 import { IndicatorsService } from '../services/indicators.service.js';
 import { YahooService } from '../services/yahoo.service.js';
 import { AIService } from '../services/ai.service.js';
 import { NewsService } from '../services/news.service.js';
 import { MacroService } from '../services/macro.service.js';
 import { config } from '../config/config.js';
+
+const _require = createRequire(import.meta.url);
+const PKG_VERSION: string = (_require('../../package.json') as { version: string }).version;
 import { clr, badge, OK, WARN, ERR, hr, hr2, BadgeColor } from '../utils/logger.js';
 import {
   ln, row, section, sep, pctColor,
@@ -23,7 +27,7 @@ export class NVDALongTermAnalyzer {
 
   async runAnalysis(): Promise<void> {
     ln(hr2());
-    ln(`  ${clr.white('NVDA')}  ${clr.dim('AI Long-Term Analyzer')}  ${clr.ghost('v1.3.2')}`);
+    ln(`  ${clr.white('NVDA')}  ${clr.dim('AI Long-Term Analyzer')}  ${clr.ghost('v' + PKG_VERSION)}`);
     ln(hr2());
 
     try {
@@ -256,7 +260,7 @@ STOP: $price (long-term invalidation level)
 
       // ── Chart patterns ────────────────────────────────────────────────────
       section('chart', 'CHART PATTERNS  (DAILY)');
-      chartPatterns.patterns.forEach((p: string, i: number) => {
+      chartPatterns.patterns.forEach((p, i) => {
         const conf = chartPatterns.pattern_confidence?.[i] ?? 'MEDIUM';
         ln(`  ${clr.dim('·')}  ${p}  ${clr.dim('[' + conf + ']  [daily]')}`);
       });

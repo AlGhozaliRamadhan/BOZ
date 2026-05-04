@@ -1,9 +1,25 @@
 import { Candle } from '../types/types.js';
 
+export interface ChartPatternResult {
+  patterns:            string[];
+  pattern_confidence:  string[];
+  nearest_support:     number;
+  nearest_resistance:  number;
+  fibonacci_levels:    Record<string, number>;
+  fibonacci_position:  string;
+}
+
 export class ChartAnalyzer {
-  analyzeChartPatterns(candles: Candle[]): any {
+  analyzeChartPatterns(candles: Candle[]): ChartPatternResult {
     const recent = candles.slice(-24);
-    if (recent.length < 2) return { patterns: ['Insufficient data'], pattern_confidence: ['LOW'] };
+    if (recent.length < 2) return {
+      patterns:           ['Insufficient data'],
+      pattern_confidence: ['LOW'],
+      nearest_support:    0,
+      nearest_resistance: 0,
+      fibonacci_levels:   {},
+      fibonacci_position: 'UNKNOWN',
+    };
 
     const patterns_found:    string[] = [];
     const pattern_confidence: string[] = [];

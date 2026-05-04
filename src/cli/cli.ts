@@ -7,6 +7,7 @@ import { NVDAIntradayAnalyzer } from '../analyzers/nvda.intraday.analyzer.js';
 import { NVDALongTermAnalyzer } from '../analyzers/nvda.longterm.analyzer.js';
 import { config, type AIProvider } from '../config/config.js';
 import { githubConfig, GITHUB_TOKEN_URL } from '../config/github.config.js';
+import { nvidiaConfig, NVIDIA_MODELS, NVIDIA_API_KEY_URL } from '../config/nvidia.config.js';
 
 // ─── Version ──────────────────────────────────────────────────────────────────
 
@@ -160,7 +161,7 @@ function printMascot(): void {
   process.stdout.write('\n');
 }
 
-// ─── Token setup ─────────────────────────────────────────────────────────────
+// ─── Token / Key setup ───────────────────────────────────────────────────────
 
 function printTokenHelp(): void {
   process.stdout.write('\n');
@@ -184,11 +185,24 @@ function openBrowser(url: string): void {
   }
 }
 
+/**
+ * Sanitize a secret value before writing it to .env.
+ * Strips newlines, tabs, and non-printable ASCII characters that could
+ * corrupt the file or inject extra key=value lines.
+ */
+function sanitizeEnvValue(value: string): string {
+  return value
+    .replace(/[\r\n\t]/g, '')      // strip newlines / tabs
+    .replace(/[^\x20-\x7E]/g, '') // strip non-printable ASCII
+    .trim();
+}
+
 function upsertEnvVar(key: string, value: string): void {
-  const envPath = path.resolve(process.cwd(), '.env');
-  let contents  = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
-  const lineRe  = new RegExp(`^${key}=.*$`, 'm');
-  const line    = `${key}=${value}`;
+  const safe     = sanitizeEnvValue(value);
+  const envPath  = path.resolve(process.cwd(), '.env');
+  let   contents = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+  const lineRe   = new RegExp('^' + key + '=.*$', 'm');
+  const line     = `${key}=${safe}`;
   if (lineRe.test(contents)) {
     contents = contents.replace(lineRe, line);
   } else {
@@ -205,7 +219,6 @@ async function promptForGitHubToken(): Promise<void> {
 
   openBrowser(GITHUB_TOKEN_URL);
 
-  // Must be out of raw mode for readline to work
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
 
   let token = '';
@@ -219,35 +232,102 @@ async function promptForGitHubToken(): Promise<void> {
   token = token.trim();
   upsertEnvVar('GITHUB_TOKEN', token);
   process.env.GITHUB_TOKEN = token;
-  // githubConfig.token is a lazy getter on process.env, so it picks this up immediately
 
   process.stdout.write(`\n  ${c.wrap(c.green, '✔ Token saved to .env')}\n\n`);
+}
+
+async function promptForNvidiaKey(): Promise<void> {
+  process.stdout.write(`\n  ${c.wrap(c.yellow, '⚠  NVIDIA_API_KEY is not set.')}\n`);
+  process.stdout.write(`  Opening the NVIDIA NIM API key page in your browser…\n`);
+  process.stdout.write(`  ${c.wrap(c.dim, NVIDIA_API_KEY_URL)}\n\n`);
+  process.stdout.write(`  ${c.wrap(c.ghost, '  1. Sign in or create a free account')}\n`);
+  process.stdout.write(`  ${c.wrap(c.ghost, '  2. Click your model → "Get API Key"')}\n`);
+  process.stdout.write(`  ${c.wrap(c.ghost, '  3. Copy the key (starts with nvapi-)')}\n\n`);
+
+  openBrowser(NVIDIA_API_KEY_URL);
+
+  if (process.stdin.isTTY) process.stdin.setRawMode(false);
+
+  let key = '';
+  while (!key.trim()) {
+    key = await askQuestion('  Paste your NVIDIA API key here: ');
+    if (!key.trim()) {
+      process.stdout.write(`  ${c.wrap(c.red, 'Key cannot be empty — please try again.')}\n`);
+    }
+  }
+
+  key = key.trim();
+  upsertEnvVar('NVIDIA_API_KEY', key);
+  process.env.NVIDIA_API_KEY = key;
+  // nvidiaConfig.apiKey is a lazy getter on process.env, picks this up immediately
+
+  process.stdout.write(`\n  ${c.wrap(c.green, '✔ Key saved to .env')}\n\n`);
 }
 
 // ─── Startup Wizard ───────────────────────────────────────────────────────────
 
 async function runStartupWizard(): Promise<void> {
-  // Re-read token each time so a stale empty .env doesn't fool the check
   const hasGithubToken = Boolean(githubConfig.token);
   const hasOfflineUrl  = Boolean(process.env.OFFLINE_AI_URL);
+  const hasNvidiaKey   = Boolean(nvidiaConfig.apiKey);
 
-  // ── Step 1: provider ──────────────────────────────────────────────────────
+  // ── Fast-path: skip picker when AI_PROVIDER is pre-set in .env ───────────
+  const envProvider = (process.env.AI_PROVIDER || '').toLowerCase();
+  if (envProvider === 'nvidia' || envProvider === 'github' || envProvider === 'offline') {
+    const chosenProvider: AIProvider =
+      envProvider === 'nvidia'  ? 'nvidia'  :
+      envProvider === 'offline' ? 'offline' : 'github';
+
+    if (chosenProvider === 'nvidia' && !hasNvidiaKey) {
+      await promptForNvidiaKey();
+      restoreRawMode();
+    } else if (chosenProvider === 'github' && !hasGithubToken) {
+      await promptForGitHubToken();
+      restoreRawMode();
+    } else if (chosenProvider === 'offline' && !hasOfflineUrl) {
+      process.stdout.write(`\n  ${c.wrap(c.ghost, 'Ollama endpoint')}  ${c.wrap(c.ghost, '(session only, not saved)')}\n\n`);
+      const url = await askQuestion(`  URL [http://localhost:11434]: `);
+      restoreRawMode();
+      config.setOfflineEndpoint(url || 'http://localhost:11434');
+    }
+
+    config.setAIProvider(chosenProvider);
+
+    const providerColor =
+      chosenProvider === 'nvidia'  ? c.cyan   :
+      chosenProvider === 'offline' ? c.yellow : c.green;
+
+    process.stdout.write(
+      `  ${c.wrap(c.ghost, 'provider')}  ${c.wrap(providerColor, chosenProvider)}\n` +
+      `  ${c.wrap(c.ghost, 'model   ')}  ${c.wrap(c.green, config.aiModel)}\n` +
+      `  ${c.wrap(c.ghost, 'endpoint')}  ${c.wrap(c.dim, config.aiEndpoint)}\n\n`,
+    );
+    return;
+  }
+
+  // ── Interactive picker (no AI_PROVIDER in .env) ───────────────────────────
   process.stdout.write(
     `  ${c.wrap(c.ghost, 'AI provider')}  ` +
     `${c.wrap(c.ghost, 'left / right to select, Enter to confirm')}\n\n`,
   );
 
-  const defaultProviderIdx = hasGithubToken || !hasOfflineUrl ? 0 : 1;
-  const providerIdx = await hPick(['Github', 'Ollama'], defaultProviderIdx);
-  const chosenProvider: AIProvider = providerIdx === 0 ? 'github' : 'offline';
+  const defaultProviderIdx = hasGithubToken ? 0 : hasNvidiaKey ? 2 : hasOfflineUrl ? 1 : 0;
+  const providerIdx = await hPick(['Github', 'Ollama', 'NVIDIA'], defaultProviderIdx);
 
-  process.stdout.write(
-    `\n  provider  ${c.wrap(c.green, providerIdx === 0 ? 'github' : 'ollama')}\n\n`,
-  );
+  const chosenProvider: AIProvider =
+    providerIdx === 0 ? 'github' :
+    providerIdx === 1 ? 'offline' :
+                        'nvidia';
+
+  const providerLabel =
+    providerIdx === 0 ? 'github' :
+    providerIdx === 1 ? 'ollama' :
+                        'nvidia';
+
+  process.stdout.write(`\n  provider  ${c.wrap(c.green, providerLabel)}\n\n`);
 
   // ── Step 2: provider-specific config ──────────────────────────────────────
   if (chosenProvider === 'github') {
-    // Re-read token here too — may have been set after dotenv loaded
     if (!githubConfig.token) {
       await promptForGitHubToken();
     }
@@ -267,7 +347,7 @@ async function runStartupWizard(): Promise<void> {
 
     process.stdout.write(`\n  model  ${c.wrap(c.green, GITHUB_MODELS[modelIdx].id)}\n\n`);
 
-  } else {
+  } else if (chosenProvider === 'offline') {
     process.stdout.write(
       `  ${c.wrap(c.ghost, 'Ollama endpoint')}  ` +
       `${c.wrap(c.ghost, '(session only, not saved)')}\n\n`,
@@ -280,6 +360,27 @@ async function runStartupWizard(): Promise<void> {
     config.setAIProvider('offline');
 
     process.stdout.write(`\n  endpoint  ${c.wrap(c.green, resolvedUrl)}\n\n`);
+
+  } else {
+    // nvidia
+    if (!nvidiaConfig.apiKey) {
+      await promptForNvidiaKey();
+    }
+    config.setAIProvider('nvidia');
+
+    const envModel   = process.env.NVIDIA_AI_MODEL;
+    const defaultIdx = envModel ? Math.max(0, NVIDIA_MODELS.findIndex((m) => m.id === envModel)) : 0;
+
+    process.stdout.write(
+      `  ${c.wrap(c.ghost, 'Model')}  ` +
+      `${c.wrap(c.ghost, 'up / down to select, Enter to confirm')}\n\n`,
+    );
+
+    const modelIdx = await vPick(NVIDIA_MODELS.map((m) => m.label), defaultIdx);
+    nvidiaConfig.model = NVIDIA_MODELS[modelIdx].id;
+    config.setAIProvider('nvidia');
+
+    process.stdout.write(`\n  model  ${c.wrap(c.green, NVIDIA_MODELS[modelIdx].id)}\n\n`);
   }
 }
 
@@ -287,7 +388,7 @@ async function runStartupWizard(): Promise<void> {
 
 class AutoComplete {
   private readonly topLevel: string[];
-  private readonly providers = ['github', 'offline'];
+  private readonly providers = ['github', 'offline', 'nvidia'];
 
   constructor(commands: Command[]) {
     this.topLevel = commands.map((cmd) => `/${cmd.name}`);
@@ -389,7 +490,7 @@ export class CLI {
       },
       {
         name: 'model',
-        description: 'View or switch AI provider  (/model [github|offline] [url])',
+        description: 'View or switch AI provider  (/model [github|offline|nvidia])',
         handler: async (args) => {
           if (!args.length) {
             process.stdout.write('\n');
@@ -423,10 +524,24 @@ export class CLI {
               process.stdout.write(`\n  model  ${c.wrap(c.green, GITHUB_MODELS[idx].id)}\n\n`);
             }
 
+          } else if (provider === 'nvidia') {
+            if (!nvidiaConfig.apiKey) {
+              await promptForNvidiaKey();
+              restoreRawMode();
+            }
+            if (args[1] === '--pick' || !args[1]) {
+              process.stdout.write(
+                `\n  ${c.wrap(c.ghost, 'Model')}  ` +
+                `${c.wrap(c.ghost, 'up / down to select, Enter to confirm')}\n\n`,
+              );
+              const idx = await vPick(NVIDIA_MODELS.map((m) => m.label));
+              nvidiaConfig.model = NVIDIA_MODELS[idx].id;
+              process.stdout.write(`\n  model  ${c.wrap(c.green, NVIDIA_MODELS[idx].id)}\n\n`);
+            }
           } else {
             process.stdout.write(
               `\n  Unknown provider: ${c.wrap(c.red, provider)}.` +
-              ` Use ${c.wrap(c.white, 'github')} or ${c.wrap(c.white, 'offline')}.\n\n`,
+              ` Use ${c.wrap(c.white, 'github')}, ${c.wrap(c.white, 'offline')}, or ${c.wrap(c.white, 'nvidia')}.\n\n`,
             );
             return;
           }
@@ -475,8 +590,12 @@ export class CLI {
   // ─── Display Helpers ───────────────────────────────────────────────────────
 
   private printModelStatus(): void {
+    const providerColor =
+      config.aiProvider === 'nvidia'  ? c.cyan  :
+      config.aiProvider === 'offline' ? c.yellow :
+                                        c.green;
     process.stdout.write(
-      `  provider  ${c.wrap(c.green, config.aiProvider)}\n` +
+      `  provider  ${c.wrap(providerColor, config.aiProvider)}\n` +
       `  model     ${c.wrap(c.green, config.aiModel)}\n` +
       `  endpoint  ${c.wrap(c.ghost, config.aiEndpoint)}\n\n`,
     );
@@ -491,7 +610,7 @@ export class CLI {
     process.stdout.write(lines.join('\n') + '\n\n');
     process.stdout.write(
       `  ${c.wrap(c.ghost, 'Tip:')} Tab autocompletes commands.\n` +
-      `       ${c.wrap(c.white, '/model github --pick')} to change model mid-session.\n\n`,
+      `       ${c.wrap(c.white, '/model github --pick')} or ${c.wrap(c.white, '/model nvidia')} to change model mid-session.\n\n`,
     );
   }
 

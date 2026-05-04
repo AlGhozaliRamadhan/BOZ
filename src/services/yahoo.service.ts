@@ -15,11 +15,16 @@ export class YahooService {
         interval === '1h' ? '5d' :
         interval === '1d' ? '90d' : '30d';
 
-      log.data('fetch', `${clr.white(symbol)}  interval ${clr.cyan(interval)}  window ${clr.dim(periodStr)}`);
+      // NOTE: Yahoo Finance does not support a native 4h interval.
+      // When interval '4h' is requested we silently fetch 1h bars instead.
+      // The caller is responsible for labelling these correctly in the UI.
+      const resolvedInterval = interval === '4h' ? '1h' : interval;
+
+      log.data('fetch', `${clr.white(symbol)}  interval ${clr.cyan(interval === '4h' ? '1h (4h synthetic)' : interval)}  window ${clr.dim(periodStr)}`);
 
       const result = await yahooFinance.chart(symbol, {
         period1,
-        interval: (interval === '4h' ? '1h' : interval) as any,
+        interval: resolvedInterval as any,
         includePrePost: true,
       });
 
