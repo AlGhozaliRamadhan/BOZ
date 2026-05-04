@@ -66,11 +66,19 @@ export class IndicatorsService {
       // OBV is same length as input
       c.OBV = obv[i] ?? 0;
 
-      // Volume SMA (20-period rolling)
-      if (i >= 19) {
+      // Volume SMA (20-period rolling) — O(n) sliding window
+      if (i === 19) {
         let sum = 0;
-        for (let j = i - 19; j <= i; j++) sum += candles[j].volume;
+        for (let j = 0; j < 20; j++) sum += candles[j].volume;
         c.Volume_SMA   = sum / 20;
+        c.Volume_Ratio = c.Volume_SMA > 0 ? c.volume / c.Volume_SMA : 1;
+        // store running sum on the candle for the next iteration
+        (candles[19] as any)._volSum = sum;
+      } else if (i > 19) {
+        const prevSum: number = (candles[i - 1] as any)._volSum ?? 0;
+        const newSum = prevSum - candles[i - 20].volume + c.volume;
+        (c as any)._volSum = newSum;
+        c.Volume_SMA   = newSum / 20;
         c.Volume_Ratio = c.Volume_SMA > 0 ? c.volume / c.Volume_SMA : 1;
       } else {
         c.Volume_SMA   = c.volume;

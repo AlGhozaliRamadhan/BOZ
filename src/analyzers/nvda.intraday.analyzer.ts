@@ -1,5 +1,6 @@
+import { createRequire } from 'module';
 import { MarketAnalyzer } from './market.analyzer.js';
-import { ChartAnalyzer } from './chart.analyzer.js';
+import { ChartAnalyzer, ChartPatternResult } from './chart.analyzer.js';
 import { IndicatorsService } from '../services/indicators.service.js';
 import { YahooService } from '../services/yahoo.service.js';
 import { AIService } from '../services/ai.service.js';
@@ -7,6 +8,9 @@ import { SentimentService } from '../services/sentiment.service.js';
 import { NewsService } from '../services/news.service.js';
 import { MacroService } from '../services/macro.service.js';
 import { config } from '../config/config.js';
+
+const _require = createRequire(import.meta.url);
+const PKG_VERSION: string = (_require('../../package.json') as { version: string }).version;
 import { clr, badge, OK, WARN, ERR, hr, hr2, BadgeColor } from '../utils/logger.js';
 import {
   ln, row, section, sep, pctColor,
@@ -25,7 +29,7 @@ export class NVDAIntradayAnalyzer {
 
   async runAnalysis(): Promise<void> {
     ln(hr2());
-    ln(`  ${clr.white('NVDA')}  ${clr.dim('AI Intraday Analyzer')}  ${clr.ghost('v1.3.2')}`);
+    ln(`  ${clr.white('NVDA')}  ${clr.dim('AI Intraday Analyzer')}  ${clr.ghost('v' + PKG_VERSION)}`);    
     ln(hr2());
 
     try {
@@ -298,7 +302,7 @@ STOP: $price
 
       // ── Chart patterns ────────────────────────────────────────────────────
       section('chart', 'CHART PATTERNS');
-      chartPatterns.patterns.forEach((p: string, i: number) => {
+      chartPatterns.patterns.forEach((p, i) => {
         const conf = chartPatterns.pattern_confidence?.[i] ?? 'MEDIUM';
         ln(`  ${clr.dim('·')}  ${p}  ${clr.dim('[' + conf + ']')}`);
       });
@@ -327,7 +331,7 @@ STOP: $price
       section('mtf', 'MULTI-TIMEFRAME CONFLUENCE');
       const biasClr = (b: string) => b === 'BULL' ? clr.green(b) : b === 'BEAR' ? clr.red(b) : clr.yellow(b);
       row('1h',        biasClr(bias1h));
-      row('4h',        biasClr(bias4h));
+      row('4h (1h bars)', biasClr(bias4h));
       row('daily',     biasClr(biasDaily));
       row('alignment', (mtfAlign.includes('BULL') ? clr.green : mtfAlign.includes('BEAR') ? clr.red : clr.yellow)(mtfAlign) + clr.dim(`  (confidence: ${mtfConfidence})`));
       row('score',     clr.dim(`Bullish ${bullCount}/3  ·  Bearish ${bearCount}/3`));
