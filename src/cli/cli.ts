@@ -5,6 +5,8 @@ import { execSync } from 'child_process';
 import { createRequire } from 'module';
 import { NVDAIntradayAnalyzer } from '../analyzers/nvda.intraday.analyzer.js';
 import { NVDALongTermAnalyzer } from '../analyzers/nvda.longterm.analyzer.js';
+import { NewsIntelAnalyzer } from '../analyzers/news.intel.analyzer.js';
+import { NewsIntelAgent } from '../analyzers/news.intel.agent.js';
 import { config, type AIProvider } from '../config/config.js';
 import { githubConfig, GITHUB_TOKEN_URL } from '../config/github.config.js';
 import { nvidiaConfig, NVIDIA_MODELS, NVIDIA_API_KEY_URL } from '../config/nvidia.config.js';
@@ -151,8 +153,8 @@ function printMascot(): void {
 
   process.stdout.write('\n');
   process.stdout.write(`   ${Wh('/\\_____/\\')}\n`);
-  process.stdout.write(`   ${Wh('(')} ${Ye('◉')}   ${Ye('◉')} ${Wh(')')}\n`);
-  process.stdout.write(`    ${Wh('(')} ${Wh('=ω=')} ${Wh(')')}\n`);
+  process.stdout.write(`   ${Wh('(')} ${Ye('o')}   ${Ye('o')} ${Wh(')')}`+`\n`);
+  process.stdout.write(`    ${Wh('(')} ${Wh('_')} ${Wh(')')}`+`\n`);
   process.stdout.write(`    ${Wh(')')}     ${Wh('(')}\n`);
   process.stdout.write(`   ${Wh('(_______)')}\n`);
   process.stdout.write(`\n  ${Wh('Boz')}  ${Gh('· NVDA Intraday Analyzer')}  ${Di('v' + PKG_VERSION)}\n`);
@@ -165,7 +167,7 @@ function printMascot(): void {
 
 function printTokenHelp(): void {
   process.stdout.write('\n');
-  process.stdout.write(`  ${c.wrap(c.yellow, '!')}  ${c.wrap(c.white, 'GITHUB_TOKEN is not set.')}\n`);
+  process.stdout.write(`  ${c.wrap(c.yellow, '[!]')}  ${c.wrap(c.white, 'GITHUB_TOKEN is not set.')}\n`);
   process.stdout.write(`  ${c.wrap(c.dim,    '   GitHub Models requires a free personal access token.')}\n\n`);
   process.stdout.write(`  ${c.wrap(c.ghost,  '   Get one here:')}\n`);
   process.stdout.write(`  ${c.wrap(c.cyan,   '   ' + GITHUB_TOKEN_URL)}\n\n`);
@@ -213,7 +215,7 @@ function upsertEnvVar(key: string, value: string): void {
 }
 
 async function promptForGitHubToken(): Promise<void> {
-  process.stdout.write(`\n  ${c.wrap(c.yellow, '⚠  GITHUB_TOKEN is not set.')}\n`);
+  process.stdout.write(`\n  ${c.wrap(c.yellow, '[WARNING] GITHUB_TOKEN is not set.')}\n`);
   process.stdout.write(`  Opening the GitHub token creation page in your browser…\n`);
   process.stdout.write(`  ${c.wrap(c.dim, GITHUB_TOKEN_URL)}\n\n`);
 
@@ -233,15 +235,15 @@ async function promptForGitHubToken(): Promise<void> {
   upsertEnvVar('GITHUB_TOKEN', token);
   process.env.GITHUB_TOKEN = token;
 
-  process.stdout.write(`\n  ${c.wrap(c.green, '✔ Token saved to .env')}\n\n`);
+  process.stdout.write(`\n  ${c.wrap(c.green, '[OK] Token saved to .env')}\n\n`);
 }
 
 async function promptForNvidiaKey(): Promise<void> {
-  process.stdout.write(`\n  ${c.wrap(c.yellow, '⚠  NVIDIA_API_KEY is not set.')}\n`);
+  process.stdout.write(`\n  ${c.wrap(c.yellow, '[WARNING] NVIDIA_API_KEY is not set.')}\n`);
   process.stdout.write(`  Opening the NVIDIA NIM API key page in your browser…\n`);
   process.stdout.write(`  ${c.wrap(c.dim, NVIDIA_API_KEY_URL)}\n\n`);
   process.stdout.write(`  ${c.wrap(c.ghost, '  1. Sign in or create a free account')}\n`);
-  process.stdout.write(`  ${c.wrap(c.ghost, '  2. Click your model → "Get API Key"')}\n`);
+  process.stdout.write(`  ${c.wrap(c.ghost, '  2. Click your model -> "Get API Key"')}\n`);
   process.stdout.write(`  ${c.wrap(c.ghost, '  3. Copy the key (starts with nvapi-)')}\n\n`);
 
   openBrowser(NVIDIA_API_KEY_URL);
@@ -261,7 +263,7 @@ async function promptForNvidiaKey(): Promise<void> {
   process.env.NVIDIA_API_KEY = key;
   // nvidiaConfig.apiKey is a lazy getter on process.env, picks this up immediately
 
-  process.stdout.write(`\n  ${c.wrap(c.green, '✔ Key saved to .env')}\n\n`);
+  process.stdout.write(`\n  ${c.wrap(c.green, '[OK] Key saved to .env')}\n\n`);
 }
 
 // ─── Startup Wizard ───────────────────────────────────────────────────────────
@@ -454,7 +456,7 @@ export class CLI {
     return [
       {
         name: 'run',
-        description: 'Run the NVDA market analysis  (/run → pick mode)',
+        description: 'Run market analysis  (/run -> pick mode)',
         handler: async () => {
           process.stdout.write('\n');
 
@@ -469,21 +471,38 @@ export class CLI {
           }
           process.stdout.write(
             `  ${c.wrap(c.ghost, 'Mode')}  ` +
-            `${c.wrap(c.ghost, 'left / right to select, Enter to confirm')}\n\n`,
+            `${c.wrap(c.ghost, 'up / down to select, Enter to confirm')}\n\n`,
           );
-          const modeIdx = await hPick(['Intraday  (2–6 h)', 'Long-term  (3–12 mo)']);
-          process.stdout.write(
-            `\n  mode  ${
-              modeIdx === 0
-                ? c.wrap(c.green, 'intraday')
-                : c.wrap(c.cyan,  'long-term')
-            }\n`,
-          );
-          process.stdout.write('\n');
+          const modeIdx = await vPick(['NVDA Market', 'News Intel Analyzer', 'News Intel Agent (experimental)']);
+          
           if (modeIdx === 0) {
-            await new NVDAIntradayAnalyzer().runAnalysis();
+            process.stdout.write(`\n  mode  ${c.wrap(c.green, 'nvda-market')}\n\n`);
+            
+            process.stdout.write(
+              `  ${c.wrap(c.ghost, 'Timeframe')}  ` +
+              `${c.wrap(c.ghost, 'left / right to select, Enter to confirm')}\n\n`,
+            );
+            const tfIdx = await hPick(['Intraday  (2–6 h)', 'Long-term  (3–12 mo)']);
+            process.stdout.write(
+              `\n  timeframe  ${
+                tfIdx === 0
+                  ? c.wrap(c.green, 'intraday')
+                  : c.wrap(c.cyan,  'long-term')
+              }\n\n`,
+            );
+            
+            if (tfIdx === 0) {
+              await new NVDAIntradayAnalyzer().runAnalysis();
+            } else {
+              await new NVDALongTermAnalyzer().runAnalysis();
+            }
+          } else if (modeIdx === 1) {
+            process.stdout.write(`\n  mode  ${c.wrap(c.yellow, 'news-intel-analyzer')}\n\n`);
+            await new NewsIntelAnalyzer().runAnalysis();
           } else {
-            await new NVDALongTermAnalyzer().runAnalysis();
+            process.stdout.write(`\n  mode  ${c.wrap(c.yellow, 'news-intel-agent')}\n`);
+            process.stdout.write(`  ${c.wrap(c.yellow, '[EXPERIMENTAL - Still in Beta]')}\n\n`);
+            await new NewsIntelAgent().runAnalysis();
           }
           process.stdout.write('\n');
         },
