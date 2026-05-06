@@ -153,8 +153,8 @@ function printMascot(): void {
 
   process.stdout.write('\n');
   process.stdout.write(`   ${Wh('/\\_____/\\')}\n`);
-  process.stdout.write(`   ${Wh('(')} ${Ye('o')}   ${Ye('o')} ${Wh(')')}`+`\n`);
-  process.stdout.write(`    ${Wh('(')} ${Wh('_')} ${Wh(')')}`+`\n`);
+  process.stdout.write(`   ${Wh('(')} ${Ye('◉')}   ${Ye('◉')} ${Wh(')')}\n`);
+  process.stdout.write(`    ${Wh('(')} ${Wh('=ω=')} ${Wh(')')}\n`);
   process.stdout.write(`    ${Wh(')')}     ${Wh('(')}\n`);
   process.stdout.write(`   ${Wh('(_______)')}\n`);
   process.stdout.write(`\n  ${Wh('Boz')}  ${Gh('· NVDA Intraday Analyzer')}  ${Di('v' + PKG_VERSION)}\n`);
@@ -167,7 +167,7 @@ function printMascot(): void {
 
 function printTokenHelp(): void {
   process.stdout.write('\n');
-  process.stdout.write(`  ${c.wrap(c.yellow, '[!]')}  ${c.wrap(c.white, 'GITHUB_TOKEN is not set.')}\n`);
+  process.stdout.write(`  ${c.wrap(c.yellow, '!')}  ${c.wrap(c.white, 'GITHUB_TOKEN is not set.')}\n`);
   process.stdout.write(`  ${c.wrap(c.dim,    '   GitHub Models requires a free personal access token.')}\n\n`);
   process.stdout.write(`  ${c.wrap(c.ghost,  '   Get one here:')}\n`);
   process.stdout.write(`  ${c.wrap(c.cyan,   '   ' + GITHUB_TOKEN_URL)}\n\n`);
@@ -215,7 +215,7 @@ function upsertEnvVar(key: string, value: string): void {
 }
 
 async function promptForGitHubToken(): Promise<void> {
-  process.stdout.write(`\n  ${c.wrap(c.yellow, '[WARNING] GITHUB_TOKEN is not set.')}\n`);
+  process.stdout.write(`\n  ${c.wrap(c.yellow, '⚠  GITHUB_TOKEN is not set.')}\n`);
   process.stdout.write(`  Opening the GitHub token creation page in your browser…\n`);
   process.stdout.write(`  ${c.wrap(c.dim, GITHUB_TOKEN_URL)}\n\n`);
 
@@ -235,15 +235,15 @@ async function promptForGitHubToken(): Promise<void> {
   upsertEnvVar('GITHUB_TOKEN', token);
   process.env.GITHUB_TOKEN = token;
 
-  process.stdout.write(`\n  ${c.wrap(c.green, '[OK] Token saved to .env')}\n\n`);
+  process.stdout.write(`\n  ${c.wrap(c.green, '✔ Token saved to .env')}\n\n`);
 }
 
 async function promptForNvidiaKey(): Promise<void> {
-  process.stdout.write(`\n  ${c.wrap(c.yellow, '[WARNING] NVIDIA_API_KEY is not set.')}\n`);
+  process.stdout.write(`\n  ${c.wrap(c.yellow, '⚠  NVIDIA_API_KEY is not set.')}\n`);
   process.stdout.write(`  Opening the NVIDIA NIM API key page in your browser…\n`);
   process.stdout.write(`  ${c.wrap(c.dim, NVIDIA_API_KEY_URL)}\n\n`);
   process.stdout.write(`  ${c.wrap(c.ghost, '  1. Sign in or create a free account')}\n`);
-  process.stdout.write(`  ${c.wrap(c.ghost, '  2. Click your model -> "Get API Key"')}\n`);
+  process.stdout.write(`  ${c.wrap(c.ghost, '  2. Click your model → "Get API Key"')}\n`);
   process.stdout.write(`  ${c.wrap(c.ghost, '  3. Copy the key (starts with nvapi-)')}\n\n`);
 
   openBrowser(NVIDIA_API_KEY_URL);
@@ -263,7 +263,7 @@ async function promptForNvidiaKey(): Promise<void> {
   process.env.NVIDIA_API_KEY = key;
   // nvidiaConfig.apiKey is a lazy getter on process.env, picks this up immediately
 
-  process.stdout.write(`\n  ${c.wrap(c.green, '[OK] Key saved to .env')}\n\n`);
+  process.stdout.write(`\n  ${c.wrap(c.green, '✔ Key saved to .env')}\n\n`);
 }
 
 // ─── Startup Wizard ───────────────────────────────────────────────────────────
@@ -456,7 +456,7 @@ export class CLI {
     return [
       {
         name: 'run',
-        description: 'Run market analysis  (/run -> pick mode)',
+        description: 'Run market analysis  (/run → pick mode)',
         handler: async () => {
           process.stdout.write('\n');
 
@@ -473,7 +473,7 @@ export class CLI {
             `  ${c.wrap(c.ghost, 'Mode')}  ` +
             `${c.wrap(c.ghost, 'up / down to select, Enter to confirm')}\n\n`,
           );
-          const modeIdx = await vPick(['NVDA Market', 'News Intel Analyzer', 'News Intel Agent (experimental)']);
+          const modeIdx = await vPick(['NVDA Market', 'News Intel Analyzer', 'News Intel Agent']);
           
           if (modeIdx === 0) {
             process.stdout.write(`\n  mode  ${c.wrap(c.green, 'nvda-market')}\n\n`);
