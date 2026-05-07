@@ -1,12 +1,13 @@
 import { createRequire } from 'module';
 import { MarketAnalyzer } from './market.analyzer.js';
-import { ChartAnalyzer, ChartPatternResult } from './chart.analyzer.js';
+import { ChartAnalyzer } from './chart.analyzer.js';
 import { IndicatorsService } from '../services/indicators.service.js';
 import { YahooService } from '../services/yahoo.service.js';
 import { AIService } from '../services/ai.service.js';
 import { NewsService } from '../services/news.service.js';
 import { MacroService } from '../services/macro.service.js';
 import { config } from '../config/config.js';
+import { buildLongTermPrompt } from '../shared/prompts.js';
 
 const _require = createRequire(import.meta.url);
 const PKG_VERSION: string = (_require('../../package.json') as { version: string }).version;
@@ -111,52 +112,30 @@ export class NVDALongTermAnalyzer {
       const maxDrawdown = pctFromHigh; // already negative if below high
 
       // ── AI prompt ─────────────────────────────────────────────────────────
-      const prompt = `You are an expert NVDA stock analyst focused on LONG-TERM investing (3-12 month horizon).
-Assess whether NVDA is a BUY, HOLD, or SELL for a long-term position.
-
-PRICE & TREND DATA:
-- Current Price: $${price.toFixed(2)}
-- 52-Week High: $${high52w.toFixed(2)}  (${pctFromHigh.toFixed(1)}% from high)
-- 52-Week Low:  $${low52w.toFixed(2)}   (+${pctFromLow.toFixed(1)}% from low)
-- 52-Week Range Position: ${rangePos.toFixed(1)}%
-- SMA-50:  ${sma50  ? '$' + sma50.toFixed(2)  : 'N/A'}  (price ${aboveSma50  ? 'above ▲' : 'below ▼'})
-- SMA-200: ${sma200 ? '$' + sma200.toFixed(2) : 'N/A'}  (price ${aboveSma200 ? 'above ▲' : 'below ▼'})
-- Golden Cross: ${goldenCross ? 'YES (bullish)' : 'NO (bearish)'}
-- RSI (14): ${rsi?.toFixed(1) ?? 'N/A'}  (${rsi ? rsiLabel(rsi) : 'N/A'})
-- ATR: ${atr ? '$' + atr.toFixed(2) + ' (' + ((atr / price) * 100).toFixed(1) + '%)' : 'N/A'}
-- Max Drawdown from 52w High: ${maxDrawdown.toFixed(1)}%
-
-WEEKLY TREND (2-year):
-- Direction: ${weeklyTrend}
-- 2-Year Change: ${weeklyChange.toFixed(1)}%
-
-TREND ANALYSIS:
-- 30-day:  ${patterns30d}
-- 90-day:  ${patterns90d}
-- 1-year:  ${patterns365d}
-
-CHART PATTERNS (daily):
-${chartPatterns.patterns.join(', ')}
-Key Support:    $${chartPatterns.nearest_support?.toFixed(2) ?? 'N/A'}
-Key Resistance: $${chartPatterns.nearest_resistance?.toFixed(2) ?? 'N/A'}
-Fibonacci Position: ${chartPatterns.fibonacci_position}
-
-MACRO CONTEXT:
-- Regime: ${macroContext.market_regime}
-- Risk: ${macroContext.risk_sentiment}
-- SPY: ${macroContext.sp500_correlation}
-- QQQ: ${macroContext.nasdaq_correlation}
-
-RECENT NEWS & CATALYSTS:
-${newsItems.join('\n')}
-
-Provide your long-term outlook using the format:
-PREDICTION: UP or DOWN
-CONFIDENCE: 0-100
-STRATEGY: long-term position strategy
-TARGET: $price (12-month target)
-STOP: $price (long-term invalidation level)
-`;
+      const prompt = buildLongTermPrompt({
+        price,
+        high52w,
+        low52w,
+        pctFromHigh,
+        pctFromLow,
+        rangePos,
+        sma50,
+        sma200,
+        aboveSma50,
+        aboveSma200,
+        goldenCross,
+        rsi,
+        atr,
+        maxDrawdown,
+        weeklyTrend,
+        weeklyChange,
+        patterns30d,
+        patterns90d,
+        patterns365d,
+        chartPatterns,
+        macroContext,
+        newsItems,
+      });
 
       const aiAnalysis = await this.aiService.analyze(prompt);
 
@@ -183,7 +162,9 @@ STOP: $price (long-term invalidation level)
       const stop       = aiAnalysis.stop_loss    ?? (entry * 0.85);
       const targetPct  = ((target - entry) / entry) * 100;
       const stopPct    = ((stop   - entry) / entry) * 100;
-      const rrRatio    = Math.abs(targetPct / stopPct);
+      const rrRatio    = (stopPct !== 0 && isFinite(stopPct) && isFinite(targetPct))
+        ? Math.abs(targetPct / stopPct)
+        : 0;
 
       ln('');
       ln(hr2());

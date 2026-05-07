@@ -20,7 +20,7 @@ export class YahooService {
       // The caller is responsible for labelling these correctly in the UI.
       const resolvedInterval = interval === '4h' ? '1h' : interval;
 
-      log.data('fetch', `${clr.white(symbol)}  interval ${clr.cyan(interval === '4h' ? '1h (4h synthetic)' : interval)}  window ${clr.dim(periodStr)}`);
+      log.data('fetch', `${clr.white(symbol)}  interval ${clr.cyan(interval === '4h' ? '1h (4h synthetic - WARNING: no native 4h)' : interval)}  window ${clr.dim(periodStr)}`);
 
       const result = await yahooFinance.chart(symbol, {
         period1,

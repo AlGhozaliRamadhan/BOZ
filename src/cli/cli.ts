@@ -6,7 +6,7 @@ import { createRequire } from 'module';
 import { NVDAIntradayAnalyzer } from '../analyzers/nvda.intraday.analyzer.js';
 import { NVDALongTermAnalyzer } from '../analyzers/nvda.longterm.analyzer.js';
 import { NewsIntelAnalyzer } from '../analyzers/news.intel.analyzer.js';
-import { NewsIntelAgent } from '../analyzers/news.intel.agent.js';
+import { NewsIntelAgent } from '../agents/news.intel.agent.js';
 import { config, type AIProvider } from '../config/config.js';
 import { githubConfig, GITHUB_TOKEN_URL } from '../config/github.config.js';
 import { nvidiaConfig, NVIDIA_MODELS, NVIDIA_API_KEY_URL } from '../config/nvidia.config.js';
@@ -57,8 +57,6 @@ const GITHUB_MODELS: { id: string; label: string }[] = [
   { id: 'microsoft/Phi-4',                     label: 'Phi-4               (Microsoft, lightweight)' },
 ];
 
-// ─── Horizontal picker  (left / right arrow) ──────────────────────────────────
-
 function renderHPicker(options: string[], selected: number): void {
   const parts = options.map((opt, i) =>
     i === selected
@@ -89,8 +87,6 @@ function hPick(options: string[], defaultIdx = 0): Promise<number> {
     process.stdin.on('keypress', onKey);
   });
 }
-
-// ─── Vertical picker  (up / down arrow) ───────────────────────────────────────
 
 function renderVPicker(options: string[], selected: number, indent: string): void {
   options.forEach(() => process.stdout.write('\x1b[1A\x1b[K'));
@@ -152,14 +148,13 @@ function printMascot(): void {
   const Ye = (s: string) => W(c.yellow, s);
 
   process.stdout.write('\n');
-  process.stdout.write(`   ${Wh('/\\_____/\\')}\n`);
-  process.stdout.write(`   ${Wh('(')} ${Ye('◉')}   ${Ye('◉')} ${Wh(')')}\n`);
-  process.stdout.write(`    ${Wh('(')} ${Wh('=ω=')} ${Wh(')')}\n`);
-  process.stdout.write(`    ${Wh(')')}     ${Wh('(')}\n`);
-  process.stdout.write(`   ${Wh('(_______)')}\n`);
-  process.stdout.write(`\n  ${Wh('Boz')}  ${Gh('· NVDA Intraday Analyzer')}  ${Di('v' + PKG_VERSION)}\n`);
-  process.stdout.write(`  ${Di('─'.repeat(37))}\n`);
-  process.stdout.write(`  ${Gh('AI-powered · Multi-timeframe · Live data')}\n`);
+  process.stdout.write(`   ${Ye(' /\\___/\\ ')}\n`);
+  process.stdout.write(`   ${Wh('(')} ${Ye('o')} ${Di('.')} ${Ye('o')} ${Wh(')')}\n`);
+  process.stdout.write(`   ${Gh('(')} ${Wh('> ^ <')} ${Gh(')')}\n`);
+  process.stdout.write('\n');
+  process.stdout.write(`  ${Wh('Boz')}  ${Gh('\u00b7 AI Market Analyzer')}  ${Di('v' + PKG_VERSION)}\n`);
+  process.stdout.write(`  ${Di('\u2500'.repeat(37))}\n`);
+  process.stdout.write(`  ${Gh('AI-powered \u00b7 Multi-timeframe \u00b7 Live data')}\n`);
   process.stdout.write('\n');
 }
 
@@ -215,8 +210,8 @@ function upsertEnvVar(key: string, value: string): void {
 }
 
 async function promptForGitHubToken(): Promise<void> {
-  process.stdout.write(`\n  ${c.wrap(c.yellow, '⚠  GITHUB_TOKEN is not set.')}\n`);
-  process.stdout.write(`  Opening the GitHub token creation page in your browser…\n`);
+  process.stdout.write(`\n  ${c.wrap(c.yellow, '\u26a0  GITHUB_TOKEN is not set.')}\n`);
+  process.stdout.write(`  Opening the GitHub token creation page in your browser\u2026\n`);
   process.stdout.write(`  ${c.wrap(c.dim, GITHUB_TOKEN_URL)}\n\n`);
 
   openBrowser(GITHUB_TOKEN_URL);
@@ -227,7 +222,7 @@ async function promptForGitHubToken(): Promise<void> {
   while (!token.trim()) {
     token = await askQuestion('  Paste your GitHub token here: ');
     if (!token.trim()) {
-      process.stdout.write(`  ${c.wrap(c.red, 'Token cannot be empty — please try again.')}\n`);
+      process.stdout.write(`  ${c.wrap(c.red, 'Token cannot be empty \u2014 please try again.')}\n`);
     }
   }
 
@@ -235,15 +230,15 @@ async function promptForGitHubToken(): Promise<void> {
   upsertEnvVar('GITHUB_TOKEN', token);
   process.env.GITHUB_TOKEN = token;
 
-  process.stdout.write(`\n  ${c.wrap(c.green, '✔ Token saved to .env')}\n\n`);
+  process.stdout.write(`\n  ${c.wrap(c.green, '\u2714 Token saved to .env')}\n\n`);
 }
 
 async function promptForNvidiaKey(): Promise<void> {
-  process.stdout.write(`\n  ${c.wrap(c.yellow, '⚠  NVIDIA_API_KEY is not set.')}\n`);
-  process.stdout.write(`  Opening the NVIDIA NIM API key page in your browser…\n`);
+  process.stdout.write(`\n  ${c.wrap(c.yellow, '\u26a0  NVIDIA_API_KEY is not set.')}\n`);
+  process.stdout.write(`  Opening the NVIDIA NIM API key page in your browser\u2026\n`);
   process.stdout.write(`  ${c.wrap(c.dim, NVIDIA_API_KEY_URL)}\n\n`);
   process.stdout.write(`  ${c.wrap(c.ghost, '  1. Sign in or create a free account')}\n`);
-  process.stdout.write(`  ${c.wrap(c.ghost, '  2. Click your model → "Get API Key"')}\n`);
+  process.stdout.write(`  ${c.wrap(c.ghost, '  2. Click your model \u2192 "Get API Key"')}\n`);
   process.stdout.write(`  ${c.wrap(c.ghost, '  3. Copy the key (starts with nvapi-)')}\n\n`);
 
   openBrowser(NVIDIA_API_KEY_URL);
@@ -254,7 +249,7 @@ async function promptForNvidiaKey(): Promise<void> {
   while (!key.trim()) {
     key = await askQuestion('  Paste your NVIDIA API key here: ');
     if (!key.trim()) {
-      process.stdout.write(`  ${c.wrap(c.red, 'Key cannot be empty — please try again.')}\n`);
+      process.stdout.write(`  ${c.wrap(c.red, 'Key cannot be empty \u2014 please try again.')}\n`);
     }
   }
 
@@ -263,7 +258,7 @@ async function promptForNvidiaKey(): Promise<void> {
   process.env.NVIDIA_API_KEY = key;
   // nvidiaConfig.apiKey is a lazy getter on process.env, picks this up immediately
 
-  process.stdout.write(`\n  ${c.wrap(c.green, '✔ Key saved to .env')}\n\n`);
+  process.stdout.write(`\n  ${c.wrap(c.green, '\u2714 Key saved to .env')}\n\n`);
 }
 
 // ─── Startup Wizard ───────────────────────────────────────────────────────────
@@ -456,7 +451,7 @@ export class CLI {
     return [
       {
         name: 'run',
-        description: 'Run market analysis  (/run → pick mode)',
+        description: 'Run market analysis  (/run \u2192 pick mode)',
         handler: async () => {
           process.stdout.write('\n');
 
@@ -473,16 +468,16 @@ export class CLI {
             `  ${c.wrap(c.ghost, 'Mode')}  ` +
             `${c.wrap(c.ghost, 'up / down to select, Enter to confirm')}\n\n`,
           );
-          const modeIdx = await vPick(['NVDA Market', 'News Intel Analyzer', 'News Intel Agent']);
-          
+          const modeIdx = await vPick(['AI Market Analyzer', 'News Intel Analyzer', 'News Intel Agent']);
+
           if (modeIdx === 0) {
-            process.stdout.write(`\n  mode  ${c.wrap(c.green, 'nvda-market')}\n\n`);
-            
+            process.stdout.write(`\n  mode  ${c.wrap(c.green, 'ai-market-analyzer')}\n\n`);
+
             process.stdout.write(
               `  ${c.wrap(c.ghost, 'Timeframe')}  ` +
               `${c.wrap(c.ghost, 'left / right to select, Enter to confirm')}\n\n`,
             );
-            const tfIdx = await hPick(['Intraday  (2–6 h)', 'Long-term  (3–12 mo)']);
+            const tfIdx = await hPick(['Intraday  (2\u20136 h)', 'Long-term  (3\u201312 mo)']);
             process.stdout.write(
               `\n  timeframe  ${
                 tfIdx === 0
@@ -490,7 +485,7 @@ export class CLI {
                   : c.wrap(c.cyan,  'long-term')
               }\n\n`,
             );
-            
+
             if (tfIdx === 0) {
               await new NVDAIntradayAnalyzer().runAnalysis();
             } else {

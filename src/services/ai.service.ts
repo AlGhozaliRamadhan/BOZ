@@ -200,7 +200,8 @@ export class AIService {
     }
   }
 
-  // ─── NVIDIA NIM (Nemotron-3-Super-120B with thinking) ──────────────────────
+  // ─── NVIDIA NIM ────────────────────────────────────────────────────────────
+  // Supports Nemotron (reasoning) and DeepSeek V4 Pro (chat_template_kwargs)
 
   private async analyzeWithNvidia(prompt: string): Promise<AIResult> {
     const apiKey = config.nvidia.apiKey;
@@ -222,17 +223,31 @@ export class AIService {
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
+    // DeepSeek V4 Pro uses chat_template_kwargs.thinking instead of
+    // reasoning_budget / enable_thinking used by Nemotron.
+    const isDeepSeek = model.startsWith('deepseek-ai/');
+
     try {
-      const nvidiaParams = {
-        model,
-        messages:                [{ role: 'user', content: buildAnalysisPrompt(prompt) }],
-        temperature:             1,
-        top_p:                   0.95,
-        max_tokens:              16384,
-        reasoning_budget:        16384,
-        chat_template_kwargs:    { enable_thinking: true },
-        stream:                  true as const,
-      };
+      const nvidiaParams = isDeepSeek
+        ? {
+            model,
+            messages:             [{ role: 'user', content: buildAnalysisPrompt(prompt) }],
+            temperature:          1,
+            top_p:                0.95,
+            max_tokens:           16384,
+            extra_body:           { chat_template_kwargs: { thinking: false } },
+            stream:               true as const,
+          }
+        : {
+            model,
+            messages:             [{ role: 'user', content: buildAnalysisPrompt(prompt) }],
+            temperature:          1,
+            top_p:                0.95,
+            max_tokens:           16384,
+            reasoning_budget:     16384,
+            chat_template_kwargs: { enable_thinking: true },
+            stream:               true as const,
+          };
 
       const stream = await client.chat.completions.create(nvidiaParams as any) as unknown as AsyncIterable<any>;
 
@@ -333,13 +348,17 @@ export class AIService {
 
     if (match) {
       log.ok('ai', 'Structured prediction parsed successfully.');
+      const rawTarget = parseFloat(match[4].replace(/,/g, ''));
+      const rawStop   = parseFloat(match[5].replace(/,/g, ''));
+      const target_price = rawTarget > 0 ? rawTarget : undefined;
+      const stop_loss    = rawStop   > 0 ? rawStop   : undefined;
       return {
         status:       'ok',
         prediction:   match[1].toUpperCase() as 'UP' | 'DOWN',
         confidence:   parseInt(match[2], 10),
         strategy:     match[3].trim(),
-        target_price: parseFloat(match[4].replace(/,/g, '')),
-        stop_loss:    parseFloat(match[5].replace(/,/g, '')),
+        target_price,
+        stop_loss,
         raw_response: content,
       };
     }

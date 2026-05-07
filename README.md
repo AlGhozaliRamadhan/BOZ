@@ -20,34 +20,33 @@
   <a href="https://github.com/AlGhozaliRamadhan">
     <img src="https://img.shields.io/badge/Author-AGR-111111?style=flat"/>
   </a>
-  <img src="https://img.shields.io/badge/version-1.5-brightgreen?style=flat"/>
+  <img src="https://img.shields.io/badge/version-1.5.2-brightgreen?style=flat"/>
 </p>
 
 ---
 
 ## What is BOZ?
 
-**BOZ (Behavioral Outlook Zone)** is an open-source, terminal-native AI market analysis engine. It fuses real-time price data, technical indicators, multi-timeframe confluence, macro context, news, and crowd sentiment into a single AI-generated verdict complete with entry, target, stop, and risk/reward.
+**BOZ (Behavioral Outlook Zone)** is an open-source, terminal-native AI market analysis engine. It fuses real-time price data, technical indicators, multi-timeframe confluence, macro context, news, and crowd sentiment into structured, actionable intelligence complete with entry, target, stop, and risk/reward.
 
-Three analysis modes are available and selected at runtime:
+Four analysis modes are available, selected interactively at runtime:
 
 | Mode | Horizon | Focus |
 |---|---|---|
 | **NVDA Intraday** | 2–6 hours | MTF confluence, momentum, volatility |
 | **NVDA Long-term** | 3–12 months | SMA structure, 52-week context, trend integrity |
 | **News Intel Analyzer** | Cross-asset | Multi-source news aggregation, cross-asset opportunity detection |
-| **News Intel Agent** *(Experimental)* | Cross-asset | Autonomous multi-iteration agentic research with tool orchestration |
+| **News Intel Agent** *(Experimental)* | Cross-asset | Autonomous ReAct agent self-directed multi-step research with tool orchestration, internal reflection, and opportunity emission |
 
-Three AI providers are supported, selectable interactively at startup or mid-session:
+Three AI providers are supported, selectable interactively at startup or switched mid-session:
 
 | Provider | Backend | Notes |
 |---|---|---|
-| **GitHub Models** | OpenAI, DeepSeek, Meta, Microsoft | Free tier available with GitHub token |
-| **NVIDIA NIM** | Nemotron, Qwen, GPT-OSS (120B) | Streaming with extended reasoning budget |
+| **GitHub Models** | OpenAI, DeepSeek, Meta, Microsoft | Free tier with GitHub token. Best for light analysis. |
+| **NVIDIA NIM** | Nemotron 120B, DeepSeek V4, Qwen3.5, GPT-OSS 120B | Recommended for the News Intel Agent — larger context, higher rate limits |
 | **Ollama (Offline)** | Any Ollama-compatible endpoint | Local, no API key needed |
 
 ---
-
 
 ## Output Preview
 
@@ -64,7 +63,29 @@ Three AI providers are supported, selectable interactively at startup or mid-ses
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-Followed by a full breakdown: market snapshot, technical indicators, volatility analysis, chart patterns, Fibonacci levels, MTF confluence, market structure, volume-price correlation, macro context, news, crowd sentiment, and the full AI prediction block.
+Followed by a full breakdown: market snapshot, technical indicators, volatility analysis, chart patterns, Fibonacci levels, MTF confluence, market structure, volume-price correlation, macro context, news, crowd sentiment, and the complete AI prediction block.
+
+### News Intel Agent Session
+
+```
+  [AGENTIC NEWS INTEL]
+
+  step 1  elapsed 0m00s
+  [THOUGHT] Starting with a broad sweep across all asset classes...
+  [ACTION]  fetch_news · fetch_fear_greed
+  [OBS]     70 items · Fear & Greed 47/100 (Neutral)
+
+  step 2  elapsed 0m36s
+  [THOUGHT] RECEIVED: AI infrastructure spending raging — NVDA +5.68%, GLW +12%.
+            EXPECTED: Did not anticipate Hormuz crisis magnitude.
+            CHANGES:  Regime shifts to RISK_ON with energy friction overlay.
+            NEXT:     Investigate BTC underperformance vs SPY at ATH.
+  [ACTION]  fetch_price · search_news_by_asset
+
+  [AGENT] FINAL ANALYSIS
+  [REGIME]  RISK_ON
+  [OPP 01]  BUY GLW [stock]  72%  entry $178–182  target $194  stop $173
+```
 
 ---
 
@@ -74,6 +95,7 @@ Followed by a full breakdown: market snapshot, technical indicators, volatility 
 - 1h candles (last 5 days) for intraday
 - Daily candles (1 year) + weekly proxy (2 years) for long-term
 - Parallel fetch for MTF timeframes
+- Live quote fetch for any asset via `fetch_price` tool (crypto, stocks, forex, commodities, indices)
 
 ### Technical Indicators
 | Indicator | Usage |
@@ -109,12 +131,63 @@ SPY and QQQ 5-day directional change. Classifies market regime as RISK_ON, RISK_
 - Alpha Vantage stock news + sentiment scores *(requires `ALPHA_VANTAGE_API_KEY`)*
 - Finnhub general market news *(requires `FINNHUB_API_KEY`)*
 - FRED economic releases *(requires `FRED_API_KEY`)*
-- RSS feeds: Yahoo Finance, MarketWatch, CNBC, Investing.com, Kitco, OilPrice, FXStreet
+- RSS feeds: Yahoo Finance, MarketWatch, CNBC, Kitco, Investing.com (commodities), OilPrice, FXStreet, BBC Business
 - StockTwits trending symbols
 - Fear & Greed Index (alternative.me, 7-day)
 
+> **Note:** All RSS sources are cached to disk (`%TEMP%/boz-news-cache.json`) with per-feed TTLs (5–10 min). Back-to-back runs reuse the cache and do not re-fetch.
+
 ### AI Synthesis
-Structured prompt sent to the configured model. Full reasoning context provided. NVDA analysis output is parsed for PREDICTION, CONFIDENCE, STRATEGY, TARGET, and STOP. News Intel output is parsed for regime, events, opportunities, contrarian signals, and risk warnings. Falls back through a model chain on rate limit or timeout (GitHub provider).
+Structured prompt sent to the configured model with full reasoning context. NVDA analysis output is parsed for PREDICTION, CONFIDENCE, STRATEGY, TARGET, and STOP. News Intel output is parsed for regime, events, opportunities, contrarian signals, and risk warnings.
+
+---
+
+## News Intel Agent
+
+The **News Intel Agent** a fully autonomous [ReAct](https://arxiv.org/abs/2210.03629)-style agent built on `BaseAgent`. It does not follow a fixed script it decides its own investigation path, follows what surprises it, and concludes only when it is satisfied.
+
+### Agent Tools
+
+| Tool | Purpose |
+|---|---|
+| `fetch_news` | Broad sweep across crypto, stocks, macro, commodities, oil, forex |
+| `fetch_price` | Live price + 52-week context for any asset |
+| `fetch_fear_greed` | Crypto Fear & Greed index with 7-day trend |
+| `fetch_trending_crypto` | Top trending coins by search and market cap |
+| `search_news_by_asset` | Filter fetched news by keyword or asset name |
+| `summarize_findings` | Checkpoint regime assessment and key themes |
+| `emit_opportunities` | Record a specific trade setup with full parameters |
+| `request_deeper_analysis` | Flag a divergence requiring further investigation |
+| `finish` | End the session and deliver final recommendations |
+
+### Reflection Protocol
+
+After every tool result, the agent reflects using a structured four-part format before deciding what to do next:
+
+```
+RECEIVED: what the data actually showed
+EXPECTED: was this anticipated, and why
+CHANGES:  how this updates the current thesis
+NEXT:     what specific question this raises
+```
+
+### Opportunity Emission Standards
+
+| Confidence | Requirement | Action allowed |
+|---|---|---|
+| > 80% | 3 independent confirming signals | BUY / SELL |
+| 65–80% | 2 signals | BUY / SELL |
+| 50–65% | 1 signal | WATCH only |
+| < 50% | — | Skip |
+
+Every emitted opportunity includes: asset, asset type, action, confidence, reasoning, entry range, target range, stop loss, invalidation condition, risks, and a late-signal flag.
+
+### Resilience
+
+- **Retry on 429 / 5xx:** every AI call is wrapped in `callAIWithRetry` up to 3 attempts with linear backoff (5 s → 10 s → 15 s). Retries also cover network-level errors (`ECONNRESET`, `ETIMEDOUT`).
+- **Partial state on crash:** if the loop exits due to an unrecoverable error, `synthesiseFinish()` runs automatically so whatever the agent had accumulated is always rendered never a blank output.
+- **Soft nudge:** at 15 minutes the agent is asked to wrap up. Hard cap is 20 minutes / 80 iterations.
+- **Meta-summary fallback:** if the post-session AI debrief call fails, the inline `marketSummary`, `riskWarnings`, and `contrarian` signals are rendered instead.
 
 ---
 
@@ -143,11 +216,12 @@ flowchart TD
     AI --> VB[Verdict Box\nDirection · Confidence · R/R]
     AI --> BD[Full Breakdown\n15+ sections]
 
-    subgraph NewsIntel[News Intel Mode]
-      NF[RSS · CoinGecko\nCryptoCompare · Alpha Vantage\nFinnhub · FRED] --> NA[News Aggregator]
-      NA --> SENT2[Crowd Sentiment\nFear & Greed · StockTwits]
-      SENT2 --> AI2[AI Deep Reasoning\nGitHub / NVIDIA / Ollama]
-      AI2 --> NR[Regime · Events\nOpportunities · Contrarian\nRisk Warnings · Actions]
+    subgraph NewsIntelAgent[News Intel Agent — Autonomous ReAct Loop]
+      NF[RSS · CoinGecko · CryptoCompare\nAlpha Vantage · Finnhub · FRED\nYahoo Finance Live Prices] --> NFS[NewsFetchService Singleton\nDisk-cached · TTL-aware]
+      NFS --> BA[BaseAgent\ncallAIWithRetry · runLoop · synthesiseFinish]
+      BA --> NIA[NewsIntelAgent\n8 tools · reflection protocol]
+      NIA --> OPP[Opportunities\nentry · target · stop · confidence]
+      NIA --> REG[Regime · Summary\nContrarian · Risk Warnings]
     end
 ```
 
@@ -164,6 +238,8 @@ npm run dev
 
 At startup, select your AI provider and model. Then type `/run` to begin.
 
+> **Recommendation:** Use **NVIDIA NIM** for the News Intel Agent. GitHub Models has aggressive rate limits that can interrupt multi-step agentic sessions. NVIDIA NIM handles the longer context window and sustained tool-calling loop without throttling.
+
 ---
 
 ## Configuration
@@ -172,14 +248,14 @@ Create a `.env` file in the project root:
 
 ```env
 # AI Provider: github (default), nvidia, or offline
-AI_PROVIDER=github
+AI_PROVIDER=nvidia
 
 # GitHub Models
 GITHUB_TOKEN=ghp_your_token_here
 GITHUB_AI_MODEL=openai/gpt-4o
 GITHUB_AI_ENDPOINT=https://models.github.ai/inference
 
-# NVIDIA NIM
+# NVIDIA NIM (recommended for News Intel Agent)
 NVIDIA_API_KEY=nvapi-your_key_here
 NVIDIA_AI_MODEL=nvidia/nemotron-3-super-120b-a12b
 NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
@@ -207,9 +283,9 @@ FRED_API_KEY=your_key_here
 
 | Command | Description |
 |---|---|
-| `/run` | Pick analysis mode (NVDA Market or News Intel) and execute |
+| `/run` | Pick analysis mode and execute |
 | `/model` | Show current provider, model, and endpoint |
-| `/model github` | Switch to GitHub Models provider |
+| `/model github` | Switch to GitHub Models |
 | `/model github --pick` | Select GitHub model interactively |
 | `/model nvidia` | Switch to NVIDIA NIM and pick model interactively |
 | `/model offline <url>` | Switch to Ollama-compatible endpoint (session only) |
@@ -229,6 +305,8 @@ Tab autocompletes all commands. Left/right arrows navigate the mode picker on `/
 | `npm run dev` | Run in development mode (tsx, no compile step) |
 | `npm run build` | Compile TypeScript to `dist/` and run `npm link` |
 | `npm run start` | Run compiled output from `dist/` |
+| `npm test` | Run test suite (Vitest) |
+| `npm run coverage` | Run tests with coverage report |
 | `npm run ping` | Run the provider ping utility |
 
 ---
@@ -242,7 +320,7 @@ Contributions are welcome.
 3. Commit with clear messages
 4. Open a PR describing what changed and why
 
-Please keep PRs focused.
+Please keep PRs focused. See `docs/` for per-version changelogs.
 
 ---
 
@@ -250,7 +328,7 @@ Please keep PRs focused.
 
 - Never commit `.env` or any file containing API keys
 - The `.gitignore` already excludes `.env` verify before pushing
-- Be mindful of API rate limits on GitHub Models and NVIDIA NIM free tiers
+- Be mindful of API rate limits on GitHub Models and NVIDIA NIM free tiers the News Intel Agent makes sustained multi-step calls
 - Offline URL entered interactively is session-only and is never written to `.env`
 - All AI outputs are advisory validate before acting on them
 

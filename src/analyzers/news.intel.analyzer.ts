@@ -1,33 +1,18 @@
+// ─── analyzers/news.intel.analyzer.ts ────────────────────────────────────────
+// Non-agentic (single-shot) news intelligence analyzer.
+// All fetching → NewsFetchService  |  symbol/late logic → shared/
+
 import OpenAI from 'openai';
-import axios from 'axios';
-import Parser from 'rss-parser';
-import { log, clr } from '../utils/logger.js';
-import { config } from '../config/config.js';
-import { yahooFinance } from '../services/yahoo.service.js';
+import axios  from 'axios';
+import { log, clr }            from '../utils/logger.js';
+import { config }              from '../config/config.js';
+import { yahooFinance }        from '../services/yahoo.service.js';
+import { newsFetchService,
+         AllNewsData, NewsItem } from '../services/news.fetch.service.js';
+import { resolveSymbol }       from '../shared/market-constants.js';
+import { buildTradeLevels }    from '../shared/trade-levels.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface NewsItem {
-  category: string;
-  type:      string;
-  title:     string;
-  details:   string;
-  source:    string;
-  timestamp: string;
-  impact:    'high' | 'medium' | 'low';
-  assets?:   string[];
-  url?:      string;
-  sentiment?: string;
-}
-
-interface TradeLevel {
-  action:      'BUY' | 'SELL' | 'WATCH';
-  entryRange:  string;
-  targetRange: string;
-  stopLoss:    string;
-  lateSignal:  string;
-  spotPrice?:  number;
-}
 
 interface Opportunity {
   asset:        string;
@@ -61,114 +46,16 @@ interface AnalysisResult {
   raw?:                     string;
 }
 
-// ─── Symbol map (asset name to Yahoo Finance ticker) ─────────────────────────
-
-const SYMBOL_MAP: Record<string, string> = {
-  // Indices
-  'SP500': '^GSPC', 'S&P500': '^GSPC', 'S&P 500': '^GSPC', 'SPX': '^GSPC', 'SPY': 'SPY',
-  'NASDAQ': '^IXIC', 'QQQ': 'QQQ', 'DOW': '^DJI', 'DJI': '^DJI',
-  // Forex / macro
-  'DXY': 'DX-Y.NYB', 'DOLLAR': 'DX-Y.NYB',
-  'EURUSD': 'EURUSD=X', 'USDJPY': 'JPY=X', 'GBPUSD': 'GBPUSD=X',
-  'AUDUSD': 'AUDUSD=X', 'USDCAD': 'CAD=X', 'USDCHF': 'CHF=X',
-  // Bonds
-  'TLT': 'TLT', 'TNX': '^TNX', '10Y': '^TNX', 'US10Y': '^TNX',
-  // Commodities
-  'GOLD': 'GC=F', 'XAU': 'GC=F', 'XAUUSD': 'GC=F',
-  'SILVER': 'SI=F', 'XAG': 'SI=F',
-  'OIL': 'CL=F', 'WTI': 'CL=F', 'USOIL': 'CL=F', 'CRUDE': 'CL=F',
-  'BRENT': 'BZ=F', 'NATGAS': 'NG=F',
-  'COPPER': 'HG=F', 'WHEAT': 'ZW=F', 'CORN': 'ZC=F',
-  // Crypto (Yahoo Finance proxies — real-time)
-  'BTC': 'BTC-USD', 'BITCOIN': 'BTC-USD',
-  'ETH': 'ETH-USD', 'ETHEREUM': 'ETH-USD',
-  'SOL': 'SOL-USD', 'SOLANA': 'SOL-USD',
-  'XRP': 'XRP-USD', 'RIPPLE': 'XRP-USD',
-  'BNB': 'BNB-USD', 'ADA': 'ADA-USD',
-  'DOGE': 'DOGE-USD', 'DOGECOIN': 'DOGE-USD',
-  'AVAX': 'AVAX-USD', 'DOT': 'DOT-USD',
-  'MATIC': 'MATIC-USD', 'LINK': 'LINK-USD',
-  'UNI': 'UNI-USD', 'ATOM': 'ATOM-USD',
-  // Mega-cap stocks
-  'NVDA': 'NVDA', 'NVIDIA': 'NVDA',
-  'AAPL': 'AAPL', 'APPLE': 'AAPL',
-  'MSFT': 'MSFT', 'MICROSOFT': 'MSFT',
-  'GOOGL': 'GOOGL', 'GOOGLE': 'GOOGL', 'ALPHABET': 'GOOGL',
-  'META': 'META', 'AMZN': 'AMZN', 'AMAZON': 'AMZN',
-  'TSLA': 'TSLA', 'TESLA': 'TSLA',
-  'AMD': 'AMD', 'INTC': 'INTC', 'INTEL': 'INTC',
-  'NFLX': 'NFLX', 'NETFLIX': 'NFLX',
-  'JPM': 'JPM', 'BAC': 'BAC', 'GS': 'GS',
-};
-
-const LATE_KEYWORDS = [
-  'already surged', 'soared', 'spiked', 'record high', 'all-time high',
-  'all time high', 'ath', 'parabolic', 'overbought', 'extended move',
-  'blew past', 'blew through', 'broke out', 'exploded higher',
-];
-
 // ─── Main class ───────────────────────────────────────────────────────────────
 
 export class NewsIntelAnalyzer {
-  private readonly parser   = new Parser();
-  private readonly headers  = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36',
-  };
-
-  // ── Cache ────────────────────────────────────────────────────────────────
-  private cache: Record<string, { time: number; data: any }> = {};
-  private readonly cacheTTL: Record<string, number> = {
-    crypto_news:        300,
-    stock_news:         300,
-    macro_news:         600,
-    news_broad_market:  300,
-    crowd_sentiment:    600,
-  };
-
-  // ── RSS feeds ────────────────────────────────────────────────────────────
-  private readonly marketRssFeeds: Record<string, string[]> = {
-    stocks: [
-      'https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC,^IXIC,AAPL,MSFT,NVDA&region=US&lang=en-US',
-      'https://www.marketwatch.com/rss/topstories',
-    ],
-    commodities: [
-      'https://feeds.feedburner.com/CommodityHQ',
-      'https://www.kitco.com/rss/kitconews.xml',
-    ],
-    oil: [
-      'https://www.investing.com/rss/news_95.rss',
-      'https://oilprice.com/rss/main',
-    ],
-    forex: [
-      'https://www.investing.com/rss/news_1.rss',
-      'https://www.fxstreet.com/rss/news',
-    ],
-    economy: [
-      'https://www.cnbc.com/id/100003114/device/rss/rss.html',
-      'https://feeds.reuters.com/reuters/businessNews',
-    ],
-  };
-
-  // ─── Cache helper ─────────────────────────────────────────────────────────
-
-  private async getCached<T>(key: string, fetchFn: () => Promise<T>, defaultTTL = 300): Promise<T> {
-    const now = Date.now();
-    const ttl = (this.cacheTTL[key] ?? defaultTTL) * 1000;
-    if (this.cache[key] && (now - this.cache[key].time) < ttl) {
-      log.info('cache', `HIT  ${clr.dim(key)}`);
-      return this.cache[key].data as T;
-    }
-    const data = await fetchFn();
-    this.cache[key] = { time: now, data };
-    return data;
-  }
 
   // ─── Entry point ──────────────────────────────────────────────────────────
 
   public async runAnalysis(): Promise<void> {
     log.info('news', 'Starting Universal News Intelligence Analyzer...');
 
-    const newsData = await this.fetchAllNews();
+    const newsData = await newsFetchService.fetchAll();
     log.info('news', 'Sending data to AI for analysis...');
     const result = await this.analyzeWithAI(newsData);
 
@@ -181,16 +68,8 @@ export class NewsIntelAnalyzer {
 
   // ─── Live price fetching ──────────────────────────────────────────────────
 
-  private resolveSymbol(raw: string): string | null {
-    const upper = raw.trim().toUpperCase();
-    if (SYMBOL_MAP[upper]) return SYMBOL_MAP[upper];
-    if (/^[A-Z]{1,5}$/.test(upper)) return upper;
-    if (/^[A-Z]{2,8}-USD$/.test(upper)) return upper;
-    return null;
-  }
-
   private async getLivePrice(asset: string): Promise<number | null> {
-    const symbol = this.resolveSymbol(asset);
+    const symbol = resolveSymbol(asset);
     if (!symbol) return null;
     try {
       const quote = await yahooFinance.quote(symbol);
@@ -198,343 +77,6 @@ export class NewsIntelAnalyzer {
     } catch {
       return null;
     }
-  }
-
-  private buildTradeLevels(
-    spot: number | null,
-    action: 'BUY' | 'SELL' | 'WATCH',
-    confidence: number,
-    blob: string,
-  ): TradeLevel {
-    const isLate = LATE_KEYWORDS.some(k => blob.includes(k));
-    const resolvedAction: 'BUY' | 'SELL' | 'WATCH' = isLate && action !== 'WATCH' ? 'WATCH' : action;
-    const lateSignal = isLate
-      ? 'YES — momentum looks extended; avoid chasing'
-      : 'NO — timing still looks reasonable';
-
-    if (spot == null) {
-      return {
-        action: resolvedAction,
-        entryRange:  action === 'BUY'  ? 'from support retest to confirmed breakout'     : action === 'SELL' ? 'from resistance test to breakdown confirmation' : 'wait for clearer setup',
-        targetRange: action === 'BUY'  ? 'from first resistance to next resistance'       : action === 'SELL' ? 'from first support to next support'              : 'monitor',
-        stopLoss:    action === 'BUY'  ? 'below invalidation level'                       : action === 'SELL' ? 'above invalidation level'                         : 'n/a',
-        lateSignal,
-      };
-    }
-
-    const tight  = confidence >= 75 ? 0.006 : 0.01;
-    const tgtLow = confidence >= 70 ? 0.035 : 0.025;
-    const tgtHi  = confidence >= 70 ? 0.08  : 0.05;
-
-    let entryLow: number, entryHigh: number, tgt1: number, tgt2: number, stop: number;
-
-    if (resolvedAction === 'BUY') {
-      entryLow = spot * (1 - tight); entryHigh = spot * (1 + tight);
-      tgt1     = spot * (1 + tgtLow); tgt2 = spot * (1 + tgtHi);
-      stop     = spot * 0.97;
-    } else if (resolvedAction === 'SELL') {
-      entryLow = spot * (1 - tight); entryHigh = spot * (1 + tight);
-      tgt1     = spot * (1 - tgtHi); tgt2 = spot * (1 - tgtLow);
-      stop     = spot * 1.03;
-    } else {
-      entryLow = spot * (1 - tight); entryHigh = spot * (1 + tight);
-      tgt1     = spot * 0.97;        tgt2      = spot * 1.03;
-      stop     = spot * 0.97;
-    }
-
-    const fmt = (n: number) => spot > 1000 ? n.toFixed(2) : spot > 10 ? n.toFixed(3) : n.toFixed(5);
-
-    return {
-      action: resolvedAction, spotPrice: spot,
-      entryRange:  `from ${fmt(entryLow)} to ${fmt(entryHigh)}`,
-      targetRange: `from ${fmt(tgt1)} to ${fmt(tgt2)}`,
-      stopLoss:    fmt(stop),
-      lateSignal,
-    };
-  }
-
-  // ─── News fetching ────────────────────────────────────────────────────────
-
-  private async fetchCryptoNews(): Promise<NewsItem[]> {
-    return this.getCached('crypto_news', async () => {
-      const items: NewsItem[] = [];
-
-      try {
-        const res = await axios.get('https://api.coingecko.com/api/v3/search/trending', { headers: this.headers, timeout: 5000 });
-        for (const coin of (res.data?.coins ?? []).slice(0, 10)) {
-          items.push({
-            category: 'cryptocurrency', type: 'trending',
-            title:    `${coin.item.name} (${coin.item.symbol}) trending`,
-            details:  `Market cap rank: #${coin.item.market_cap_rank}, score: ${coin.item.score}`,
-            source:   'CoinGecko Trending',
-            timestamp: new Date().toISOString(),
-            impact:   'medium',
-            assets:   [coin.item.symbol.toUpperCase()],
-          });
-        }
-      } catch (e: any) { log.warn('news', `CoinGecko trending: ${e.message}`); }
-
-      try {
-        const res = await axios.get('https://min-api.cryptocompare.com/data/v2/news/?lang=EN', { headers: this.headers, timeout: 5000 });
-        const highKw = ['regulation', 'sec', 'etf', 'approved', 'banned', 'hack', 'lawsuit', 'crash', 'surge', 'billion', 'fed', 'rate'];
-        const medKw  = ['partnership', 'launch', 'update', 'upgrade', 'adoption', 'institutional', 'integration'];
-        const ccData = Array.isArray(res.data?.Data) ? res.data.Data : [];
-        for (const art of ccData.slice(0, 15)) {
-          const blob   = `${art.title ?? ''} ${art.body ?? ''}`.toLowerCase();
-          const impact: 'high' | 'medium' | 'low' =
-            highKw.some(k => blob.includes(k)) ? 'high' :
-            medKw.some(k => blob.includes(k))  ? 'medium' : 'low';
-          const cats = (art.categories ?? '').toUpperCase().split('|').filter((c: string) => c.trim().length <= 5 && c.trim().length > 0);
-          items.push({
-            category: 'cryptocurrency', type: 'news',
-            title:    art.title ?? '',
-            details:  (art.body ?? '').substring(0, 500),
-            source:   art.source ?? 'CryptoCompare',
-            url:      art.url,
-            timestamp: new Date((art.published_on ?? 0) * 1000).toISOString(),
-            impact,
-            assets:   cats.length > 0 ? cats.slice(0, 5) : ['BTC', 'ETH'],
-          });
-        }
-      } catch (e: any) { log.warn('news', `CryptoCompare: ${e.message}`); }
-
-      return items;
-    });
-  }
-
-  private async fetchStockNews(): Promise<NewsItem[]> {
-    return this.getCached('stock_news', async () => {
-      const items: NewsItem[] = [];
-      const macroKw = ['fed', 'rate', 'inflation', 'recession', 'earnings', 'ipo', 'fomc', 'cpi', 'gdp', 'nfp'];
-
-      if (process.env.ALPHA_VANTAGE_API_KEY) {
-        try {
-          const res = await axios.get(
-            `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&apikey=${process.env.ALPHA_VANTAGE_API_KEY}`,
-            { headers: this.headers, timeout: 5000 },
-          );
-          for (const art of (res.data?.feed ?? []).slice(0, 10)) {
-            items.push({
-              category: 'stocks', type: 'news',
-              title:    art.title ?? '',
-              details:  (art.summary ?? '').substring(0, 500),
-              source:   art.source ?? 'Alpha Vantage',
-              url:      art.url,
-              timestamp: art.time_published ?? new Date().toISOString(),
-              sentiment: art.overall_sentiment_label ?? 'Neutral',
-              impact:   Math.abs(parseFloat(art.overall_sentiment_score ?? '0')) > 0.5 ? 'high' : 'medium',
-              assets:   (art.ticker_sentiment ?? []).slice(0, 5).map((t: any) => t.ticker),
-            });
-          }
-        } catch (e: any) { log.warn('news', `Alpha Vantage: ${e.message}`); }
-      }
-
-      if (process.env.FINNHUB_API_KEY) {
-        try {
-          const res = await axios.get(
-            `https://finnhub.io/api/v1/news?category=general&token=${process.env.FINNHUB_API_KEY}`,
-            { headers: this.headers, timeout: 5000 },
-          );
-          for (const art of (res.data ?? []).slice(0, 10)) {
-            const title  = (art.headline ?? '').toLowerCase();
-            const impact: 'high' | 'medium' | 'low' = macroKw.some(w => title.includes(w)) ? 'high' : 'medium';
-            items.push({
-              category: 'stocks', type: 'news',
-              title:    art.headline ?? '',
-              details:  (art.summary ?? '').substring(0, 500),
-              source:   art.source ?? 'Finnhub',
-              url:      art.url,
-              timestamp: new Date((art.datetime ?? 0) * 1000).toISOString(),
-              impact,
-              assets:   (art.related ?? '').split(',').slice(0, 5).filter(Boolean),
-            });
-          }
-        } catch (e: any) { log.warn('news', `Finnhub: ${e.message}`); }
-      }
-
-      return items;
-    });
-  }
-
-  private async fetchMacroNews(): Promise<NewsItem[]> {
-    return this.getCached('macro_news', async () => {
-      const items: NewsItem[] = [];
-      if (process.env.FRED_API_KEY) {
-        try {
-          const res = await axios.get(
-            `https://api.stlouisfed.org/fred/releases?api_key=${process.env.FRED_API_KEY}&file_type=json&limit=10`,
-            { headers: this.headers, timeout: 5000 },
-          );
-          for (const r of (res.data?.releases ?? []).slice(0, 10)) {
-            items.push({
-              category: 'economy', type: 'economic_release',
-              title:    r.name ?? '',
-              details:  `Economic data release: ${r.name}`,
-              source:   'Federal Reserve (FRED)',
-              timestamp: new Date().toISOString(),
-              impact:   'high',
-              assets:   ['SPY', 'DXY', 'TLT', 'GLD'],
-            });
-          }
-        } catch (e: any) { log.warn('news', `FRED API: ${e.message}`); }
-      }
-      return items;
-    });
-  }
-
-  private async fetchBroadMarketNews(): Promise<NewsItem[]> {
-    return this.getCached('news_broad_market', async () => {
-      const items: NewsItem[] = [];
-      const highKw = ['breaking', 'urgent', 'crash', 'surge', 'billion', 'regulation', 'approved', 'banned', 'record', 'historic'];
-      const medKw  = ['announces', 'launches', 'partnership', 'update', 'report', 'forecasts', 'warns'];
-
-      for (const [category, feeds] of Object.entries(this.marketRssFeeds)) {
-        for (const url of feeds) {
-          try {
-            const feed = await this.parser.parseURL(url);
-            for (const entry of (feed.items ?? []).slice(0, 10)) {
-              const title  = (entry.title ?? '').toLowerCase();
-              const impact: 'high' | 'medium' | 'low' =
-                highKw.some(k => title.includes(k)) ? 'high' :
-                medKw.some(k => title.includes(k))  ? 'medium' : 'low';
-              items.push({
-                category, type: 'news',
-                title:    entry.title ?? '',
-                details:  (entry.contentSnippet ?? '').substring(0, 500),
-                source:   feed.title ?? 'RSS Feed',
-                url:      entry.link,
-                timestamp: entry.pubDate ?? new Date().toISOString(),
-                impact,
-              });
-            }
-          } catch (e: any) {
-            const status = (e?.response?.status as number | undefined);
-            if (status === 503 || status === 429) log.info('news', `RSS unavailable for ${category} (${status})`);
-            else log.warn('news', `RSS ${category}: ${e.message}`);
-          }
-        }
-      }
-      return items;
-    });
-  }
-
-  private async fetchCrowdSentiment(): Promise<any> {
-    return this.getCached('crowd_sentiment', async () => {
-      const crowd: any = { fear_greed: null, coingecko_community: [], stocktwits_trending: [], summary: {} };
-
-      // Primary: alternative.me with 7-day trend
-      try {
-        const res = await axios.get('https://api.alternative.me/fng/?limit=7', { headers: this.headers, timeout: 5000 });
-        const data = res.data?.data ?? [];
-        if (data.length > 0) {
-          const latest = data[0];
-          const values: number[] = data.map((d: any) => parseInt(d.value ?? '50', 10));
-          const avg7d  = values.reduce((a: number, b: number) => a + b, 0) / values.length;
-          crowd.fear_greed = {
-            value:    parseInt(latest.value ?? '50', 10),
-            label:    latest.value_classification ?? 'Neutral',
-            avg_7d:   Math.round(avg7d * 10) / 10,
-            trend_7d: values,
-            momentum: values[0] > avg7d + 5 ? 'RISING_GREED' : values[0] < avg7d - 5 ? 'RISING_FEAR' : 'STABLE',
-          };
-        }
-      } catch (e: any) { log.warn('news', `Fear & Greed alt.me: ${e.message}`); }
-
-      // Fallback: CNN F&G
-      if (!crowd.fear_greed) {
-        try {
-          const res = await axios.get('https://production.dataviz.cnn.io/index/fearandgreed/graphdata', { headers: this.headers, timeout: 5000 });
-          const score  = res.data?.fear_and_greed?.score;
-          const rating = res.data?.fear_and_greed?.rating;
-          if (score !== undefined) {
-            crowd.fear_greed = { value: Math.round(score), label: rating ?? 'Unknown', momentum: 'N/A', avg_7d: null, trend_7d: [] };
-          }
-        } catch { /* silent */ }
-      }
-
-      // CoinGecko top-10 community sentiment
-      try {
-        const res = await axios.get(
-          'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1&sparkline=false&price_change_percentage=24h',
-          { headers: this.headers, timeout: 5000 },
-        );
-        let bull = 0, bear = 0;
-        for (const coin of (res.data ?? [])) {
-          const chg = coin.price_change_percentage_24h ?? 0;
-          if (chg > 0) bull++; else bear++;
-          crowd.coingecko_community.push({
-            symbol:          (coin.symbol ?? '').toUpperCase(),
-            name:            coin.name,
-            price:           coin.current_price,
-            change_24h:      Math.round(chg * 100) / 100,
-            crowd_sentiment: chg > 0 ? 'bullish' : 'bearish',
-          });
-        }
-        crowd.summary.crypto_crowd = `${bull} of top 10 coins bullish, ${bear} bearish in last 24h`;
-      } catch (e: any) { log.warn('news', `CoinGecko community: ${e.message}`); }
-
-      // StockTwits trending
-      try {
-        const res = await axios.get('https://api.stocktwits.com/api/2/trending/symbols.json', { headers: this.headers, timeout: 5000 });
-        for (const sym of (res.data?.symbols ?? []).slice(0, 15)) {
-          crowd.stocktwits_trending.push({ symbol: sym.symbol, title: sym.title, watchlist_count: sym.watchlist_count });
-        }
-        const top5 = (res.data?.symbols ?? []).slice(0, 5).map((s: any) => s.symbol);
-        if (top5.length > 0) crowd.summary.stocktwits_hot = `Top trending: ${top5.join(', ')}`;
-      } catch (e: any) { log.warn('news', `StockTwits: ${e.message}`); }
-
-      // Crowd consensus label
-      const fg = crowd.fear_greed;
-      if (fg) {
-        const v = fg.value;
-        crowd.summary.overall =
-          v <= 25 ? 'EXTREME_FEAR — crowd panicking (contrarian BUY signal)' :
-          v <= 40 ? 'FEAR — crowd cautious' :
-          v <= 60 ? 'NEUTRAL — crowd undecided' :
-          v <= 75 ? 'GREED — crowd optimistic' :
-                    'EXTREME_GREED — crowd euphoric (contrarian SELL signal)';
-      }
-
-      return crowd;
-    });
-  }
-
-  private async fetchAllNews(): Promise<Record<string, any>> {
-    const allNews: Record<string, any> = {
-      cryptocurrency: [], stocks: [], commodities: [], oil: [], forex: [], economy: [], all: [],
-    };
-
-    log.info('news', 'Fetching crypto news...');
-    allNews.cryptocurrency = await this.fetchCryptoNews();
-
-    log.info('news', 'Fetching stock news...');
-    allNews.stocks = await this.fetchStockNews();
-
-    log.info('news', 'Fetching macro news...');
-    allNews.economy = await this.fetchMacroNews();
-
-    log.info('news', 'Fetching broad market RSS...');
-    const broad = await this.fetchBroadMarketNews();
-    for (const item of broad) {
-      const cat = item.category.toLowerCase();
-      if (allNews[cat]) allNews[cat].push(item);
-      else if (cat === 'macro') allNews.economy.push(item);
-      else allNews.stocks.push(item);
-    }
-
-    log.info('news', 'Fetching crowd sentiment...');
-    allNews.crowd_sentiment = await this.fetchCrowdSentiment();
-
-    allNews.all = [
-      ...allNews.cryptocurrency, ...allNews.stocks, ...allNews.commodities,
-      ...allNews.oil, ...allNews.forex, ...allNews.economy,
-    ];
-
-    const order: Record<string, number> = { high: 0, medium: 1, low: 2 };
-    allNews.all.sort((a: any, b: any) => (order[a.impact ?? 'low'] ?? 2) - (order[b.impact ?? 'low'] ?? 2));
-
-    log.ok('news', `Total: ${allNews.all.length} items  (crypto ${allNews.cryptocurrency.length} · stocks ${allNews.stocks.length} · economy ${allNews.economy.length} · commodities ${allNews.commodities.length} · oil ${allNews.oil.length} · forex ${allNews.forex.length})`);
-    return allNews;
   }
 
   // ─── AI system prompt ────────────────────────────────────────────────────
@@ -603,21 +145,21 @@ Vague invalidations ("if sentiment changes") are not acceptable.`;
 
   // ─── Format news for AI prompt ────────────────────────────────────────────
 
-  private buildNewsPrompt(newsData: Record<string, any>): string {
+  private buildNewsPrompt(newsData: AllNewsData): string {
     const lines: string[] = [];
 
-    const high = (newsData.all as NewsItem[]).filter(n => n.impact === 'high');
+    const high = newsData.all.filter(n => n.impact === 'high');
     if (high.length > 0) {
       lines.push('═══ HIGH IMPACT EVENTS ════════════════════════════════════════');
       high.slice(0, 12).forEach((n, i) => {
         lines.push(`${i + 1}. [${n.category.toUpperCase()}] ${n.title}`);
-        if (n.details)          lines.push(`   [DETAILS] ${n.details.substring(0, 200)}`);
-        if (n.assets?.length)   lines.push(`   [ASSETS] ${n.assets.join(', ')}`);
-        if (n.sentiment)        lines.push(`   [SENTIMENT] ${n.sentiment}`);
+        if (n.details)        lines.push(`   [DETAILS] ${n.details.substring(0, 200)}`);
+        if (n.assets?.length) lines.push(`   [ASSETS] ${n.assets.join(', ')}`);
+        if (n.sentiment)      lines.push(`   [SENTIMENT] ${n.sentiment}`);
       });
     }
 
-    const med = (newsData.all as NewsItem[]).filter(n => n.impact === 'medium');
+    const med = newsData.all.filter(n => n.impact === 'medium');
     if (med.length > 0) {
       lines.push('\n═══ MEDIUM IMPACT ══════════════════════════════════════════════');
       med.slice(0, 10).forEach((n, i) => {
@@ -626,14 +168,14 @@ Vague invalidations ("if sentiment changes") are not acceptable.`;
       });
     }
 
-    const trending = (newsData.cryptocurrency as NewsItem[]).filter(n => n.type === 'trending');
+    const trending = newsData.cryptocurrency.filter(n => n.type === 'trending');
     if (trending.length > 0) {
       lines.push('\n═══ TRENDING CRYPTO (CoinGecko) ════════════════════════════════');
       trending.slice(0, 8).forEach(n => lines.push(`[TREND] ${n.title}  -  ${n.details}`));
     }
 
-    for (const sector of ['stocks', 'commodities', 'oil', 'forex', 'economy']) {
-      const items = (newsData[sector] as NewsItem[] | undefined) ?? [];
+    for (const sector of ['stocks', 'commodities', 'oil', 'forex', 'economy'] as const) {
+      const items: NewsItem[] = (newsData as any)[sector] ?? [];
       if (items.length > 0) {
         lines.push(`\n═══ ${sector.toUpperCase()} ════════════════════════════════════════════`);
         items.slice(0, 6).forEach((n, i) => lines.push(`${i + 1}. [${n.impact.toUpperCase()}] ${n.title}`));
@@ -646,20 +188,19 @@ Vague invalidations ("if sentiment changes") are not acceptable.`;
       const fg = crowd.fear_greed;
       if (fg) {
         lines.push(`Fear & Greed: ${fg.value}/100 (${fg.label})   7d avg: ${fg.avg_7d ?? 'n/a'}   momentum: ${fg.momentum ?? 'n/a'}`);
-        if (fg.trend_7d?.length > 0) lines.push(`7-day values: ${(fg.trend_7d as number[]).join(', ')}`);
+        if (fg.trend_7d?.length > 0) lines.push(`7-day values: ${fg.trend_7d.join(', ')}`);
       }
-      if ((crowd.coingecko_community as any[]).length > 0) {
+      if (crowd.coingecko_community.length > 0) {
         lines.push('Top-10 crypto 24h price action:');
-        (crowd.coingecko_community as any[]).forEach((c: any) => {
-          const prefix = c.change_24h > 0 ? '[UP]' : '[DOWN]';
-          lines.push(`  ${c.symbol.padEnd(6)} ${prefix} ${c.change_24h}%  (${c.crowd_sentiment})`);
+        crowd.coingecko_community.forEach(c => {
+          lines.push(`  ${c.symbol.padEnd(6)} ${c.change_24h > 0 ? '[UP]' : '[DOWN]'} ${c.change_24h}%  (${c.crowd_sentiment})`);
         });
       }
-      if ((crowd.stocktwits_trending as any[]).length > 0) {
-        const top = (crowd.stocktwits_trending as any[]).slice(0, 5).map((s: any) => s.symbol).join(', ');
+      if (crowd.stocktwits_trending.length > 0) {
+        const top = crowd.stocktwits_trending.slice(0, 5).map(s => s.symbol).join(', ');
         lines.push(`StockTwits most-watched: ${top}`);
       }
-      for (const [, v] of Object.entries(crowd.summary ?? {})) {
+      for (const v of Object.values(crowd.summary ?? {})) {
         lines.push(`CROWD CONSENSUS: ${v}`);
       }
     }
@@ -669,11 +210,11 @@ Vague invalidations ("if sentiment changes") are not acceptable.`;
 
   // ─── AI analysis ──────────────────────────────────────────────────────────
 
-  private async analyzeWithAI(newsData: Record<string, any>): Promise<AnalysisResult> {
+  private async analyzeWithAI(newsData: AllNewsData): Promise<AnalysisResult> {
     const systemPrompt = this.buildSystemPrompt();
     const newsBlock    = this.buildNewsPrompt(newsData);
 
-    const userPrompt = `Analyze the following market intelligence. Total items: ${(newsData.all as any[]).length}.
+    const userPrompt = `Analyze the following market intelligence. Total items: ${newsData.all.length}.
 Date/time: ${new Date().toISOString()}
 
 ${newsBlock}
@@ -711,13 +252,9 @@ CONTRARIAN_SIGNALS:
 
 RISK_WARNINGS:
 - [Specific actionable risk]
-- [Risk 2]
-- [Risk 3]
 
 RECOMMENDED_ACTIONS:
 - [Specific action with timeframe]
-- [Action 2]
-- [Action 3]
 
 RULES:
 - Confidence > 80 requires 3+ independent confirming signals — state them explicitly in reasoning
@@ -770,7 +307,6 @@ RULES:
 
       log.ok('ai', `Response received (${content.length.toLocaleString()} chars)`);
 
-      // Strip chain-of-thought if present (DeepSeek / reasoning models)
       let reasoning = '';
       if (content.includes('</think>')) {
         const parts = content.split('</think>');
@@ -801,8 +337,8 @@ RULES:
     const result = this.emptyResult();
     result.ai_reasoning_chain = reasoning;
 
-    const lines = text.trim().split('\n');
-    let section: string | null = null;
+    const lines  = text.trim().split('\n');
+    let   section: string | null = null;
 
     for (const raw of lines) {
       const line = raw.trim();
@@ -812,7 +348,9 @@ RULES:
       if (line.startsWith('MARKET_SUMMARY:'))      { result.market_summary = line.replace('MARKET_SUMMARY:', '').trim(); continue; }
       if (line.startsWith('SENTIMENT:')) {
         const s = line.replace('SENTIMENT:', '').trim().toUpperCase();
-        result.overall_market_sentiment = s.includes('RISK_ON') ? 'RISK_ON' : s.includes('RISK_OFF') ? 'RISK_OFF' : 'NEUTRAL';
+        result.overall_market_sentiment =
+          s.includes('RISK_ON')  ? 'RISK_ON'  :
+          s.includes('RISK_OFF') ? 'RISK_OFF' : 'NEUTRAL';
         continue;
       }
 
@@ -829,7 +367,7 @@ RULES:
         if (p.length >= 4) {
           result.high_impact_events.push({
             event:           p[0].replace(/^\d+\.\s*/, ''),
-            affected_assets: p[1].split(',').map((a: string) => a.trim()),
+            affected_assets: p[1].split(',').map(a => a.trim()),
             direction:       p[2],
             impact_level:    p[3],
             time_horizon:    p[4] ?? 'SHORT_TERM',
@@ -844,7 +382,9 @@ RULES:
           result.opportunities.push({
             asset:        p[0].replace(/^\d+\.\s*/, ''),
             asset_type:   p[1] ?? 'unknown',
-            action:       p[2].toUpperCase().includes('BUY') ? 'BUY' : p[2].toUpperCase().includes('SELL') ? 'SELL' : 'WATCH',
+            action:
+              p[2].toUpperCase().includes('BUY')  ? 'BUY'  :
+              p[2].toUpperCase().includes('SELL') ? 'SELL' : 'WATCH',
             confidence:   confMatch ? parseInt(confMatch[0], 10) : 60,
             reasoning:    p[4] ?? '',
             entry_range:  p[5] ?? '',
@@ -865,14 +405,24 @@ RULES:
       }
     }
 
-    if (!result.market_summary && result.high_impact_events.length === 0 && result.opportunities.length === 0) return null;
+    if (
+      !result.market_summary &&
+      result.high_impact_events.length === 0 &&
+      result.opportunities.length === 0
+    ) return null;
+
     return result;
   }
 
   // ─── Enrich with live prices ──────────────────────────────────────────────
 
-  private async enrichWithLivePrices(result: AnalysisResult, newsData: Record<string, any>): Promise<AnalysisResult> {
-    if (result.risk_warnings.length === 0)      result.risk_warnings = this.generateRiskWarnings(newsData);
+  private async enrichWithLivePrices(
+    result:   AnalysisResult,
+    newsData: AllNewsData,
+  ): Promise<AnalysisResult> {
+    if (result.risk_warnings.length === 0)
+      result.risk_warnings = this.generateRiskWarnings(newsData);
+
     if (result.recommended_actions.length === 0) {
       result.recommended_actions = [
         'Monitor high-impact headlines for follow-through confirmation before sizing up',
@@ -881,58 +431,64 @@ RULES:
       ];
     }
 
-    result.opportunities = await Promise.all(result.opportunities.map(async (opp) => {
-      const blob   = this.collectNewsBlob(newsData, opp.asset);
-      const spot   = await this.getLivePrice(opp.asset);
-      const action = (opp.action ?? 'WATCH') as 'BUY' | 'SELL' | 'WATCH';
-      const levels = this.buildTradeLevels(spot, action, opp.confidence, blob);
+    result.opportunities = await Promise.all(
+      result.opportunities.map(async (opp) => {
+        const blob   = newsFetchService.collectNewsBlob(newsData, opp.asset);
+        const spot   = await this.getLivePrice(opp.asset);
+        const action = (opp.action ?? 'WATCH') as 'BUY' | 'SELL' | 'WATCH';
+        const levels = buildTradeLevels(spot, action, opp.confidence, blob);
 
-      const lateSignal  = levels.lateSignal.startsWith('YES') ? levels.lateSignal : (opp.late_signal || levels.lateSignal);
-      const finalAction = levels.action;
+        const lateSignal  = levels.lateSignal.startsWith('YES')
+          ? levels.lateSignal
+          : (opp.late_signal || levels.lateSignal);
 
-      return {
-        ...opp,
-        action:       finalAction,
-        entry_range:  opp.entry_range  || levels.entryRange,
-        target_range: opp.target_range || levels.targetRange,
-        stop_loss:    opp.stop_loss    || levels.stopLoss,
-        late_signal:  lateSignal,
-        spot_price:   spot ?? undefined,
-        reasoning: lateSignal.startsWith('YES') && !opp.reasoning.toLowerCase().includes('late')
-          ? `${opp.reasoning} [Late-entry warning: move may be extended — wait for a setup.]`.trim()
-          : opp.reasoning,
-      };
-    }));
+        return {
+          ...opp,
+          action:       levels.action,
+          entry_range:  opp.entry_range  || levels.entryRange,
+          target_range: opp.target_range || levels.targetRange,
+          stop_loss:    opp.stop_loss    || levels.stopLoss,
+          late_signal:  lateSignal,
+          spot_price:   spot ?? undefined,
+          reasoning: lateSignal.startsWith('YES') && !opp.reasoning.toLowerCase().includes('late')
+            ? `${opp.reasoning} [Late-entry warning: move may be extended — wait for a setup.]`.trim()
+            : opp.reasoning,
+        };
+      }),
+    );
 
     return result;
   }
 
   // ─── Fallback analysis ────────────────────────────────────────────────────
 
-  private buildFallback(text: string, newsData: Record<string, any>): AnalysisResult | null {
-    const blob   = (text + ' ' + this.collectNewsBlob(newsData)).toLowerCase();
+  private buildFallback(text: string, newsData: AllNewsData): AnalysisResult | null {
+    const blob   = (text + ' ' + newsFetchService.collectNewsBlob(newsData)).toLowerCase();
     const bullKw = ['bullish', 'buy', 'long', 'positive', 'rally', 'surge', 'breakout', 'upside', 'recovery'];
     const bearKw = ['bearish', 'sell', 'short', 'negative', 'crash', 'dump', 'drop', 'hack', 'decline'];
     const bull   = bullKw.filter(w => blob.includes(w)).length;
     const bear   = bearKw.filter(w => blob.includes(w)).length;
-    const sentiment = bull > bear + 1 ? 'RISK_ON' : bear > bull + 1 ? 'RISK_OFF' : 'NEUTRAL';
+    const sentiment =
+      bull > bear + 1 ? 'RISK_ON'  :
+      bear > bull + 1 ? 'RISK_OFF' : 'NEUTRAL';
 
     const assets = new Set<string>();
-    for (const item of ((newsData.all ?? []) as any[])) {
-      for (const a of ((item.assets ?? []) as string[])) {
+    for (const item of newsData.all) {
+      for (const a of (item.assets ?? [])) {
         if (typeof a === 'string' && a.trim()) assets.add(a.trim().toUpperCase());
       }
     }
 
     const topAssets = Array.from(assets).slice(0, 5);
-    const highNews  = ((newsData.all ?? []) as any[]).filter(n => n.impact === 'high').slice(0, 5);
+    const highNews  = newsData.all.filter(n => n.impact === 'high').slice(0, 5);
 
-    const events = highNews.map((n: any) => {
+    const events = highNews.map(n => {
       const nb  = `${n.title ?? ''} ${n.details ?? ''}`.toLowerCase();
-      const dir = bullKw.some(w => nb.includes(w)) ? 'BULL' : bearKw.some(w => nb.includes(w)) ? 'BEAR' : 'NEUTRAL';
+      const dir = bullKw.some(w => nb.includes(w)) ? 'BULL' :
+                  bearKw.some(w => nb.includes(w)) ? 'BEAR' : 'NEUTRAL';
       return {
-        event: String(n.title ?? '').slice(0, 100),
-        affected_assets: Array.isArray(n.assets) && n.assets.length > 0 ? n.assets.slice(0, 3) : ['BTC'],
+        event:           String(n.title ?? '').slice(0, 100),
+        affected_assets: (n.assets ?? []).length > 0 ? n.assets!.slice(0, 3) : ['BTC'],
         direction: dir, impact_level: 'HIGH', time_horizon: 'SHORT_TERM',
         reasoning: String(n.details ?? '').slice(0, 150),
       };
@@ -952,7 +508,7 @@ RULES:
     return {
       ...this.emptyResult(),
       market_regime:            sentiment,
-      market_summary:           `Fallback: ${(newsData.all ?? []).length} items scanned. ${bull} bullish / ${bear} bearish signals.`,
+      market_summary:           `Fallback: ${newsData.all.length} items scanned. ${bull} bullish / ${bear} bearish signals.`,
       overall_market_sentiment: sentiment,
       high_impact_events:       events,
       opportunities:            opps,
@@ -967,17 +523,8 @@ RULES:
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  private collectNewsBlob(newsData: Record<string, any>, assetFilter = ''): string {
-    const filter = assetFilter.trim().toUpperCase();
-    return ((newsData.all ?? []) as any[])
-      .filter((n: any) => !filter || `${n.title ?? ''} ${n.details ?? ''}`.toUpperCase().includes(filter))
-      .map((n: any) => `${n.title ?? ''} ${n.details ?? ''}`)
-      .join(' ')
-      .toLowerCase();
-  }
-
-  private generateRiskWarnings(newsData: Record<string, any>): string[] {
-    const blob  = this.collectNewsBlob(newsData);
+  private generateRiskWarnings(newsData: AllNewsData): string[] {
+    const blob  = newsFetchService.collectNewsBlob(newsData);
     const warns: string[] = [];
     if (/(regulation|sec|ban|lawsuit|crackdown)/.test(blob)) warns.push('Regulatory headlines present — sudden repricing risk, especially in crypto');
     if (/(hack|exploit|breach|rug)/.test(blob))              warns.push('Security incidents in news — verify custody and venue safety before trading');
@@ -997,7 +544,7 @@ RULES:
     };
   }
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ─── Renderer ─────────────────────────────────────────────────────────────
 
   private wrapText(text: string, width = 90): string[] {
     const words = (text ?? '').trim().split(/\s+/);
@@ -1039,11 +586,10 @@ RULES:
     console.log(clr.yellow('  [ANALYSIS] NEWS INTEL ANALYSIS'));
     console.log(heavy);
 
-    // Regime + sentiment
-    const regime  = (result.market_regime ?? 'UNKNOWN').toUpperCase();
-    const sent    = (result.overall_market_sentiment ?? 'NEUTRAL').toUpperCase();
-    const rClr    = regime.includes('RISK_ON') ? clr.green : regime.includes('RISK_OFF') ? clr.red : clr.yellow;
-    const sClr    = sent === 'RISK_ON' ? clr.green : sent === 'RISK_OFF' ? clr.red : clr.yellow;
+    const regime = (result.market_regime ?? 'UNKNOWN').toUpperCase();
+    const sent   = (result.overall_market_sentiment ?? 'NEUTRAL').toUpperCase();
+    const rClr   = regime.includes('RISK_ON') ? clr.green : regime.includes('RISK_OFF') ? clr.red : clr.yellow;
+    const sClr   = sent === 'RISK_ON' ? clr.green : sent === 'RISK_OFF' ? clr.red : clr.yellow;
 
     br();
     console.log(`  ${rClr('REGIME')}    ${rClr(regime)}`);
@@ -1081,9 +627,9 @@ RULES:
         br();
         console.log(`  ${clr.dim(String(idx + 1).padStart(2, '0'))}  ${clr.white(e.event ?? '')}`);
         console.log(`      ${clr.dim('assets')}  ${clr.cyan(assets)}   ${clr.dim('dir')}  ${dClr(e.direction ?? '?')}   ${clr.dim('impact')}  ${iClr(e.impact_level ?? '?')}`);
-        if (e.time_horizon)  console.log(`      ${clr.dim('horizon')}  ${clr.dim(e.time_horizon)}`);
-        if (e.reasoning)     this.wrapText(e.reasoning,    W - 8).forEach(l => console.log(`      ${clr.dim(l)}`));
-        if (e.second_order)  this.wrapText(`2nd-order: ${e.second_order}`, W - 8).forEach(l => console.log(`      ${clr.dim(l)}`));
+        if (e.time_horizon) console.log(`      ${clr.dim('horizon')}  ${clr.dim(e.time_horizon)}`);
+        if (e.reasoning)    this.wrapText(e.reasoning,    W - 8).forEach(l => console.log(`      ${clr.dim(l)}`));
+        if (e.second_order) this.wrapText(`2nd-order: ${e.second_order}`, W - 8).forEach(l => console.log(`      ${clr.dim(l)}`));
       });
       br();
     }
@@ -1099,6 +645,9 @@ RULES:
         const conf    = Number(o.confidence ?? 0);
         const confStr = conf >= 75 ? clr.green(conf + '%') : conf >= 50 ? clr.yellow(conf + '%') : clr.red(conf + '%');
         const spot    = (o as any).spot_price as number | undefined;
+        const spotStr = spot != null
+          ? clr.dim(`  spot $${spot.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`)
+          : '';
 
         const reasoning    = this.norm(String(o.reasoning    ?? ''), ['Reason', 'Reasoning']);
         const entry        = this.norm(String(o.entry_range  ?? ''), ['Entry',  'ENTRY']);
@@ -1109,11 +658,7 @@ RULES:
         const risks        = this.norm(String(o.risks        ?? ''), ['Risks',  'Risk']);
 
         br();
-        const spotStr = spot != null
-          ? clr.dim(`  spot $${spot.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`)
-          : '';
         console.log(`  ${clr.dim(String(idx + 1).padStart(2, '0'))}  [OPP] ${clr.white(o.asset ?? '?')} ${clr.dim('[' + (o.asset_type ?? '?') + ']')}  ${aClr(action)}  ${confStr}${spotStr}`);
-
         if (reasoning) this.wrapText(reasoning, W - 8).forEach(l => console.log(`      ${clr.dim(l)}`));
 
         const levels = [
