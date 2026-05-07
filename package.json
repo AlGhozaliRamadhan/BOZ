@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "tsx src/main.ts",
     "ping": "tsx src/utils/ping.ts",
-    "build": "tsc && npm link",
+    "build": "tsc && node scripts/install-global.js",
     "start": "node dist/main.js",
     "test": "vitest run",
     "test:watch": "vitest",
