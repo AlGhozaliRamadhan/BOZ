@@ -95,20 +95,23 @@ export class NewsFetchService {
       'https://www.marketwatch.com/rss/topstories',
     ],
     commodities: [
-      // feedburner/CommodityHQ is dead (404) — replaced with Kitco + Investing.com
-      'https://www.kitco.com/rss/kitconews.xml',
-      'https://www.investing.com/rss/news_14.rss', // commodities
+      // kitco.com/rss/kitconews.xml → 404 (path moved)
+      // investing.com/rss/news_14.rss → 404 (blocks scrapers)
+      // news.goldseek.com/newsRSS.xml → malformed XML entities in feed content
+      // Replaced with clean, well-maintained feeds:
+      'https://silverseek.com/rss.xml',                    // SilverSeek — silver/metals news since 2003
+      'https://www.marketwatch.com/rss/realtimeheadlines', // MarketWatch real-time (incl. commodities)
     ],
     oil:   ['https://oilprice.com/rss/main'],
     forex: ['https://www.fxstreet.com/rss/news'],
     economy: [
       'https://www.cnbc.com/id/100003114/device/rss/rss.html',
-      // feeds.reuters.com is dead (ENOTFOUND) — replaced with Reuters via rss.app mirror
-      'https://feeds.bbci.co.uk/news/business/rss.xml', // BBC Business
+      // feeds.reuters.com is dead (ENOTFOUND) — replaced with BBC Business
+      'https://feeds.bbci.co.uk/news/business/rss.xml',
     ],
   };
 
-  // ─── Cache helper ──────────────────────────────────────────────────────
+  // ─── Cache helpers ─────────────────────────────────────────────────────
 
   private async getCached<T>(
     key:        string,
@@ -138,6 +141,33 @@ export class NewsFetchService {
     try {
       writeFileSync(this.cacheFile, JSON.stringify(this.cache), 'utf8');
     } catch {}
+  }
+
+  // ─── RSS XML sanitizer ─────────────────────────────────────────────────
+  // Some feeds (e.g. GoldSeek) embed bare & or non-standard named entities
+  // in their content, which breaks strict XML parsers.  Fetch the raw text,
+  // scrub it, then hand it to rss-parser via parseString() instead of
+  // parseURL() so we control the input.
+
+  private async parseURLSafe(url: string): Promise<ReturnType<Parser['parseString']>> {
+    const res = await axios.get<string>(url, {
+      headers:        { ...this.headers, Accept: 'application/rss+xml, application/xml, text/xml, */*' },
+      timeout:        8000,
+      responseType:   'text',
+      // Treat any 2xx as success; let non-2xx propagate so the caller's
+      // status-code branch can log it correctly.
+      validateStatus: s => s >= 200 && s < 300,
+    });
+
+    // Replace bare & that are NOT already part of a valid XML entity reference.
+    // Valid references: &amp; &lt; &gt; &quot; &apos; &#123; &#xAB; &namedRef;
+    // Everything else → &amp;
+    const sanitized = res.data.replace(
+      /&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[\dA-Fa-f]+|[A-Za-z][A-Za-z\d]*);)/g,
+      '&amp;',
+    );
+
+    return this.parser.parseString(sanitized);
   }
 
   // ─── Public: fetch everything ──────────────────────────────────────────
@@ -349,7 +379,9 @@ export class NewsFetchService {
       for (const [category, feeds] of Object.entries(this.marketRssFeeds)) {
         for (const url of feeds) {
           try {
-            const feed = await this.parser.parseURL(url);
+            // Use parseURLSafe: fetches raw XML, sanitizes bare & entities,
+            // then parses — so malformed feeds don't crash the whole category.
+            const feed = await this.parseURLSafe(url);
             for (const entry of (feed.items ?? []).slice(0, 10)) {
               const title  = (entry.title ?? '').toLowerCase();
               const impact: 'high' | 'medium' | 'low' =
@@ -366,8 +398,10 @@ export class NewsFetchService {
             }
           } catch (e: any) {
             const status = (e?.response?.status as number | undefined);
-            if (status === 503 || status === 429)
-              log.info('news', `RSS unavailable for ${category} (${status})`);
+            if (status === 404)
+              log.warn('news', `RSS ${category}: feed returned 404 — URL may have moved (${url})`);
+            else if (status === 503 || status === 429)
+              log.info('news', `RSS ${category}: feed temporarily unavailable (${status})`);
             else
               log.warn('news', `RSS ${category}: ${e.message}`);
           }
