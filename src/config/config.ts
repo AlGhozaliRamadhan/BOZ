@@ -1,6 +1,7 @@
 import { githubConfig } from './github.config.js';
 import { offlineConfig } from './offline.config.js';
 import { nvidiaConfig }  from './nvidia.config.js';
+import { resolveSymbol } from '../shared/market-constants.js';
 
 export type AIProvider = 'github' | 'offline' | 'nvidia';
 
@@ -15,6 +16,7 @@ const activeState = {
   aiProvider: normalizeProvider(process.env.AI_PROVIDER),
   aiEndpoint: '',
   aiModel:    '',
+  ticker:     'NVDA',
 };
 
 const warnIfMisconfigured = (provider: AIProvider) => {
@@ -49,14 +51,20 @@ const applyProvider = (provider: AIProvider) => {
 applyProvider(activeState.aiProvider);
 
 export const config = {
-  ticker:  'NVDA',
   github:  githubConfig,
   offline: offlineConfig,
   nvidia:  nvidiaConfig,
 
+  get ticker() { return activeState.ticker; },
   get aiProvider() { return activeState.aiProvider; },
   get aiEndpoint() { return activeState.aiEndpoint; },
   get aiModel()    { return activeState.aiModel;    },
+
+  setTicker(raw: string) {
+    const resolved = resolveSymbol(raw);
+    if (!resolved) throw new Error(`Unknown ticker: ${raw}`);
+    activeState.ticker = resolved;
+  },
 
   setOfflineEndpoint(endpoint: string) {
     offlineConfig.endpoint = endpoint;

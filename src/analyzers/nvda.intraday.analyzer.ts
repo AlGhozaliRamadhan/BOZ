@@ -1,6 +1,6 @@
 import { createRequire } from 'module';
 import { MarketAnalyzer } from './market.analyzer.js';
-import { ChartAnalyzer, ChartPatternResult } from './chart.analyzer.js';
+import { ChartAnalyzer } from './chart.analyzer.js';
 import { IndicatorsService } from '../services/indicators.service.js';
 import { YahooService } from '../services/yahoo.service.js';
 import { AIService } from '../services/ai.service.js';
@@ -8,6 +8,7 @@ import { SentimentService } from '../services/sentiment.service.js';
 import { NewsService } from '../services/news.service.js';
 import { MacroService } from '../services/macro.service.js';
 import { config } from '../config/config.js';
+import { buildIntradayPrompt } from '../shared/prompts.js';
 
 const _require = createRequire(import.meta.url);
 const PKG_VERSION: string = (_require('../../package.json') as { version: string }).version;
@@ -148,78 +149,29 @@ export class NVDAIntradayAnalyzer {
       const vpStrength = Math.min(100, Math.round(Math.abs(vpRatio - 1) * 200));
 
       // ── AI prompt ─────────────────────────────────────────────────────────
-      const prompt = `You are an expert NVDA stock trading analyst focused on INTRADAY trading.
-Your goal is to predict price movement over the next 2-6 hours.
-
-CURRENT MARKET DATA:
-- Current Price: $${summary.current_price.toFixed(2)}
-- 1H Change: ${summary.change_1h.toFixed(2)}%
-- 4H Change: ${summary.change_4h.toFixed(2)}%
-- 24H Change: ${summary.change_24h.toFixed(2)}%
-- 24H High: $${summary.high_24h.toFixed(2)}  Low: $${summary.low_24h.toFixed(2)}
-- Volume Ratio: ${summary.volume_ratio.toFixed(2)}x  (${summary.volume_classification})
-- OBV Signal: ${summary.obv_signal}
-- RSI: ${summary.rsi.toFixed(1)}  (${rsiLabel(summary.rsi)})
-- MACD: ${summary.macd.toFixed(4)}  Signal: ${summary.macd_signal.toFixed(4)}
-- Volatility Regime: ${summary.volatility_regime}  (${summary.volatility_warning})
-- ATR: $${summary.atr.toFixed(2)}  (${summary.atr_percent.toFixed(2)}%)
-- BB Width: ${summary.bb_width.toFixed(2)}%  Squeeze: ${summary.bb_squeeze_status}  Position: ${summary.bb_position}
-
-MULTI-TIMEFRAME:
-- 1H Bias: ${bias1h}
-- 4H Bias: ${bias4h}
-- Daily Bias: ${biasDaily}
-- Alignment: ${mtfAlign}  (confidence: ${mtfConfidence})
-
-MARKET STRUCTURE:
-- Pattern: ${structureLabel}
-- Strength: ${structureStrength}
-
-VOLUME-PRICE CORRELATION:
-- Signal: ${vpSignal}  (up/dn ratio: ${vpRatio.toFixed(2)}x)
-
-RECENT PATTERNS:
-${patterns}
-
-CHART PATTERNS:
-${chartPatterns.patterns.join(', ')}
-Nearest Support: $${chartPatterns.nearest_support?.toFixed(2)}
-Nearest Resistance: $${chartPatterns.nearest_resistance?.toFixed(2)}
-Fibonacci Position: ${chartPatterns.fibonacci_position}
-
-MACRO CONTEXT:
-- Regime: ${macroContext.market_regime}
-- Risk Sentiment: ${macroContext.risk_sentiment}
-- SPY: ${macroContext.sp500_correlation}
-- QQQ: ${macroContext.nasdaq_correlation}
-
-NEWS:
-${newsItems.join('\n')}
-
-CROWD SENTIMENT (apply CONTRARIAN logic — see framework above):
-- Fear & Greed Index : ${crowdSentiment.fear_greed?.value ?? 'N/A'} / 100  (${crowdSentiment.fear_greed?.label ?? 'N/A'})
-- F&G Momentum      : ${crowdSentiment.fear_greed?.momentum ?? 'N/A'}
-- StockTwits NVDA   : ${crowdSentiment.stocktwits_nvda?.bull_ratio?.toFixed(1) ?? 'N/A'}% bullish  (bulls ${crowdSentiment.stocktwits_nvda?.bullish ?? 0} · bears ${crowdSentiment.stocktwits_nvda?.bearish ?? 0} · total tagged ${crowdSentiment.stocktwits_nvda?.total_with_sentiment ?? 0})
-- Overall Signals   : ${crowdSentiment.summary?.overall_signals?.join(', ') ?? 'NEUTRAL'}
-- Contrarian Note   : ${
-  (() => {
-    const br = crowdSentiment.stocktwits_nvda?.bull_ratio ?? 50;
-    const fg = crowdSentiment.fear_greed?.value ?? 50;
-    if (br > 70 && fg > 60) return '⚠ HIGH CONTRARIAN RISK — retail euphoria on both metrics; historically bearish for near-term';
-    if (br > 70)            return '⚠ StockTwits crowd is euphoric (>70% bullish) — apply contrarian caution';
-    if (br < 30 && fg < 40) return '✓ HIGH CONTRARIAN OPPORTUNITY — retail fear on both metrics; historically bullish for near-term';
-    if (br < 30)            return '✓ StockTwits crowd is fearful (<30% bullish) — apply contrarian bullish bias';
-    return 'Neutral — no extreme crowd signal';
-  })()
-}
-
-Provide your intraday prediction using the format:
-PREDICTION: UP or DOWN
-CONFIDENCE: 0-100
-STRATEGY: short intraday strategy
-TARGET: $price
-STOP: $price
-`;
+      const prompt = buildIntradayPrompt({
+        summary,
+        mtfBias: {
+          bias1h,
+          bias4h,
+          biasDaily,
+          alignment: mtfAlign,
+          confidence: mtfConfidence,
+        },
+        marketStructure: {
+          label: structureLabel,
+          strength: structureStrength,
+        },
+        volumePrice: {
+          signal: vpSignal,
+          ratio: vpRatio,
+        },
+        patterns,
+        chartPatterns,
+        macroContext,
+        newsItems,
+        crowdSentiment,
+      });
 
       const aiAnalysis = await this.aiService.analyze(prompt);
 
@@ -246,7 +198,9 @@ STOP: $price
       const stopPrice   = aiAnalysis.stop_loss    ?? (entryPrice * 0.99);
       const targetPct   = ((targetPrice - entryPrice) / entryPrice) * 100;
       const stopPct     = ((stopPrice   - entryPrice) / entryPrice) * 100;
-      const rrRatio     = Math.abs(targetPct / stopPct);
+      const rrRatio     = (stopPct !== 0 && isFinite(stopPct) && isFinite(targetPct))
+        ? Math.abs(targetPct / stopPct)
+        : 0;
 
       ln('');
       ln(hr2());
@@ -255,6 +209,9 @@ STOP: $price
       row('entry',    clr.dim('$' + entryPrice.toFixed(2)));
       row('target',   clr.green('$' + targetPrice.toFixed(2)) + clr.dim('  (' + pctColor(targetPct) + ')'), 'green');
       row('stop',     clr.red('$'   + stopPrice.toFixed(2))   + clr.dim('  (' + pctColor(stopPct)   + ')'), 'red');
+      if (isFinite(targetPct) && Math.abs(targetPct) > 50) {
+        ln(`  ${WARN}  Target is >50% from entry — verify AI output format`);
+      }
       if (aiAnalysis.strategy) row('strategy', clr.dim(aiAnalysis.strategy));
       ln(hr2());
 

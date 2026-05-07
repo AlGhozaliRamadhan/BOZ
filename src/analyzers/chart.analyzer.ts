@@ -33,13 +33,37 @@ export class ChartAnalyzer {
     const troughs = this.findPeaks(lows.map((l) => -l));
 
     if (peaks.length >= 2) {
-      patterns_found.push('Potential DOUBLE TOP detected');
-      pattern_confidence.push('MEDIUM');
+      const lastPeak = peaks[peaks.length - 1];
+      const prevPeak = peaks[peaks.length - 2];
+      const separation = lastPeak - prevPeak;
+      const prevPrice = highs[prevPeak];
+      const lastPrice = highs[lastPeak];
+      const priceDiff = prevPrice !== 0
+        ? Math.abs(lastPrice - prevPrice) / Math.abs(prevPrice)
+        : Number.POSITIVE_INFINITY;
+
+      if (separation >= 6 && priceDiff < 0.01) {
+        const confidence = separation === 6 ? 'LOW' : 'HIGH';
+        patterns_found.push('Potential DOUBLE TOP detected');
+        pattern_confidence.push(confidence);
+      }
     }
 
     if (troughs.length >= 2) {
-      patterns_found.push('Potential DOUBLE BOTTOM detected');
-      pattern_confidence.push('MEDIUM');
+      const lastTrough = troughs[troughs.length - 1];
+      const prevTrough = troughs[troughs.length - 2];
+      const separation = lastTrough - prevTrough;
+      const prevPrice = lows[prevTrough];
+      const lastPrice = lows[lastTrough];
+      const priceDiff = prevPrice !== 0
+        ? Math.abs(lastPrice - prevPrice) / Math.abs(prevPrice)
+        : Number.POSITIVE_INFINITY;
+
+      if (separation >= 6 && priceDiff < 0.01) {
+        const confidence = separation === 6 ? 'LOW' : 'HIGH';
+        patterns_found.push('Potential DOUBLE BOTTOM detected');
+        pattern_confidence.push(confidence);
+      }
     }
 
     if (patterns_found.length === 0) {
