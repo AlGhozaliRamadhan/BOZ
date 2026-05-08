@@ -42,6 +42,7 @@ const c = {
   red:    '\x1b[31m',
   white:  '\x1b[97m',
   cyan:   '\x1b[36m',
+  magenta:'\x1b[35m',
   wrap: (color: string, text: string) => `${color}${text}\x1b[0m`,
 } as const;
 
@@ -574,6 +575,40 @@ export class CLI {
         },
       },
       {
+        name: 'ticker',
+        description: 'Set or view the target ticker  (/ticker [symbol])',
+        handler: async (args) => {
+          if (!args.length) {
+            process.stdout.write(`\n  Current ticker: ${c.wrap(c.green, config.ticker)}\n\n`);
+            return;
+          }
+          const t = args[0].toUpperCase();
+          try {
+            config.setTicker(t);
+            process.stdout.write(`\n  Ticker set to: ${c.wrap(c.green, config.ticker)}\n\n`);
+          } catch (e) {
+            process.stdout.write(`\n  ${c.wrap(c.red, (e as Error).message)}\n\n`);
+          }
+        },
+      },
+      {
+        name: 'risk',
+        description: 'Override risk sentiment  (/risk [auto|on|off])',
+        handler: async (args) => {
+          if (!args.length) {
+            process.stdout.write(`\n  Current risk mode: ${c.wrap(c.green, config.riskMode)}\n\n`);
+            return;
+          }
+          const mode = args[0].toLowerCase();
+          if (mode === 'auto' || mode === 'on' || mode === 'off') {
+            config.setRiskMode(mode as 'auto' | 'on' | 'off');
+            process.stdout.write(`\n  Risk mode set to: ${c.wrap(c.green, mode)}\n\n`);
+          } else {
+            process.stdout.write(`\n  Invalid mode: ${c.wrap(c.red, mode)}. Use auto, on, or off.\n\n`);
+          }
+        },
+      },
+      {
         name: 'help',
         description: 'Show available commands',
         handler: async () => {
@@ -611,7 +646,9 @@ export class CLI {
     process.stdout.write(
       `  provider  ${c.wrap(providerColor, config.aiProvider)}\n` +
       `  model     ${c.wrap(c.green, config.aiModel)}\n` +
-      `  endpoint  ${c.wrap(c.ghost, config.aiEndpoint)}\n\n`,
+      `  endpoint  ${c.wrap(c.ghost, config.aiEndpoint)}\n` +
+      `  ticker    ${c.wrap(c.cyan, config.ticker)}\n` +
+      `  risk mode ${c.wrap(c.magenta, config.riskMode)}\n\n`,
     );
   }
 

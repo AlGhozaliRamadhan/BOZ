@@ -4,6 +4,7 @@ import { nvidiaConfig }  from './nvidia.config.js';
 import { resolveSymbol } from '../shared/market-constants.js';
 
 export type AIProvider = 'github' | 'offline' | 'nvidia';
+export type RiskMode = 'auto' | 'on' | 'off';
 
 const normalizeProvider = (value: string | undefined): AIProvider => {
   const v = (value || '').toLowerCase();
@@ -17,6 +18,7 @@ const activeState = {
   aiEndpoint: '',
   aiModel:    '',
   ticker:     'NVDA',
+  riskMode:   'auto' as RiskMode,
 };
 
 const warnIfMisconfigured = (provider: AIProvider) => {
@@ -59,6 +61,7 @@ export const config = {
   get aiProvider() { return activeState.aiProvider; },
   get aiEndpoint() { return activeState.aiEndpoint; },
   get aiModel()    { return activeState.aiModel;    },
+  get riskMode()   { return activeState.riskMode;   },
 
   setTicker(raw: string) {
     const resolved = resolveSymbol(raw);
@@ -72,5 +75,8 @@ export const config = {
   },
   setAIProvider(provider: AIProvider) {
     applyProvider(provider);
+  },
+  setRiskMode(mode: RiskMode) {
+    activeState.riskMode = mode;
   },
 };
