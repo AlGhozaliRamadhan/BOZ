@@ -20,7 +20,7 @@
   <a href="https://github.com/AlGhozaliRamadhan">
     <img src="https://img.shields.io/badge/Author-AGR-111111?style=flat"/>
   </a>
-  <img src="https://img.shields.io/badge/version-1.5.2-brightgreen?style=flat"/>
+  <img src="https://img.shields.io/badge/version-1.5.3-brightgreen?style=flat"/>
 </p>
 
 ---
@@ -152,12 +152,16 @@ The **News Intel Agent** a fully autonomous [ReAct](https://arxiv.org/abs/2210.0
 |---|---|
 | `fetch_news` | Broad sweep across crypto, stocks, macro, commodities, oil, forex |
 | `fetch_price` | Live price + 52-week context for any asset |
+| `fetch_price_momentum` | **[NEW]** 7-day OHLCV history: 1d/3d/7d returns, trend direction, volume momentum |
 | `fetch_fear_greed` | Crypto Fear & Greed index with 7-day trend |
+| `fetch_social_sentiment` | **[NEW]** Scan Reddit for real-time crowd velocity and narrative shifts |
+| `scan_upcoming_catalysts` | **[NEW]** Scan Forex Factory and crypto calendars for imminent 24-72h catalysts |
 | `fetch_trending_crypto` | Top trending coins by search and market cap |
 | `search_news_by_asset` | Filter fetched news by keyword or asset name |
 | `summarize_findings` | Checkpoint regime assessment and key themes |
-| `emit_opportunities` | Record a specific trade setup with full parameters |
+| `emit_opportunities` | Record a specific trade setup with full parameters and conviction |
 | `request_deeper_analysis` | Flag a divergence requiring further investigation |
+| `audit_claims` | **[NEW]** MANDATORY self-audit before finish; auto-corrects bad confidence or missing price data |
 | `finish` | End the session and deliver final recommendations |
 
 ### Reflection Protocol
@@ -173,14 +177,30 @@ NEXT:     what specific question this raises
 
 ### Opportunity Emission Standards
 
+Every emitted opportunity must include a **Conviction Level**:
+- **HIGH**: 3+ independent signals align. Action allowed: BUY / SELL.
+- **MEDIUM**: 2 signals align. Action allowed: BUY / SELL.
+- **SPECULATIVE**: Technical + macro align but confirmation missing (e.g. waiting on a catalyst). Confidence 40-55. WATCH preferred, but still emitted for transparency.
+
 | Confidence | Requirement | Action allowed |
 |---|---|---|
-| > 80% | 3 independent confirming signals | BUY / SELL |
+| > 80% | 3 independent confirming signals + Live price fetched | BUY / SELL |
 | 65–80% | 2 signals | BUY / SELL |
 | 50–65% | 1 signal | WATCH only |
 | < 50% | — | Skip |
 
-Every emitted opportunity includes: asset, asset type, action, confidence, reasoning, entry range, target range, stop loss, invalidation condition, risks, and a late-signal flag.
+Every emitted opportunity includes: asset, asset type, action, conviction, confidence, reasoning, entry range, target range, stop loss, invalidation condition, risks, late-signal flag, and **exact tool sources**.
+
+### Anti-Hallucination & Provenance
+
+To prevent the AI from fabricating data or becoming overconfident:
+- **Citation Gating**: Every BUY/SELL setup must explicitly cite a `fetch_price` tool call. If the price was never fetched, the setup is **auto-downgraded** to WATCH.
+- **Spot Price Auto-Fill**: The model no longer guesses the current price. The agent records live quotes into a `priceCache` and auto-attaches them to the final opportunity.
+- **Data Grounding**: Every data result is stamped with `[DATA @ HH:MM:SS]` and a `[GROUNDING]` footer reminding the model which assets it has seen in news but *not* yet priced.
+
+### Session Memory & Retrospective
+
+The agent now remembers its past sessions. At the start of a new run, it reads the previous `session.log.json` and loads a **Retrospective Context**. Before making new calls, it checks its past calls (e.g. "BUY BTC @ 85% conviction"), fetches the live price, and scores itself ("AGED WELL" or "MISS") to continually calibrate its confidence.
 
 ### Resilience
 

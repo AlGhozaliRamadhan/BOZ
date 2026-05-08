@@ -226,7 +226,7 @@ export abstract class BaseAgent {
   private async callAIWithRetry(
     messages:   AgentMessage[],
     tools:      object[],
-    temperature = 0.3,
+    temperature = 0.12,   // low = deterministic tool calls, less creative gap-filling
     maxTokens   = 4096,
   ): Promise<AgentMessage> {
     let lastErr: any;
