@@ -30,7 +30,7 @@ export class NVDAIntradayAnalyzer {
 
   async runAnalysis(): Promise<void> {
     ln(hr2());
-    ln(`  ${clr.white('NVDA')}  ${clr.dim('AI Intraday Analyzer')}  ${clr.ghost('v' + PKG_VERSION)}`);    
+    ln(`  ${clr.white(config.ticker)}  ${clr.dim('AI Intraday Analyzer')}  ${clr.ghost('v' + PKG_VERSION)}`);    
     ln(hr2());
 
     try {
@@ -325,7 +325,7 @@ export class NVDAIntradayAnalyzer {
       const fgLbl = fg?.label ?? 'Unknown';
       const fgMom = fg?.momentum ?? 'N/A';
       const fgClr = fgVal < 30 ? clr.red : fgVal > 70 ? clr.green : clr.yellow;
-      const st    = crowdSentiment.stocktwits_nvda;
+      const st    = crowdSentiment.stocktwits_data;
       const bull  = st?.bull_ratio ?? 50;
       const bullClr = bull > 60 ? clr.green : bull < 40 ? clr.red : clr.yellow;
 
@@ -357,7 +357,7 @@ export class NVDAIntradayAnalyzer {
       section('summary', 'ANALYSIS SUMMARY');
       const summaryDir  = aiAnalysis.prediction === 'UP' ? 'bullish' : aiAnalysis.prediction === 'DOWN' ? 'bearish' : 'neutral';
       const summaryConf = aiAnalysis.confidence >= 70 ? 'high' : aiAnalysis.confidence >= 50 ? 'moderate' : 'low';
-      ln(`  ${clr.dim(`NVDA ${summaryDir} bias on ${summary.volatility_regime.toLowerCase()} volatility regime.`)}`);
+      ln(`  ${clr.dim(`${config.ticker} ${summaryDir} bias on ${summary.volatility_regime.toLowerCase()} volatility regime.`)}`);
       ln(`  ${clr.dim(`MTF alignment: ${mtfAlign}  ·  Market structure: ${structureLabel}`)}`);
       ln(`  ${clr.dim(`AI confidence ${summaryConf} (${aiAnalysis.confidence}%)  ·  R/R ${rrRatio.toFixed(2)}`)}`);
 

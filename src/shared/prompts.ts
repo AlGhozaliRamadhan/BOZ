@@ -1,6 +1,7 @@
 import type { MarketData, MacroContext } from '../types/types.js';
 import type { ChartPatternResult } from '../analyzers/chart.analyzer.js';
 import { rsiLabel } from '../utils/display.js';
+import { config } from '../config/config.js';
 
 export interface CrowdSentimentData {
   fear_greed?: {
@@ -8,7 +9,7 @@ export interface CrowdSentimentData {
     label?: string;
     momentum?: string;
   } | null;
-  stocktwits_nvda?: {
+  stocktwits_data?: {
     bull_ratio?: number;
     bullish?: number;
     bearish?: number;
@@ -69,7 +70,7 @@ export interface LongTermPromptData {
 }
 
 function buildContrarianNote(crowdSentiment: CrowdSentimentData): string {
-  const br = crowdSentiment.stocktwits_nvda?.bull_ratio ?? 50;
+  const br = crowdSentiment.stocktwits_data?.bull_ratio ?? 50;
   const fg = crowdSentiment.fear_greed?.value ?? 50;
   if (br > 70 && fg > 60) return '⚠ HIGH CONTRARIAN RISK — retail euphoria on both metrics; historically bearish for near-term';
   if (br > 70)            return '⚠ StockTwits crowd is euphoric (>70% bullish) — apply contrarian caution';
@@ -81,8 +82,8 @@ function buildContrarianNote(crowdSentiment: CrowdSentimentData): string {
 export function buildIntradayPrompt(data: IntradayPromptData): string {
   const { summary, mtfBias, marketStructure, volumePrice, patterns, chartPatterns, macroContext, newsItems, crowdSentiment } = data;
 
-  return `You are an expert NVDA stock trading analyst focused on INTRADAY trading.
-Your goal is to predict price movement over the next 2-6 hours.
+  return `You are an expert ${config.ticker} stock trading analyst focused on INTRADAY trading.
+Assess the current setup for ${config.ticker} and provide an actionable prediction for the next 2-6 hours.
 
 CURRENT MARKET DATA:
 - Current Price: $${summary.current_price.toFixed(2)}
@@ -132,7 +133,7 @@ ${newsItems.join('\n')}
 CROWD SENTIMENT (apply CONTRARIAN logic — see framework above):
 - Fear & Greed Index : ${crowdSentiment.fear_greed?.value ?? 'N/A'} / 100  (${crowdSentiment.fear_greed?.label ?? 'N/A'})
 - F&G Momentum      : ${crowdSentiment.fear_greed?.momentum ?? 'N/A'}
-- StockTwits NVDA   : ${crowdSentiment.stocktwits_nvda?.bull_ratio?.toFixed(1) ?? 'N/A'}% bullish  (bulls ${crowdSentiment.stocktwits_nvda?.bullish ?? 0} · bears ${crowdSentiment.stocktwits_nvda?.bearish ?? 0} · total tagged ${crowdSentiment.stocktwits_nvda?.total_with_sentiment ?? 0})
+- StockTwits Data   : ${crowdSentiment.stocktwits_data?.bull_ratio?.toFixed(1) ?? 'N/A'}% bullish  (bulls ${crowdSentiment.stocktwits_data?.bullish ?? 0} · bears ${crowdSentiment.stocktwits_data?.bearish ?? 0} · total tagged ${crowdSentiment.stocktwits_data?.total_with_sentiment ?? 0})
 - Overall Signals   : ${crowdSentiment.summary?.overall_signals?.join(', ') ?? 'NEUTRAL'}
 - Contrarian Note   : ${buildContrarianNote(crowdSentiment)}
 
@@ -171,8 +172,8 @@ export function buildLongTermPrompt(data: LongTermPromptData): string {
     newsItems,
   } = data;
 
-  return `You are an expert NVDA stock analyst focused on LONG-TERM investing (3-12 month horizon).
-Assess whether NVDA is a BUY, HOLD, or SELL for a long-term position.
+  return `You are an expert ${config.ticker} stock analyst focused on LONG-TERM investing (3-12 month horizon).
+Assess whether ${config.ticker} is a BUY, HOLD, or SELL for a long-term position.
 
 PRICE & TREND DATA:
 - Current Price: $${price.toFixed(2)}

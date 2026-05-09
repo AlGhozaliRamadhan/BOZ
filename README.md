@@ -20,7 +20,7 @@
   <a href="https://github.com/AlGhozaliRamadhan">
     <img src="https://img.shields.io/badge/Author-AGR-111111?style=flat"/>
   </a>
-  <img src="https://img.shields.io/badge/version-1.5.3-brightgreen?style=flat"/>
+  <img src="https://img.shields.io/badge/version-1.5.4-brightgreen?style=flat"/>
 </p>
 
 ---
@@ -33,8 +33,8 @@ Four analysis modes are available, selected interactively at runtime:
 
 | Mode | Horizon | Focus |
 |---|---|---|
-| **NVDA Intraday** | 2–6 hours | MTF confluence, momentum, volatility |
-| **NVDA Long-term** | 3–12 months | SMA structure, 52-week context, trend integrity |
+| **Market Intraday** | 2–6 hours | MTF confluence, momentum, volatility (NVDA / SPY) |
+| **Market Long-term** | 3–12 months | SMA structure, 52-week context, trend integrity (NVDA / SPY) |
 | **News Intel Analyzer** | Cross-asset | Multi-source news aggregation, cross-asset opportunity detection |
 | **News Intel Agent** *(Experimental)* | Cross-asset | Autonomous ReAct agent self-directed multi-step research with tool orchestration, internal reflection, and opportunity emission |
 
@@ -50,7 +50,7 @@ Three AI providers are supported, selectable interactively at startup or switche
 
 ## Output Preview
 
-### NVDA Market Verdict
+### Market Verdict (NVDA Example)
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -138,7 +138,7 @@ SPY and QQQ 5-day directional change. Classifies market regime as RISK_ON, RISK_
 > **Note:** All RSS sources are cached to disk (`%TEMP%/boz-news-cache.json`) with per-feed TTLs (5–10 min). Back-to-back runs reuse the cache and do not re-fetch.
 
 ### AI Synthesis
-Structured prompt sent to the configured model with full reasoning context. NVDA analysis output is parsed for PREDICTION, CONFIDENCE, STRATEGY, TARGET, and STOP. News Intel output is parsed for regime, events, opportunities, contrarian signals, and risk warnings.
+Structured prompt sent to the configured model with full reasoning context. Market analysis output is parsed for PREDICTION, CONFIDENCE, STRATEGY, TARGET, and STOP. News Intel output is parsed for regime, events, opportunities, contrarian signals, and risk warnings.
 
 ---
 

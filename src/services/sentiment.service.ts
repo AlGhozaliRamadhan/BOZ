@@ -1,11 +1,12 @@
 import axios from 'axios';
 import { log, clr } from '../utils/logger.js';
+import { config } from '../config/config.js';
 
 export class SentimentService {
   async fetchCrowdSentiment(): Promise<any> {
     const crowd = {
       fear_greed:          null as any,
-      stocktwits_nvda:     null as any,
+      stocktwits_data:     null as any,
       stocktwits_trending: [] as any[],
       summary:             {} as any,
     };
@@ -50,10 +51,10 @@ export class SentimentService {
       } catch { /* silently skip */ }
     }
 
-    // ── StockTwits NVDA ───────────────────────────────────────────────────────
+    // ── StockTwits Data ───────────────────────────────────────────────────────
     try {
       const stRes = await axios.get(
-        'https://api.stocktwits.com/api/2/streams/symbol/NVDA.json',
+        `https://api.stocktwits.com/api/2/streams/symbol/${config.ticker}.json`,
         { headers, timeout: 10_000 },
       );
       if (stRes.data?.messages) {
@@ -65,22 +66,22 @@ export class SentimentService {
           if (basic === 'Bearish') bearish++;
         }
         const total = bullish + bearish;
-        crowd.stocktwits_nvda = {
+        crowd.stocktwits_data = {
           bullish,
           bearish,
           total_with_sentiment: total,
           bull_ratio: total > 0 ? (bullish / total) * 100 : 50,
         };
-        const ratio      = crowd.stocktwits_nvda.bull_ratio;
+        const ratio      = crowd.stocktwits_data.bull_ratio;
         const ratioColor = ratio > 60 ? clr.green : ratio < 40 ? clr.red : clr.yellow;
         log.crowd('stocktwits', `${ratioColor(ratio.toFixed(0) + '% bullish')}  ${clr.dim(`bulls ${bullish} · bears ${bearish} · total ${messages.length}`)}`);
       }
     } catch (err) {
-      log.warn('crowd', `StockTwits NVDA error: ${(err as Error).message}`);
+      log.warn('crowd', `StockTwits ${config.ticker} error: ${(err as Error).message}`);
     }
 
     // ── Summary ───────────────────────────────────────────────────────────────
-    const bullRatio      = crowd.stocktwits_nvda?.bull_ratio ?? 50;
+    const bullRatio      = crowd.stocktwits_data?.bull_ratio ?? 50;
     const fgValue        = crowd.fear_greed?.value ?? 50;
     const overallSignals: string[] = [];
     if (fgValue   < 25) overallSignals.push('EXTREME_FEAR');
@@ -91,7 +92,7 @@ export class SentimentService {
 
     crowd.summary = {
       overall_signals:  overallSignals,
-      nvda_is_trending: !!crowd.stocktwits_nvda,
+      is_trending:      !!crowd.stocktwits_data,
     };
 
     return crowd;
