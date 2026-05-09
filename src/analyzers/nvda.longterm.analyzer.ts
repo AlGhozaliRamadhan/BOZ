@@ -28,7 +28,7 @@ export class NVDALongTermAnalyzer {
 
   async runAnalysis(): Promise<void> {
     ln(hr2());
-    ln(`  ${clr.white('NVDA')}  ${clr.dim('AI Long-Term Analyzer')}  ${clr.ghost('v' + PKG_VERSION)}`);
+    ln(`  ${clr.white(config.ticker)}  ${clr.dim('AI Long-Term Analyzer')}  ${clr.ghost('v' + PKG_VERSION)}`);
     ln(hr2());
 
     try {
@@ -326,7 +326,7 @@ export class NVDALongTermAnalyzer {
       section('summary', 'LONG-TERM ANALYSIS SUMMARY');
       const summaryDir  = aiAnalysis.prediction === 'UP' ? 'bullish' : aiAnalysis.prediction === 'DOWN' ? 'bearish' : 'neutral';
       const summaryConf = aiAnalysis.confidence >= 70 ? 'high' : aiAnalysis.confidence >= 50 ? 'moderate' : 'low';
-      ln(`  ${clr.dim(`NVDA ${summaryDir} on ${summaryConf} AI confidence (${aiAnalysis.confidence}%).`)}`);
+      ln(`  ${clr.dim(`${config.ticker} ${summaryDir} on ${summaryConf} AI confidence (${aiAnalysis.confidence}%).`)}`);
       ln(`  ${clr.dim(`Weekly trend: ${weeklyTrend}  ·  SMA-200: ${aboveSma200 ? 'above ▲' : 'below ▼'}  ·  ${goldenCross ? 'Golden Cross ✔' : 'Death Cross ✖'}`)}`);
       ln(`  ${clr.dim(`12-month target $${target.toFixed(2)}  ·  invalidation $${stop.toFixed(2)}  ·  R/R ${rrRatio.toFixed(2)}`)}`);
 

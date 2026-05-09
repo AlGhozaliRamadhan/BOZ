@@ -475,6 +475,15 @@ export class CLI {
             process.stdout.write(`\n  mode  ${c.wrap(c.green, 'ai-market-analyzer')}\n\n`);
 
             process.stdout.write(
+              `  ${c.wrap(c.ghost, 'Ticker')}  ` +
+              `${c.wrap(c.ghost, 'up / down to select, Enter to confirm')}\n\n`,
+            );
+            const tickerIdx = await vPick(['NVDA (Nvidia Corp)', 'SPY (S&P 500 ETF)']);
+            const chosenTicker = tickerIdx === 0 ? 'NVDA' : 'SPY';
+            config.setTicker(chosenTicker);
+            process.stdout.write(`\n  ticker  ${c.wrap(c.cyan, chosenTicker)}\n\n`);
+
+            process.stdout.write(
               `  ${c.wrap(c.ghost, 'Timeframe')}  ` +
               `${c.wrap(c.ghost, 'left / right to select, Enter to confirm')}\n\n`,
             );

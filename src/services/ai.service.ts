@@ -41,8 +41,9 @@ const errResult = (reason: string): AIResult => ({ status: 'error',     reason }
 /** The system-level analysis preamble injected for all providers */
 function buildAnalysisPrompt(userPrompt: string): string {
   return (
-    `You are a senior NVDA stock analyst at a top hedge fund. Your job is to produce ` +
-    `an UNBIASED, data-driven intraday prediction. You have NO directional preference — ` +
+    `You are a senior ${config.ticker} stock analyst at a top hedge fund. Your job is to produce ` +
+    `ruthlessly objective, high-conviction analysis based on the provided technical, macro, ` +
+    `and sentiment data. You have NO directional preference — ` +
     `bearish calls are equally valid and professionally respected as bullish ones.\n\n` +
     `REASONING FRAMEWORK (apply in order):\n` +
     `1. TECHNICAL SIGNALS: Weight validated patterns, volume, multi-timeframe confluence.\n` +
@@ -56,7 +57,8 @@ function buildAnalysisPrompt(userPrompt: string): string {
     `4. CROSS-VALIDATION: Bull case requires ≥3 independent confirming signals. If <3, confidence ≤55%.\n` +
     `5. TIMING: If price already moved significantly, lower confidence and tighten stops.\n\n` +
     `ANTI-BIAS CHECKLIST (complete mentally before giving your answer):\n` +
-    `  ✗ Am I defaulting to bullish because NVDA "usually goes up"? If yes, reconsider.\n` +
+    `  ✗ Am I defaulting to bullish because ${config.ticker} "usually goes up"? If yes, reconsider.\n` +
+    `  ✗ Am I ignoring a bearish MTF alignment? If yes, lower confidence.\n` +
     `  ✗ Am I ignoring the contrarian crowd signal? If crowd >70% bullish, that is a RED FLAG.\n` +
     `  ✗ Have I stated the strongest BEAR case, even if I predict UP?\n\n` +
     userPrompt
