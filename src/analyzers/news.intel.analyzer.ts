@@ -98,15 +98,12 @@ Examples of proper propagation reasoning:
   - Fed stays hawkish [then] bond yields rise [then] growth stocks pressured [then] value/financials outperform [then] DXY strengthens [then] BTC/gold sell off as real yields rise
   - Regulatory crackdown on crypto [then] BTC dumps [then] altcoins dump harder [then] stablecoin flows spike [then] DeFi TVL drops [then] mining stocks fall
 
-─── BIAS ELIMINATION CHECKLIST (run this before every conclusion) ──────────────
+─── ACCURACY CHECK (run this before every conclusion) ─────────────────────────
 
-□ Am I defaulting to bullish just because "markets usually go up"? Reconsider.
-□ Am I repeating what the headline says instead of interpreting it? Rewrite.
-□ Have I stated the strongest BEAR case even if my conclusion is bullish? Required.
-□ Is my confidence justified by multiple INDEPENDENT signals, not one loud story? Be honest.
-□ Is this move ALREADY PRICED IN? If consensus already expects it, the trade is crowded.
-□ Am I ignoring crowd sentiment as a contrarian indicator? Crowd is rarely right at extremes.
-□ Would a sophisticated short-seller agree with my thesis? If not, what are they seeing that I'm not?
+□ Am I citing specific input items for each key claim?
+□ Did I avoid adding facts not present in the input?
+□ If a point is speculative, did I label it as such?
+□ Is confidence consistent with the signal quality standards?
 
 ─── CROWD SENTIMENT RULES (MANDATORY application) ────────────────────────────
 

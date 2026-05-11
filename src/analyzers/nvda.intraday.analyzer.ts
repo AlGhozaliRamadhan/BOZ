@@ -53,7 +53,10 @@ export class NVDAIntradayAnalyzer {
       // ── Indicators ────────────────────────────────────────────────────────
       const stopCalc = spinner(`  ${badge('calc')}  Calculating technical indicators`);
       candles = this.indicators.calculateAll(candles);
-      const summary  = this.marketAnalyzer.getMarketSummary(candles);
+      const summary  = this.marketAnalyzer.getMarketSummary(candles, {
+        intervalMinutes: 60,
+        dropIncomplete: true,
+      });
       const patterns = this.marketAnalyzer.getRecentPatterns(candles, 96);
       stopCalc('ok');
 

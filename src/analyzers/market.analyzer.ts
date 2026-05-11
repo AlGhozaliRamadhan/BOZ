@@ -15,33 +15,92 @@ function classifyVolume(ratio: number): string {
   return 'NORMAL';
 }
 
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
+
+function inferIntervalMinutes(candles: Candle[], fallback = 60): number {
+  if (candles.length < 2) return fallback;
+  const diffs: number[] = [];
+  const start = Math.max(1, candles.length - 10);
+  for (let i = start; i < candles.length; i++) {
+    const diffMs = candles[i].date.getTime() - candles[i - 1].date.getTime();
+    if (diffMs > 0) diffs.push(diffMs / 60000);
+  }
+  if (diffs.length === 0) return fallback;
+  return Math.max(1, Math.round(median(diffs)));
+}
+
+function isLikelyIncomplete(latest: Candle, intervalMinutes: number, now: Date): boolean {
+  if (intervalMinutes >= 360) return false;
+  const ageMinutes = (now.getTime() - latest.date.getTime()) / 60000;
+  return ageMinutes >= 0 && ageMinutes < intervalMinutes;
+}
+
+function getCloseAtOrBefore(candles: Candle[], cutoffMs: number): number {
+  for (let i = candles.length - 1; i >= 0; i--) {
+    if (candles[i].date.getTime() <= cutoffMs) return candles[i].close;
+  }
+  return candles[0].close;
+}
+
 // ─── MarketAnalyzer ───────────────────────────────────────────────────────────
 
 export class MarketAnalyzer {
-  getMarketSummary(candles: Candle[]): MarketData {
+  getMarketSummary(
+    candles: Candle[],
+    options?: {
+      intervalMinutes?: number;
+      dropIncomplete?: boolean;
+      now?: Date;
+    },
+  ): MarketData {
     if (candles.length < 2) throw new Error('Need at least 2 candles for market summary');
-    const latest = candles[candles.length - 1];
-    const prev   = candles[candles.length - 2];
+    const intervalMinutes = options?.intervalMinutes ?? inferIntervalMinutes(candles, 60);
+    const now = options?.now ?? new Date();
+
+    const rawLatest = candles[candles.length - 1];
+    const isIncomplete = isLikelyIncomplete(rawLatest, intervalMinutes, now);
+    const shouldDrop = options?.dropIncomplete === true && isIncomplete && candles.length > 2;
+    const analysisCandles = shouldDrop ? candles.slice(0, -1) : candles;
+
+    const latest = analysisCandles[analysisCandles.length - 1];
+    const latestTime = latest.date.getTime();
 
     // ── 24h rolling metrics ───────────────────────────────────────────────────
-    const window24   = candles.slice(-24);
+    const cutoff1h  = latestTime - 60 * 60 * 1000;
+    const cutoff4h  = latestTime - 4 * 60 * 60 * 1000;
+    const cutoff24h = latestTime - 24 * 60 * 60 * 1000;
+    const window24Raw = analysisCandles.filter((c) => c.date.getTime() >= cutoff24h);
+    const window24 = window24Raw.length > 1 ? window24Raw : analysisCandles;
     const high24     = Math.max(...window24.map((c) => c.high));
     const low24      = Math.min(...window24.map((c) => c.low));
-    const close24ago = candles.length >= 24 ? candles[candles.length - 24].close : candles[0].close;
-    const close4ago  = candles.length >= 4  ? candles[candles.length - 4].close  : candles[0].close;
+    const close1ago  = getCloseAtOrBefore(analysisCandles, cutoff1h);
+    const close4ago  = getCloseAtOrBefore(analysisCandles, cutoff4h);
+    const close24ago = getCloseAtOrBefore(analysisCandles, cutoff24h);
 
-    const change1h    = ((latest.close - prev.close)  / prev.close)   * 100;
-    const change4h    = ((latest.close - close4ago)   / close4ago)    * 100;
-    const change24h   = ((latest.close - close24ago)  / close24ago)   * 100;
-    const range24hPct = ((high24 - low24) / low24) * 100;
+    const change1h    = close1ago > 0  ? ((latest.close - close1ago)  / close1ago)  * 100 : 0;
+    const change4h    = close4ago > 0  ? ((latest.close - close4ago)  / close4ago)  * 100 : 0;
+    const change24h   = close24ago > 0 ? ((latest.close - close24ago) / close24ago) * 100 : 0;
+    const range24hPct = low24 > 0 ? ((high24 - low24) / low24) * 100 : 0;
 
     // ── Volatility (std-dev of returns) ──────────────────────────────────────
     // returns[i] = % change from candles[i] to candles[i+1]
-    const returns = candles.slice(1).map((c, i) => (c.close - candles[i].close) / candles[i].close * 100);
-    //   vol1h  — minimum 4-bar window so stdDev is meaningful (was slice(-1) = always 0)
-    const vol1h  = stdDev(returns.slice(-4));
-    const vol4h  = stdDev(returns.slice(-16));
-    const vol24h = stdDev(returns.slice(-24));
+    const returns = analysisCandles.slice(1).map((c, i) => ({
+      time: c.date.getTime(),
+      value: (c.close - analysisCandles[i].close) / analysisCandles[i].close * 100,
+    }));
+    const returnsWithin = (cutoffMs: number): number[] =>
+      returns.filter((r) => r.time >= cutoffMs).map((r) => r.value);
+
+    const vol1h  = stdDev(returnsWithin(cutoff1h));
+    const vol4h  = stdDev(returnsWithin(cutoff4h));
+    const vol24h = stdDev(returnsWithin(cutoff24h));
 
     // ── Volatility regime ─────────────────────────────────────────────────────
     let volRegime  = 'NORMAL';
@@ -63,14 +122,6 @@ export class MarketAnalyzer {
     else if (latest.BB_Mid  && latest.close > latest.BB_Mid)  bbPosition = 'UPPER_HALF';
     else if (latest.BB_Low  && latest.close > latest.BB_Low)  bbPosition = 'LOWER_HALF';
     else if (latest.BB_Low)                                   bbPosition = 'BELOW_LOWER';
-
-    // ── Incomplete candle detection ───────────────────────────────────────────
-    const now = new Date();
-    const isIncomplete =
-      latest.date.getUTCFullYear() === now.getUTCFullYear() &&
-      latest.date.getUTCMonth()    === now.getUTCMonth()    &&
-      latest.date.getUTCDate()     === now.getUTCDate()     &&
-      latest.date.getUTCHours()    === now.getUTCHours();
 
     // ── Volume metrics ────────────────────────────────────────────────────────
     const volumeRatio = latest.Volume_Ratio ?? 1;
