@@ -56,7 +56,10 @@ export class NVDALongTermAnalyzer {
       // ── Indicators ────────────────────────────────────────────────────────
       const stopCalc = spinner(`  ${badge('calc')}  Calculating long-term indicators`);
       dailyCandles = this.indicators.calculateAll(dailyCandles);
-      const summary    = this.marketAnalyzer.getMarketSummary(dailyCandles);
+      const summary    = this.marketAnalyzer.getMarketSummary(dailyCandles, {
+        intervalMinutes: 1440,
+        dropIncomplete: false,
+      });
       const patterns30d  = this.marketAnalyzer.getRecentPatterns(dailyCandles, 30);
       const patterns90d  = this.marketAnalyzer.getRecentPatterns(dailyCandles, 90);
       const patterns365d = this.marketAnalyzer.getRecentPatterns(dailyCandles, Math.min(dailyCandles.length, 252));

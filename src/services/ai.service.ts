@@ -56,11 +56,11 @@ function buildAnalysisPrompt(userPrompt: string): string {
     `3. MACRO CONTEXT: Consider SPY/QQQ correlation and sector momentum.\n` +
     `4. CROSS-VALIDATION: Bull case requires ≥3 independent confirming signals. If <3, confidence ≤55%.\n` +
     `5. TIMING: If price already moved significantly, lower confidence and tighten stops.\n\n` +
-    `ANTI-BIAS CHECKLIST (complete mentally before giving your answer):\n` +
-    `  ✗ Am I defaulting to bullish because ${config.ticker} "usually goes up"? If yes, reconsider.\n` +
-    `  ✗ Am I ignoring a bearish MTF alignment? If yes, lower confidence.\n` +
-    `  ✗ Am I ignoring the contrarian crowd signal? If crowd >70% bullish, that is a RED FLAG.\n` +
-    `  ✗ Have I stated the strongest BEAR case, even if I predict UP?\n\n` +
+    // Removed anti-bias checklist after observing reduced accuracy; prefer explicit accuracy checks.
+    `ACCURACY CHECK (do before answering):\n` +
+    `  - Use only evidence from the provided data; do not invent metrics or news.\n` +
+    `  - If a key data point is missing, say so and lower confidence.\n` +
+    `  - Ensure prediction, confidence, and levels align with cited signals.\n\n` +
     userPrompt
   );
 }
