@@ -18,7 +18,7 @@ import {
   rsiColor, rsiLabel, confColor, volClassColor, obvColor, spinner,
 } from '../utils/display.js';
 
-export class NVDAIntradayAnalyzer {
+export class IntradayAnalyzer {
   private yahoo          = new YahooService();
   private indicators     = new IndicatorsService();
   private marketAnalyzer = new MarketAnalyzer();
@@ -45,7 +45,9 @@ export class NVDAIntradayAnalyzer {
       // ── Data fetch ────────────────────────────────────────────────────────
       const stopData = spinner(`  ${badge('data')}  Fetching price data`);
       const past = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
-      let candles = await this.yahoo.getHistoricalData(config.ticker, past, '1h');
+      let candles = await this.yahoo.getHistoricalData(config.ticker, past, '1h', true, {
+        regularHours: true,
+      });
       if (candles.length === 0) { stopData('err', 'No data from Yahoo'); throw new Error('No data fetched'); }
       stopData('ok', `${candles.length} bars loaded`);
       if (candles.length < 200) ln(`  ${WARN}  SMA-200 requires 200 bars — have ${candles.length}`);
@@ -68,7 +70,9 @@ export class NVDAIntradayAnalyzer {
       // ── MTF data ─────────────────────────────────────────────────────────
       const stopMtf = spinner(`  ${badge('mtf')}  Fetching multi-timeframe data`);
       const [candles4h, candlesDaily] = await Promise.all([
-        this.yahoo.getHistoricalData(config.ticker, new Date(now.getTime() - 30 * 86400_000), '1h', false),
+        this.yahoo.getHistoricalData(config.ticker, new Date(now.getTime() - 30 * 86400_000), '4h', false, {
+          regularHours: true,
+        }),
         this.yahoo.getHistoricalData(config.ticker, new Date(now.getTime() - 90 * 86400_000), '1d', false),
       ]);
       const mtf1h    = this.indicators.calculateAll([...candles]);
@@ -183,18 +187,39 @@ export class NVDAIntradayAnalyzer {
         return;
       }
 
+      // ── Counter-trend short gate ─────────────────────────────────────────
+      const latestBar = candles[candles.length - 1];
+      const prevBar   = candles[candles.length - 2];
+      const isBullBias = mtfAlign.includes('BULL');
+      const isBullStructure = structureLabel.startsWith('UPTREND');
+      const isAccumulation = vpSignal === 'ACCUMULATION';
+      const counterSignals = [isBullBias, isBullStructure, isAccumulation].filter(Boolean).length;
+      const breakdown = latestBar.close < (prevBar?.low ?? latestBar.close);
+      const momentumFlip = (latestBar.MACD ?? 0) < (latestBar.MACD_Signal ?? 0) && (latestBar.RSI ?? 50) < 50;
+      const confirmShort = breakdown || momentumFlip;
+      const gateShort = aiAnalysis.prediction === 'DOWN' && counterSignals >= 2 && !confirmShort;
+      const gateNote = gateShort
+        ? 'WAIT: Counter-trend short needs breakdown or momentum flip confirmation'
+        : '';
+
       // ════════════════════════════════════════════════════════════════════════
       // VERDICT BOX — printed first so you see the result immediately
       // ════════════════════════════════════════════════════════════════════════
+      const displayPrediction = gateShort ? 'UNKNOWN' : aiAnalysis.prediction;
+      const displayConfidence = gateShort ? Math.min(aiAnalysis.confidence, 50) : aiAnalysis.confidence;
+      const displayStrategy = gateShort
+        ? 'WAIT for confirmation: breakdown below prior low or momentum flip'
+        : (aiAnalysis.strategy ?? 'N/A');
+
       const predColorFn =
-        aiAnalysis.prediction === 'UP'   ? clr.green :
-        aiAnalysis.prediction === 'DOWN' ? clr.red   : clr.yellow;
+        displayPrediction === 'UP'   ? clr.green :
+        displayPrediction === 'DOWN' ? clr.red   : clr.yellow;
       const predLabel =
-        aiAnalysis.prediction === 'UP'   ? 'LONG'  :
-        aiAnalysis.prediction === 'DOWN' ? 'SHORT' : 'UNCERTAIN';
+        displayPrediction === 'UP'   ? 'LONG'  :
+        displayPrediction === 'DOWN' ? 'SHORT' : 'WAIT';
       const predBadgeColor: BadgeColor =
-        aiAnalysis.prediction === 'UP'   ? 'green' :
-        aiAnalysis.prediction === 'DOWN' ? 'red'   : 'yellow';
+        displayPrediction === 'UP'   ? 'green' :
+        displayPrediction === 'DOWN' ? 'red'   : 'yellow';
 
       const entryPrice  = summary.current_price;
       const targetPrice = aiAnalysis.target_price ?? (entryPrice * 1.02);
@@ -207,7 +232,7 @@ export class NVDAIntradayAnalyzer {
 
       ln('');
       ln(hr2());
-      ln(`  ${badge('verdict', predBadgeColor)}  ${predColorFn(predLabel)}  ${clr.dim('·')}  ${confColor(aiAnalysis.confidence)}  confidence  ${clr.dim('·')}  R/R ${clr.dim('1 : ' + rrRatio.toFixed(2))}`);
+      ln(`  ${badge('verdict', predBadgeColor)}  ${predColorFn(predLabel)}  ${clr.dim('·')}  ${confColor(displayConfidence)}  confidence  ${clr.dim('·')}  R/R ${clr.dim('1 : ' + rrRatio.toFixed(2))}`);
       ln(hr2());
       row('entry',    clr.dim('$' + entryPrice.toFixed(2)));
       row('target',   clr.green('$' + targetPrice.toFixed(2)) + clr.dim('  (' + pctColor(targetPct) + ')'), 'green');
@@ -215,8 +240,21 @@ export class NVDAIntradayAnalyzer {
       if (isFinite(targetPct) && Math.abs(targetPct) > 50) {
         ln(`  ${WARN}  Target is >50% from entry — verify AI output format`);
       }
-      if (aiAnalysis.strategy) row('strategy', clr.dim(aiAnalysis.strategy));
+      row('strategy', clr.dim(displayStrategy));
       ln(hr2());
+
+      if (gateShort) {
+        ln(`  ${WARN}  ${gateNote}`);
+        ln('');
+      }
+
+      if (aiAnalysis.reasons && aiAnalysis.reasons.length > 0) {
+        section('reasons', 'AI RATIONALE');
+        aiAnalysis.reasons.forEach((reason) => {
+          ln(`  ${clr.dim('·')}  ${reason}`);
+        });
+        ln('');
+      }
 
       if (aiAnalysis.raw_response) {
         ln('');
@@ -343,14 +381,21 @@ export class NVDAIntradayAnalyzer {
       if (st) {
         row('stocktwits', bullClr(bull.toFixed(0) + '% bullish') + clr.dim(`  (bulls ${st.bullish} · bears ${st.bearish} · total ${st.total_with_sentiment})`));
       }
+      const socialBuzz = crowdSentiment.social_buzz ?? [];
+      for (const buzz of socialBuzz) {
+        const top = buzz.top_posts && buzz.top_posts.length > 0
+          ? `  (${buzz.top_posts.slice(0, 3).join(' · ')})`
+          : '';
+        row(buzz.source.toLowerCase(), clr.dim(`${buzz.mentions} mentions${top}`));
+      }
       const signals = crowdSentiment.summary?.overall_signals as string[] ?? [];
       if (signals.length) row('signals', signals.map((s: string) => clr.dim(s)).join('  '));
 
       // ── AI section (full detail) ──────────────────────────────────────────
       section('ai', `AI PREDICTION  ${clr.dim('(' + config.aiModel + ')')}`, 'magenta');
       row('decision',    predColorFn(predLabel), predBadgeColor);
-      row('confidence',  confColor(aiAnalysis.confidence));
-      row('strategy',    clr.dim(aiAnalysis.strategy ?? 'N/A'));
+      row('confidence',  confColor(displayConfidence));
+      row('strategy',    clr.dim(displayStrategy));
       row('entry',       clr.dim('$' + entryPrice.toFixed(2)));
       row('target',      clr.green('$' + targetPrice.toFixed(2)) + clr.dim(`  (${pctColor(targetPct)})`), 'green');
       row('stop',        clr.red('$'   + stopPrice.toFixed(2))   + clr.dim(`  (${pctColor(stopPct)})`),   'red');
@@ -358,11 +403,11 @@ export class NVDAIntradayAnalyzer {
 
       // ── Summary ───────────────────────────────────────────────────────────
       section('summary', 'ANALYSIS SUMMARY');
-      const summaryDir  = aiAnalysis.prediction === 'UP' ? 'bullish' : aiAnalysis.prediction === 'DOWN' ? 'bearish' : 'neutral';
-      const summaryConf = aiAnalysis.confidence >= 70 ? 'high' : aiAnalysis.confidence >= 50 ? 'moderate' : 'low';
+      const summaryDir  = displayPrediction === 'UP' ? 'bullish' : displayPrediction === 'DOWN' ? 'bearish' : 'neutral';
+      const summaryConf = displayConfidence >= 70 ? 'high' : displayConfidence >= 50 ? 'moderate' : 'low';
       ln(`  ${clr.dim(`${config.ticker} ${summaryDir} bias on ${summary.volatility_regime.toLowerCase()} volatility regime.`)}`);
       ln(`  ${clr.dim(`MTF alignment: ${mtfAlign}  ·  Market structure: ${structureLabel}`)}`);
-      ln(`  ${clr.dim(`AI confidence ${summaryConf} (${aiAnalysis.confidence}%)  ·  R/R ${rrRatio.toFixed(2)}`)}`);
+      ln(`  ${clr.dim(`AI confidence ${summaryConf} (${displayConfidence}%)  ·  R/R ${rrRatio.toFixed(2)}`)}`);
 
       ln('');
       ln(hr2());

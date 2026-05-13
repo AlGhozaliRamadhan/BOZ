@@ -3,12 +3,94 @@ export const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] 
 import { Candle } from '../types/types.js';
 import { log, clr } from '../utils/logger.js';
 
+type HistoricalOptions = {
+  includePrePost?: boolean;
+  regularHours?: boolean;
+  resampleIntervalMinutes?: number;
+  adjustPrices?: boolean;
+};
+
+const NY_TIME = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+const REGULAR_START_MINUTES = 9 * 60 + 30;
+const REGULAR_END_MINUTES = 16 * 60;
+
+function getNyParts(date: Date): { dayKey: string; minutes: number } {
+  const parts = NY_TIME.formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const part of parts) map[part.type] = part.value;
+  const hour = Number(map.hour ?? '0');
+  const minute = Number(map.minute ?? '0');
+  const minutes = (hour * 60) + minute;
+  const dayKey = `${map.year ?? '0000'}-${map.month ?? '00'}-${map.day ?? '00'}`;
+  return { dayKey, minutes };
+}
+
+function isRegularHoursCandle(candle: Candle): boolean {
+  const { minutes } = getNyParts(candle.date);
+  return minutes >= REGULAR_START_MINUTES && minutes < REGULAR_END_MINUTES;
+}
+
+function resampleCandles(
+  candles: Candle[],
+  intervalMinutes: number,
+  useNyAnchor: boolean,
+): Candle[] {
+  if (intervalMinutes <= 0 || candles.length === 0) return candles;
+  const intervalMs = intervalMinutes * 60 * 1000;
+  const result: Candle[] = [];
+  let currentKey: string | null = null;
+  let bucket: Candle | null = null;
+
+  for (const candle of candles) {
+    let key: string;
+    if (useNyAnchor) {
+      const { dayKey, minutes } = getNyParts(candle.date);
+      const bucketIndex = Math.floor((minutes - REGULAR_START_MINUTES) / intervalMinutes);
+      if (bucketIndex < 0) continue;
+      key = `${dayKey}:${bucketIndex}`;
+    } else {
+      key = String(Math.floor(candle.date.getTime() / intervalMs));
+    }
+
+    if (key !== currentKey) {
+      if (bucket) result.push(bucket);
+      bucket = {
+        date: candle.date,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: candle.volume,
+      };
+      currentKey = key;
+    } else if (bucket) {
+      bucket.high = Math.max(bucket.high, candle.high);
+      bucket.low = Math.min(bucket.low, candle.low);
+      bucket.close = candle.close;
+      bucket.volume += candle.volume;
+    }
+  }
+
+  if (bucket) result.push(bucket);
+  return result;
+}
+
 export class YahooService {
   async getHistoricalData(
     symbol: string,
     period1: Date,
     interval: '1m' | '5m' | '15m' | '1h' | '4h' | '1d' = '1h',
     logRealtime: boolean = true,
+    options?: HistoricalOptions,
   ): Promise<Candle[]> {
     try {
       const periodStr =
@@ -16,16 +98,21 @@ export class YahooService {
         interval === '1d' ? '90d' : '30d';
 
       // NOTE: Yahoo Finance does not support a native 4h interval.
-      // When interval '4h' is requested we silently fetch 1h bars instead.
-      // The caller is responsible for labelling these correctly in the UI.
-      const resolvedInterval = interval === '4h' ? '1h' : interval;
+      // When interval '4h' is requested we fetch 1h and resample.
+      const useSynthetic4h = interval === '4h';
+      const resolvedInterval = useSynthetic4h ? '1h' : interval;
+      const resampleMinutes = useSynthetic4h ? 240 : options?.resampleIntervalMinutes;
+      const includePrePost = options?.includePrePost ?? true;
 
-      log.data('fetch', `${clr.white(symbol)}  interval ${clr.cyan(interval === '4h' ? '1h (4h synthetic - WARNING: no native 4h)' : interval)}  window ${clr.dim(periodStr)}`);
+      log.data(
+        'fetch',
+        `${clr.white(symbol)}  interval ${clr.cyan(useSynthetic4h ? '1h -> 4h' : interval)}  window ${clr.dim(periodStr)}`,
+      );
 
       const result = await yahooFinance.chart(symbol, {
         period1,
         interval: resolvedInterval as any,
-        includePrePost: true,
+        includePrePost,
       });
 
       if (!result?.quotes?.length) throw new Error('No data retrieved from Yahoo Finance');
@@ -68,14 +155,46 @@ export class YahooService {
         log.warn('data', `Stale data — latest bar is ${Math.round(dataAgeMins)} min old`);
       }
 
-      return validQuotes.map((q: any) => ({
-        date:   new Date(q.date),
-        open:   q.open   ?? 0,
-        high:   q.high   ?? 0,
-        low:    q.low    ?? 0,
-        close:  q.close  ?? 0,
-        volume: q.volume ?? 0,
-      }));
+      const adjSeriesRaw = (result as any)?.indicators?.adjclose;
+      const adjSeries = Array.isArray(adjSeriesRaw)
+        ? (adjSeriesRaw[0]?.adjclose ?? adjSeriesRaw)
+        : adjSeriesRaw?.adjclose;
+
+      const quotesWithIndex = result.quotes
+        .map((q: any, i: number) => ({ q, i }))
+        .filter(({ q }: { q: any }) => q.close != null);
+
+      let candles: Candle[] = quotesWithIndex.map(({ q, i }: { q: any; i: number }) => {
+        const close = q.close ?? 0;
+        const adjClose = Array.isArray(adjSeries) ? adjSeries[i] : undefined;
+        const useAdjust = options?.adjustPrices === true && typeof adjClose === 'number' && close > 0;
+        const ratio = useAdjust ? adjClose / close : 1;
+
+        return {
+          date:   new Date(q.date),
+          open:   (q.open   ?? 0) * ratio,
+          high:   (q.high   ?? 0) * ratio,
+          low:    (q.low    ?? 0) * ratio,
+          close:  useAdjust ? adjClose : close,
+          volume: q.volume ?? 0,
+        };
+      });
+
+      if (options?.adjustPrices && (!adjSeries || adjSeries.length === 0)) {
+        log.warn('yahoo', 'Adjusted prices requested but adjclose series was unavailable');
+      }
+
+      if (options?.regularHours) {
+        candles = candles.filter(isRegularHoursCandle);
+        log.info('filter', 'Regular hours only (09:30-16:00 ET)');
+      }
+
+      if (resampleMinutes) {
+        candles = resampleCandles(candles, resampleMinutes, options?.regularHours === true);
+        log.info('resample', `Resampled to ${resampleMinutes}m bars`);
+      }
+
+      return candles;
 
     } catch (error) {
       log.error('yahoo', `Data fetch failed: ${(error as Error).message}`);

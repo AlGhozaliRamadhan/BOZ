@@ -15,6 +15,11 @@ export interface CrowdSentimentData {
     bearish?: number;
     total_with_sentiment?: number;
   } | null;
+  social_buzz?: {
+    source: string;
+    mentions: number;
+    top_posts?: string[];
+  }[] | null;
   summary?: {
     overall_signals?: string[];
   } | null;
@@ -67,6 +72,7 @@ export interface LongTermPromptData {
   chartPatterns: ChartPatternResult;
   macroContext: MacroContext;
   newsItems: string[];
+  crowdSentiment: CrowdSentimentData;
 }
 
 function buildContrarianNote(crowdSentiment: CrowdSentimentData): string {
@@ -77,6 +83,19 @@ function buildContrarianNote(crowdSentiment: CrowdSentimentData): string {
   if (br < 30 && fg < 40) return '✓ HIGH CONTRARIAN OPPORTUNITY — retail fear on both metrics; historically bullish for near-term';
   if (br < 30)            return '✓ StockTwits crowd is fearful (<30% bullish) — apply contrarian bullish bias';
   return 'Neutral — no extreme crowd signal';
+}
+
+function formatSocialBuzz(crowdSentiment: CrowdSentimentData): string {
+  const buzz = crowdSentiment.social_buzz ?? [];
+  if (buzz.length === 0) return 'None detected';
+  return buzz
+    .map((b) => {
+      const top = b.top_posts && b.top_posts.length > 0
+        ? ` | top: ${b.top_posts.slice(0, 3).join(' · ')}`
+        : '';
+      return `- ${b.source}: ${b.mentions} mentions${top}`;
+    })
+    .join('\n');
 }
 
 export function buildIntradayPrompt(data: IntradayPromptData): string {
@@ -101,7 +120,7 @@ CURRENT MARKET DATA:
 
 MULTI-TIMEFRAME:
 - 1H Bias: ${mtfBias.bias1h}
-- 4H Bias: ${mtfBias.bias4h}  (NOTE: computed from 1h bars — Yahoo Finance has no native 4h feed)
+- 4H Bias: ${mtfBias.bias4h}
 - Daily Bias: ${mtfBias.biasDaily}
 - Alignment: ${mtfBias.alignment}  (confidence: ${mtfBias.confidence})
 
@@ -126,6 +145,8 @@ MACRO CONTEXT:
 - Risk Sentiment: ${macroContext.risk_sentiment}
 - SPY: ${macroContext.sp500_correlation}
 - QQQ: ${macroContext.nasdaq_correlation}
+- VIX: ${macroContext.vix_level !== null && macroContext.vix_level !== undefined ? macroContext.vix_level.toFixed(2) : 'N/A'}
+- TNX (10Y): ${macroContext.tnx_yield !== null && macroContext.tnx_yield !== undefined ? macroContext.tnx_yield.toFixed(2) + '%' : 'N/A'}
 
 NEWS:
 ${newsItems.join('\n')}
@@ -137,12 +158,19 @@ CROWD SENTIMENT (apply CONTRARIAN logic — see framework above):
 - Overall Signals   : ${crowdSentiment.summary?.overall_signals?.join(', ') ?? 'NEUTRAL'}
 - Contrarian Note   : ${buildContrarianNote(crowdSentiment)}
 
+SOCIAL MEDIA BUZZ:
+${formatSocialBuzz(crowdSentiment)}
+
 Provide your intraday prediction using the format:
 PREDICTION: UP or DOWN
 CONFIDENCE: 0-100
 STRATEGY: short intraday strategy
 TARGET: $price
 STOP: $price
+REASONS:
+- reason 1 (cite data above)
+- reason 2 (cite data above)
+- reason 3 (cite data above)
 `;
 }
 
@@ -170,6 +198,7 @@ export function buildLongTermPrompt(data: LongTermPromptData): string {
     chartPatterns,
     macroContext,
     newsItems,
+    crowdSentiment,
   } = data;
 
   return `You are an expert ${config.ticker} stock analyst focused on LONG-TERM investing (3-12 month horizon).
@@ -207,9 +236,14 @@ MACRO CONTEXT:
 - Risk: ${macroContext.risk_sentiment}
 - SPY: ${macroContext.sp500_correlation}
 - QQQ: ${macroContext.nasdaq_correlation}
+- VIX: ${macroContext.vix_level !== null && macroContext.vix_level !== undefined ? macroContext.vix_level.toFixed(2) : 'N/A'}
+- TNX (10Y): ${macroContext.tnx_yield !== null && macroContext.tnx_yield !== undefined ? macroContext.tnx_yield.toFixed(2) + '%' : 'N/A'}
 
 RECENT NEWS & CATALYSTS:
 ${newsItems.join('\n')}
+
+SOCIAL MEDIA BUZZ:
+${formatSocialBuzz(crowdSentiment)}
 
 Provide your long-term outlook using the format:
 PREDICTION: UP or DOWN
@@ -217,5 +251,9 @@ CONFIDENCE: 0-100
 STRATEGY: long-term position strategy
 TARGET: $price (12-month target)
 STOP: $price (long-term invalidation level)
+REASONS:
+- reason 1 (cite data above)
+- reason 2 (cite data above)
+- reason 3 (cite data above)
 `;
 }

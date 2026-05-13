@@ -42,6 +42,12 @@ export interface MacroContext {
   nasdaq_correlation:      string;
   risk_sentiment:          string;
   tech_sector_performance: Record<string, unknown>;
+  sp500_corr?:             number | null;
+  sp500_beta?:             number | null;
+  nasdaq_corr?:            number | null;
+  nasdaq_beta?:            number | null;
+  vix_level?:              number | null;
+  tnx_yield?:              number | null;
 }
 
 export interface Candle {
