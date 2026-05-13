@@ -1,4 +1,5 @@
 import axios from 'axios';
+import https from 'https';
 import { log, clr } from '../utils/logger.js';
 import { config } from '../config/config.js';
 
@@ -8,12 +9,18 @@ export class SentimentService {
       fear_greed:          null as any,
       stocktwits_data:     null as any,
       stocktwits_trending: [] as any[],
+      social_buzz:         [] as any[],
       summary:             {} as any,
     };
 
     const headers = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     };
+
+    const redditAgent = new https.Agent({
+      keepAlive: true,
+      minVersion: 'TLSv1.2',
+    });
 
     // ── Fear & Greed (CNN Money) ───────────────────────────────────────────────
     try {
@@ -78,6 +85,44 @@ export class SentimentService {
       }
     } catch (err) {
       log.warn('crowd', `StockTwits ${config.ticker} error: ${(err as Error).message}`);
+    }
+
+    // ── Reddit Search (Social Buzz) ──────────────────────────────────────────
+    try {
+      const query = encodeURIComponent(`${config.ticker} OR $${config.ticker}`);
+      const bases = ['https://www.reddit.com', 'https://old.reddit.com'];
+      let posts: any[] = [];
+      let lastError: string | null = null;
+
+      for (const base of bases) {
+        try {
+          const redditRes = await axios.get(
+            `${base}/search.json?q=${query}&sort=new&limit=10`,
+            { headers, timeout: 10_000, httpsAgent: redditAgent },
+          );
+          posts = redditRes.data?.data?.children ?? [];
+          if (posts.length > 0) break;
+        } catch (err) {
+          lastError = (err as Error).message;
+        }
+      }
+
+      const titles = posts
+        .map((p: any) => p?.data?.title)
+        .filter((t: any) => typeof t === 'string')
+        .slice(0, 5);
+      if (posts.length > 0) {
+        crowd.social_buzz.push({
+          source: 'Reddit',
+          mentions: posts.length,
+          top_posts: titles,
+        });
+        log.crowd('reddit', `${clr.dim(`${posts.length} mentions (last 10)`)}`);
+      } else if (lastError) {
+        log.warn('crowd', `Reddit ${config.ticker} search error: ${lastError}`);
+      }
+    } catch (err) {
+      log.warn('crowd', `Reddit ${config.ticker} search error: ${(err as Error).message}`);
     }
 
     // ── Summary ───────────────────────────────────────────────────────────────

@@ -3,8 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { createRequire } from 'module';
-import { NVDAIntradayAnalyzer } from '../analyzers/nvda.intraday.analyzer.js';
-import { NVDALongTermAnalyzer } from '../analyzers/nvda.longterm.analyzer.js';
+import { IntradayAnalyzer } from '../analyzers/intraday.analyzer.js';
+import { LongTermAnalyzer } from '../analyzers/longterm.analyzer.js';
 import { NewsIntelAnalyzer } from '../analyzers/news.intel.analyzer.js';
 import { NewsIntelAgent } from '../agents/news.intel.agent.js';
 import { config, type AIProvider } from '../config/config.js';
@@ -497,9 +497,9 @@ export class CLI {
             );
 
             if (tfIdx === 0) {
-              await new NVDAIntradayAnalyzer().runAnalysis();
+              await new IntradayAnalyzer().runAnalysis();
             } else {
-              await new NVDALongTermAnalyzer().runAnalysis();
+              await new LongTermAnalyzer().runAnalysis();
             }
           } else if (modeIdx === 1) {
             process.stdout.write(`\n  mode  ${c.wrap(c.yellow, 'news-intel-analyzer')}\n\n`);

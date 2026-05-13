@@ -92,8 +92,9 @@ Followed by a full breakdown: market snapshot, technical indicators, volatility 
 ## Signals & Data Sources
 
 ### Price Data (Yahoo Finance)
-- 1h candles (last 5 days) for intraday
-- Daily candles (1 year) + weekly proxy (2 years) for long-term
+- 1h candles (last 5 days) for intraday (regular-hours filter for equities)
+- 4h candles are resampled from 1h bars for true MTF alignment
+- Daily candles (2 years, adjusted) for long-term; weekly trend aggregated by calendar week
 - Parallel fetch for MTF timeframes
 - Live quote fetch for any asset via `fetch_price` tool (crypto, stocks, forex, commodities, indices)
 
@@ -118,11 +119,14 @@ Peak and trough detection on the last 24 candles to identify Higher Highs / High
 Average volume on up-moves vs down-moves over the last 20 candles. Ratio above 1.15× signals accumulation; below 0.85× signals distribution.
 
 ### Macro Context
-SPY and QQQ 5-day directional change. Classifies market regime as RISK_ON, RISK_OFF, or NEUTRAL.
+- 60d correlation and beta vs SPY and QQQ
+- Risk sentiment inferred from 20d SPY move (manual override supported)
+- Optional context: VIX level and 10Y yield (TNX)
 
 ### Crowd Sentiment
 - **Fear & Greed** alternative.me, 7-day window with trend momentum (RISING_GREED / RISING_FEAR / STABLE)
-- **StockTwits NVDA** real-time bull/bear message ratio
+- **StockTwits (active ticker)** real-time bull/bear message ratio
+- **Reddit Search** recent post mentions for the active ticker (social buzz)
 - **CoinGecko community** top 10 coin price direction used as cross-asset mood
 
 ### News Intel Sources

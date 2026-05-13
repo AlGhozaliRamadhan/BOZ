@@ -4,6 +4,7 @@ import { ChartAnalyzer } from './chart.analyzer.js';
 import { IndicatorsService } from '../services/indicators.service.js';
 import { YahooService } from '../services/yahoo.service.js';
 import { AIService } from '../services/ai.service.js';
+import { SentimentService } from '../services/sentiment.service.js';
 import { NewsService } from '../services/news.service.js';
 import { MacroService } from '../services/macro.service.js';
 import { config } from '../config/config.js';
@@ -17,12 +18,53 @@ import {
   rsiColor, rsiLabel, confColor, spinner,
 } from '../utils/display.js';
 
-export class NVDALongTermAnalyzer {
+function isoWeekKey(date: Date): string {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-${String(weekNo).padStart(2, '0')}`;
+}
+
+function aggregateWeeklyCandles(candles: { date: Date; open: number; high: number; low: number; close: number; volume: number }[]): { date: Date; open: number; high: number; low: number; close: number; volume: number }[] {
+  if (candles.length === 0) return [];
+  const result: { date: Date; open: number; high: number; low: number; close: number; volume: number }[] = [];
+  let bucketKey: string | null = null;
+  let bucket: { date: Date; open: number; high: number; low: number; close: number; volume: number } | null = null;
+
+  for (const candle of candles) {
+    const key = isoWeekKey(candle.date);
+    if (key !== bucketKey) {
+      if (bucket) result.push(bucket);
+      bucketKey = key;
+      bucket = {
+        date: candle.date,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: candle.volume,
+      };
+    } else if (bucket) {
+      bucket.high = Math.max(bucket.high, candle.high);
+      bucket.low = Math.min(bucket.low, candle.low);
+      bucket.close = candle.close;
+      bucket.volume += candle.volume;
+    }
+  }
+
+  if (bucket) result.push(bucket);
+  return result;
+}
+
+export class LongTermAnalyzer {
   private yahoo          = new YahooService();
   private indicators     = new IndicatorsService();
   private marketAnalyzer = new MarketAnalyzer();
   private chartAnalyzer  = new ChartAnalyzer();
   private aiService      = new AIService();
+  private sentiment      = new SentimentService();
   private news           = new NewsService();
   private macro          = new MacroService();
 
@@ -40,18 +82,21 @@ export class NVDALongTermAnalyzer {
       row('model',    clr.dim(config.aiModel), 'dim');
       sep();
 
-      // ── Data fetch — daily (1 year) ───────────────────────────────────────
-      const stopDaily = spinner(`  ${badge('data')}  Fetching daily data  (1 year)`);
-      const oneYearAgo  = new Date(now.getTime() - 365 * 86400_000);
-      let dailyCandles  = await this.yahoo.getHistoricalData(config.ticker, oneYearAgo, '1d');
-      if (dailyCandles.length === 0) { stopDaily('err', 'No data from Yahoo'); throw new Error('No daily data'); }
-      stopDaily('ok', `${dailyCandles.length} daily bars`);
+      // ── Data fetch — daily (2 years, adjusted) ────────────────────────────
+      const stopDaily = spinner(`  ${badge('data')}  Fetching daily data  (2 years, adjusted)`);
+      const twoYearsAgo = new Date(now.getTime() - 2 * 365 * 86400_000);
+      const dailyAll = await this.yahoo.getHistoricalData(config.ticker, twoYearsAgo, '1d', true, {
+        adjustPrices: true,
+      });
+      if (dailyAll.length === 0) { stopDaily('err', 'No data from Yahoo'); throw new Error('No daily data'); }
+      stopDaily('ok', `${dailyAll.length} daily bars`);
 
-      // ── Data fetch — weekly proxy (2 years) ───────────────────────────────
-      const stopWeekly = spinner(`  ${badge('data')}  Fetching weekly trend  (2 years)`);
-      const twoYearsAgo   = new Date(now.getTime() - 2 * 365 * 86400_000);
-      const weeklyCandles = await this.yahoo.getHistoricalData(config.ticker, twoYearsAgo, '1d', false);
-      stopWeekly('ok', `${weeklyCandles.length} bars for weekly trend`);
+      // ── Weekly aggregation (calendar weeks) ──────────────────────────────
+      const stopWeekly = spinner(`  ${badge('data')}  Aggregating weekly trend  (2 years)`);
+      const weeklyCandles = aggregateWeeklyCandles(dailyAll);
+      stopWeekly('ok', `${weeklyCandles.length} weekly bars`);
+
+      let dailyCandles = dailyAll.slice(-Math.min(dailyAll.length, 252));
 
       // ── Indicators ────────────────────────────────────────────────────────
       const stopCalc = spinner(`  ${badge('calc')}  Calculating long-term indicators`);
@@ -79,6 +124,11 @@ export class NVDALongTermAnalyzer {
       const stopNews = spinner(`  ${badge('news')}  Fetching ${config.ticker} news & catalysts`);
       const newsItems = await this.news.getStockNews(config.ticker);
       stopNews('ok', `${newsItems.length} items`);
+
+      // ── Sentiment ─────────────────────────────────────────────────────────
+      const stopSent = spinner(`  ${badge('crowd')}  Fetching crowd sentiment`);
+      const crowdSentiment = await this.sentiment.fetchCrowdSentiment();
+      stopSent('ok', 'Fear & Greed · StockTwits · Reddit ready');
 
       // ── Validation ────────────────────────────────────────────────────────
       const stopVal = spinner(`  ${badge('validate')}  Running long-term validation`);
@@ -138,6 +188,7 @@ export class NVDALongTermAnalyzer {
         chartPatterns,
         macroContext,
         newsItems,
+        crowdSentiment,
       });
 
       const aiAnalysis = await this.aiService.analyze(prompt);
@@ -147,18 +198,35 @@ export class NVDALongTermAnalyzer {
         return;
       }
 
+      // ── Counter-trend bearish gate ───────────────────────────────────────
+      const isUpWeekly = weeklyTrend === 'UPTREND';
+      const isAboveSma200 = aboveSma200 === true;
+      const isGolden = goldenCross === true;
+      const bullishLongSignals = [isUpWeekly, isAboveSma200, isGolden].filter(Boolean).length;
+      const confirmBear = (aboveSma200 === false) || (weeklyTrend === 'DOWNTREND') || ((sma50 !== null && price < sma50) && (rsi !== null && rsi < 45));
+      const gateBear = aiAnalysis.prediction === 'DOWN' && bullishLongSignals >= 2 && !confirmBear;
+      const gateNote = gateBear
+        ? 'WAIT: Long-term down call needs confirmation (weekly downtrend or break below SMA-200)'
+        : '';
+
       // ════════════════════════════════════════════════════════════════════════
       // VERDICT BOX
       // ════════════════════════════════════════════════════════════════════════
+      const displayPrediction = gateBear ? 'UNKNOWN' : aiAnalysis.prediction;
+      const displayConfidence = gateBear ? Math.min(aiAnalysis.confidence, 55) : aiAnalysis.confidence;
+      const displayStrategy = gateBear
+        ? 'WAIT for confirmation: weekly downtrend or SMA-200 breakdown'
+        : (aiAnalysis.strategy ?? 'N/A');
+
       const predColorFn =
-        aiAnalysis.prediction === 'UP'   ? clr.green :
-        aiAnalysis.prediction === 'DOWN' ? clr.red   : clr.yellow;
+        displayPrediction === 'UP'   ? clr.green :
+        displayPrediction === 'DOWN' ? clr.red   : clr.yellow;
       const predLabel =
-        aiAnalysis.prediction === 'UP'   ? 'BULLISH' :
-        aiAnalysis.prediction === 'DOWN' ? 'BEARISH' : 'NEUTRAL';
+        displayPrediction === 'UP'   ? 'BULLISH' :
+        displayPrediction === 'DOWN' ? 'BEARISH' : 'WAIT';
       const predBadgeColor: BadgeColor =
-        aiAnalysis.prediction === 'UP'   ? 'green' :
-        aiAnalysis.prediction === 'DOWN' ? 'red'   : 'yellow';
+        displayPrediction === 'UP'   ? 'green' :
+        displayPrediction === 'DOWN' ? 'red'   : 'yellow';
 
       const entry      = price;
       const target     = aiAnalysis.target_price ?? (entry * 1.20);
@@ -171,13 +239,26 @@ export class NVDALongTermAnalyzer {
 
       ln('');
       ln(hr2());
-      ln(`  ${badge('verdict', predBadgeColor)}  ${predColorFn(predLabel)}  ${clr.dim('·')}  ${confColor(aiAnalysis.confidence)}  confidence  ${clr.dim('·')}  12-mo R/R ${clr.dim('1 : ' + rrRatio.toFixed(2))}`);
+      ln(`  ${badge('verdict', predBadgeColor)}  ${predColorFn(predLabel)}  ${clr.dim('·')}  ${confColor(displayConfidence)}  confidence  ${clr.dim('·')}  12-mo R/R ${clr.dim('1 : ' + rrRatio.toFixed(2))}`);
       ln(hr2());
       row('current',  clr.dim('$' + entry.toFixed(2)));
       row('target',   clr.green('$' + target.toFixed(2)) + clr.dim('  (' + pctColor(targetPct) + '  upside)'), 'green');
       row('stop',     clr.red('$'   + stop.toFixed(2))   + clr.dim('  (' + pctColor(stopPct)   + '  invalidation)'), 'red');
-      if (aiAnalysis.strategy) row('strategy', clr.dim(aiAnalysis.strategy));
+      row('strategy', clr.dim(displayStrategy));
       ln(hr2());
+
+      if (gateBear) {
+        ln(`  ${WARN}  ${gateNote}`);
+        ln('');
+      }
+
+      if (aiAnalysis.reasons && aiAnalysis.reasons.length > 0) {
+        section('reasons', 'AI RATIONALE');
+        aiAnalysis.reasons.forEach((reason) => {
+          ln(`  ${clr.dim('·')}  ${reason}`);
+        });
+        ln('');
+      }
 
       if (aiAnalysis.raw_response) {
         ln('');
@@ -286,11 +367,42 @@ export class NVDALongTermAnalyzer {
         newsItems.forEach((n: string) => ln(`  ${clr.dim('·')}  ${n}`));
       }
 
+      // ── Crowd sentiment ───────────────────────────────────────────────────
+      section('crowd', 'CROWD SENTIMENT');
+      const fg    = crowdSentiment.fear_greed;
+      const fgVal = fg?.value ?? 50;
+      const fgLbl = fg?.label ?? 'Unknown';
+      const fgMom = fg?.momentum ?? 'N/A';
+      const fgClr = fgVal < 30 ? clr.red : fgVal > 70 ? clr.green : clr.yellow;
+      const st    = crowdSentiment.stocktwits_data;
+      const bull  = st?.bull_ratio ?? 50;
+      const bullClr = bull > 60 ? clr.green : bull < 40 ? clr.red : clr.yellow;
+
+      const fgBar = (() => {
+        const filled = Math.round((fgVal / 100) * 20);
+        return clr.dim('[') + (fgVal < 30 ? clr.red : fgVal > 70 ? clr.green : clr.yellow)('█'.repeat(filled)) + clr.dim('░'.repeat(20 - filled)) + clr.dim(']');
+      })();
+
+      row('fear-greed', `${fgClr(String(fgVal))} / 100  ${fgBar}  ${clr.dim(fgLbl)}`);
+      row('fg-momentum', clr.dim(fgMom));
+      if (st) {
+        row('stocktwits', bullClr(bull.toFixed(0) + '% bullish') + clr.dim(`  (bulls ${st.bullish} · bears ${st.bearish} · total ${st.total_with_sentiment})`));
+      }
+      const socialBuzz = crowdSentiment.social_buzz ?? [];
+      for (const buzz of socialBuzz) {
+        const top = buzz.top_posts && buzz.top_posts.length > 0
+          ? `  (${buzz.top_posts.slice(0, 3).join(' · ')})`
+          : '';
+        row(buzz.source.toLowerCase(), clr.dim(`${buzz.mentions} mentions${top}`));
+      }
+      const signals = crowdSentiment.summary?.overall_signals as string[] ?? [];
+      if (signals.length) row('signals', signals.map((s: string) => clr.dim(s)).join('  '));
+
       // ── AI outlook (full detail) ──────────────────────────────────────────
       section('ai', `AI LONG-TERM OUTLOOK  ${clr.dim('(' + config.aiModel + ')')}`, 'magenta');
       row('outlook',    predColorFn(predLabel), predBadgeColor);
-      row('confidence', confColor(aiAnalysis.confidence));
-      row('strategy',   clr.dim(aiAnalysis.strategy ?? 'N/A'));
+      row('confidence', confColor(displayConfidence));
+      row('strategy',   clr.dim(displayStrategy));
 
       ln('');
       ln(`  ${clr.dim('─'.repeat(68))}`);
@@ -327,9 +439,9 @@ export class NVDALongTermAnalyzer {
 
       // ── Summary ───────────────────────────────────────────────────────────
       section('summary', 'LONG-TERM ANALYSIS SUMMARY');
-      const summaryDir  = aiAnalysis.prediction === 'UP' ? 'bullish' : aiAnalysis.prediction === 'DOWN' ? 'bearish' : 'neutral';
-      const summaryConf = aiAnalysis.confidence >= 70 ? 'high' : aiAnalysis.confidence >= 50 ? 'moderate' : 'low';
-      ln(`  ${clr.dim(`${config.ticker} ${summaryDir} on ${summaryConf} AI confidence (${aiAnalysis.confidence}%).`)}`);
+      const summaryDir  = displayPrediction === 'UP' ? 'bullish' : displayPrediction === 'DOWN' ? 'bearish' : 'neutral';
+      const summaryConf = displayConfidence >= 70 ? 'high' : displayConfidence >= 50 ? 'moderate' : 'low';
+      ln(`  ${clr.dim(`${config.ticker} ${summaryDir} on ${summaryConf} AI confidence (${displayConfidence}%).`)}`);
       ln(`  ${clr.dim(`Weekly trend: ${weeklyTrend}  ·  SMA-200: ${aboveSma200 ? 'above ▲' : 'below ▼'}  ·  ${goldenCross ? 'Golden Cross ✔' : 'Death Cross ✖'}`)}`);
       ln(`  ${clr.dim(`12-month target $${target.toFixed(2)}  ·  invalidation $${stop.toFixed(2)}  ·  R/R ${rrRatio.toFixed(2)}`)}`);
 

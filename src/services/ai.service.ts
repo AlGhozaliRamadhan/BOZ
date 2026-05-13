@@ -16,6 +16,7 @@ export type AIResult =
       strategy?:     string;
       target_price?: number;
       stop_loss?:    number;
+      reasons?:      string[];
       raw_response?: string;
     }
   | { status: 'error';     reason: string }
@@ -346,6 +347,21 @@ export class AIService {
   // ─── Response Parsing ─────────────────────────────────────────────────────
 
   private parseResponse(content: string): AIResult {
+    const extractReasons = (text: string): string[] | undefined => {
+      const match = text.match(/REASONS?:\s*([\s\S]+)/i);
+      if (!match) return undefined;
+      const lines = match[1]
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+      const reasons = lines
+        .filter((l) => l.startsWith('-') || /^\d+\./.test(l))
+        .map((l) => l.replace(/^(-|\d+\.)\s*/, '').trim())
+        .filter((l) => l.length > 0);
+      return reasons.length > 0 ? reasons.slice(0, 5) : undefined;
+    };
+
+    const reasons = extractReasons(content);
     const match = content.match(RESPONSE_PATTERN);
 
     if (match) {
@@ -361,6 +377,7 @@ export class AIService {
         strategy:     match[3].trim(),
         target_price,
         stop_loss,
+        reasons,
         raw_response: content,
       };
     }
@@ -370,6 +387,7 @@ export class AIService {
       status:       'ok',
       prediction:   'UNKNOWN',
       confidence:   50,
+      reasons,
       raw_response: content,
     };
   }
