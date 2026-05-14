@@ -147,11 +147,19 @@ export class YahooService {
       // ── Freshness ─────────────────────────────────────────────────────────
       const lastDate    = validQuotes[validQuotes.length - 1].date;
       const dataAgeMins = (Date.now() - new Date(lastDate).getTime()) / 60_000;
-      const ageColor    = dataAgeMins > 120 ? clr.yellow : clr.dim;
+
+      // Only warn about stale data when the market is currently open.
+      // Outside regular hours (pre/post/weekend) old candles are expected and not stale.
+      const nowNy       = getNyParts(new Date());
+      const nowDow      = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
+      const isWeekend   = nowDow === 'Sat' || nowDow === 'Sun';
+      const marketOpen  = !isWeekend && nowNy.minutes >= REGULAR_START_MINUTES && nowNy.minutes < REGULAR_END_MINUTES;
+      const staleThresh = marketOpen ? 30 : 24 * 60; // 30 min during session, 24h outside
+      const ageColor    = dataAgeMins > staleThresh ? clr.yellow : clr.dim;
 
       log.info('freshness', `Latest candle  ${clr.dim(new Date(lastDate).toISOString().replace('T', ' ').slice(0, 19) + ' UTC')}  ·  ${ageColor(dataAgeMins.toFixed(1) + ' min old')}`);
 
-      if (dataAgeMins > 120) {
+      if (dataAgeMins > staleThresh) {
         log.warn('data', `Stale data — latest bar is ${Math.round(dataAgeMins)} min old`);
       }
 
@@ -180,8 +188,10 @@ export class YahooService {
         };
       });
 
+      // adjclose is no longer reliably returned by Yahoo Finance's chart() endpoint.
+      // Fall back silently to raw close; only log if DEBUG_YAHOO is set.
       if (options?.adjustPrices && (!adjSeries || adjSeries.length === 0)) {
-        log.warn('yahoo', 'Adjusted prices requested but adjclose series was unavailable');
+        if (process.env.DEBUG_YAHOO) log.warn('yahoo', 'Adjusted prices requested but adjclose series was unavailable');
       }
 
       if (options?.regularHours) {

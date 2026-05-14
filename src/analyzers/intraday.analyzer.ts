@@ -50,7 +50,9 @@ export class IntradayAnalyzer {
       });
       if (candles.length === 0) { stopData('err', 'No data from Yahoo'); throw new Error('No data fetched'); }
       stopData('ok', `${candles.length} bars loaded`);
-      if (candles.length < 200) ln(`  ${WARN}  SMA-200 requires 200 bars — have ${candles.length}`);
+      // SMA-200 needs 200 bars but 1h/5d with regular-hours filter yields ~33 bars — expected.
+      // Only warn when we have so few bars that even SMA-20 is unreliable.
+      if (candles.length < 20) ln(`  ${WARN}  Only ${candles.length} bars — most indicators will be unreliable`);
 
       // ── Indicators ────────────────────────────────────────────────────────
       const stopCalc = spinner(`  ${badge('calc')}  Calculating technical indicators`);
