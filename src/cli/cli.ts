@@ -10,6 +10,8 @@ import { NewsIntelAgent } from '../agents/news.intel.agent.js';
 import { config, type AIProvider } from '../config/config.js';
 import { githubConfig, GITHUB_TOKEN_URL } from '../config/github.config.js';
 import { nvidiaConfig, NVIDIA_MODELS, NVIDIA_API_KEY_URL } from '../config/nvidia.config.js';
+import { resolveSymbol } from '../shared/market-constants.js';
+import { yahooFinance } from '../services/yahoo.service.js';
 
 // ─── Version ──────────────────────────────────────────────────────────────────
 
@@ -140,6 +142,145 @@ function restoreRawMode(): void {
 }
 
 // ─── Mascot ───────────────────────────────────────────────────────────────────
+
+type TickerSearchCandidate = {
+  symbol: string;
+  label: string;
+};
+
+function labelTickerCandidate(
+  symbol: string,
+  name: string,
+  details: Array<string | number | null | undefined>,
+): TickerSearchCandidate {
+  const meta = details
+    .filter((part) => part !== null && part !== undefined && String(part).trim())
+    .map(String)
+    .join(' · ');
+  const labelParts = [symbol, name.trim(), meta].filter(Boolean);
+
+  return {
+    symbol,
+    label: labelParts.join('  ·  '),
+  };
+}
+
+function formatTickerCandidate(quote: any): TickerSearchCandidate | null {
+  const symbol = resolveSymbol(String(quote?.symbol ?? ''));
+  if (!symbol) return null;
+
+  const name = String(quote?.shortname ?? quote?.longname ?? quote?.name ?? '').trim();
+  return labelTickerCandidate(symbol, name, [quote?.quoteType, quote?.exchDisp ?? quote?.exchange]);
+}
+
+async function validateDirectTicker(symbol: string): Promise<TickerSearchCandidate | null> {
+  try {
+    const quote = await yahooFinance.quote(symbol);
+    const quoteSymbol = resolveSymbol(String((quote as any)?.symbol ?? symbol)) ?? symbol;
+    const name = String((quote as any)?.shortName ?? (quote as any)?.longName ?? '').trim();
+    const price = typeof (quote as any)?.regularMarketPrice === 'number'
+      ? `$${(quote as any).regularMarketPrice.toFixed(2)}`
+      : null;
+
+    return labelTickerCandidate(quoteSymbol, name, [
+      'validated',
+      (quote as any)?.quoteType,
+      (quote as any)?.fullExchangeName ?? (quote as any)?.exchange,
+      price,
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+async function searchTickerCandidates(query: string): Promise<TickerSearchCandidate[]> {
+  const direct = resolveSymbol(query);
+  const seen = new Set<string>();
+  const candidates: TickerSearchCandidate[] = [];
+
+  const addCandidate = (candidate: TickerSearchCandidate, toFront = false) => {
+    if (seen.has(candidate.symbol)) return;
+    seen.add(candidate.symbol);
+    if (toFront) candidates.unshift(candidate);
+    else candidates.push(candidate);
+  };
+
+  let searchError: unknown = null;
+  try {
+    const result = await yahooFinance.search(query, { quotesCount: 8, newsCount: 0 });
+
+    for (const quote of ((result as any)?.quotes ?? [])) {
+      const candidate = formatTickerCandidate(quote);
+      if (candidate) addCandidate(candidate);
+    }
+  } catch (err) {
+    searchError = err;
+  }
+
+  if (direct) {
+    const exactIdx = candidates.findIndex((candidate) => candidate.symbol === direct);
+    if (exactIdx >= 0) {
+      const [exact] = candidates.splice(exactIdx, 1);
+      exact.label = `${exact.label}  ·  exact match`;
+      candidates.unshift(exact);
+    } else {
+      const validated = await validateDirectTicker(direct);
+      if (validated) addCandidate(validated, true);
+    }
+  }
+
+  if (searchError && candidates.length === 0) throw searchError;
+
+  return candidates;
+}
+
+async function promptForMarketTicker(): Promise<string | null> {
+  const tickerIdx = await vPick([
+    'Search ticker / asset',
+    'NVDA (Nvidia Corp)',
+    'SPY (S&P 500 ETF)',
+  ]);
+
+  if (tickerIdx === 1) return 'NVDA';
+  if (tickerIdx === 2) return 'SPY';
+
+  process.stdout.write('\n');
+
+  while (true) {
+    const raw = await askQuestion(`  Search ticker or asset: `);
+
+    if (!raw.trim()) {
+      process.stdout.write(`  ${c.wrap(c.red, 'Search cannot be empty.')}\n`);
+    } else {
+      try {
+        process.stdout.write(`  ${c.wrap(c.ghost, 'Searching and validating Yahoo Finance matches...')}\n\n`);
+        const candidates = await searchTickerCandidates(raw);
+
+        if (candidates.length > 0) {
+          process.stdout.write(
+            `  ${c.wrap(c.ghost, 'Match')}  ` +
+            `${c.wrap(c.ghost, 'up / down to select, Enter to confirm')}\n\n`,
+          );
+          const matchIdx = await vPick(candidates.map((candidate) => candidate.label));
+          return candidates[matchIdx].symbol;
+        }
+
+        process.stdout.write(`  ${c.wrap(c.red, `No symbol found for "${raw}".`)}\n`);
+      } catch (err) {
+        process.stdout.write(
+          `  ${c.wrap(c.red, 'Ticker search failed:')} ` +
+          `${c.wrap(c.ghost, err instanceof Error ? err.message : String(err))}\n`,
+        );
+      }
+    }
+
+    const retry = await askQuestion(`  Try another search? [Y/n]: `);
+    if (retry.toLowerCase().startsWith('n')) {
+      restoreRawMode();
+      return null;
+    }
+  }
+}
 
 function printMascot(): void {
   const W  = c.wrap;
@@ -478,10 +619,13 @@ export class CLI {
               `  ${c.wrap(c.ghost, 'Ticker')}  ` +
               `${c.wrap(c.ghost, 'up / down to select, Enter to confirm')}\n\n`,
             );
-            const tickerIdx = await vPick(['NVDA (Nvidia Corp)', 'SPY (S&P 500 ETF)']);
-            const chosenTicker = tickerIdx === 0 ? 'NVDA' : 'SPY';
+            const chosenTicker = await promptForMarketTicker();
+            if (!chosenTicker) {
+              process.stdout.write(`\n  ${c.wrap(c.ghost, 'Run cancelled.')}\n\n`);
+              return;
+            }
             config.setTicker(chosenTicker);
-            process.stdout.write(`\n  ticker  ${c.wrap(c.cyan, chosenTicker)}\n\n`);
+            process.stdout.write(`\n  ticker  ${c.wrap(c.cyan, config.ticker)}\n\n`);
 
             process.stdout.write(
               `  ${c.wrap(c.ghost, 'Timeframe')}  ` +

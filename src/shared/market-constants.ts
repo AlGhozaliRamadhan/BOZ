@@ -40,6 +40,22 @@ export const SYMBOL_MAP: Record<string, string> = {
   'JPM': 'JPM', 'BAC': 'BAC', 'GS': 'GS',
 };
 
+const SOCIAL_SEARCH_ALIASES: Record<string, string[]> = {
+  'BTC-USD': ['BTC', 'Bitcoin', '$BTC'],
+  'ETH-USD': ['ETH', 'Ethereum', '$ETH'],
+  'SOL-USD': ['SOL', 'Solana', '$SOL'],
+  'XRP-USD': ['XRP', 'Ripple', '$XRP'],
+  'BNB-USD': ['BNB', '$BNB'],
+  'ADA-USD': ['ADA', '$ADA'],
+  'DOGE-USD': ['DOGE', 'Dogecoin', '$DOGE'],
+  'AVAX-USD': ['AVAX', '$AVAX'],
+  'DOT-USD': ['DOT', '$DOT'],
+  'MATIC-USD': ['MATIC', '$MATIC'],
+  'LINK-USD': ['LINK', 'Chainlink', '$LINK'],
+  'UNI-USD': ['UNI', 'Uniswap', '$UNI'],
+  'ATOM-USD': ['ATOM', 'Cosmos', '$ATOM'],
+};
+
 export const LATE_KEYWORDS: string[] = [
   'already surged', 'soared', 'spiked', 'record high', 'all-time high',
   'all time high', 'ath', 'parabolic', 'overbought', 'extended move',
@@ -51,7 +67,33 @@ export const LATE_KEYWORDS: string[] = [
 export function resolveSymbol(raw: string): string | null {
   const upper = raw.trim().toUpperCase();
   if (SYMBOL_MAP[upper]) return SYMBOL_MAP[upper];
-  if (/^[A-Z]{1,5}$/.test(upper))      return upper; // plain stock ticker
-  if (/^[A-Z]{2,8}-USD$/.test(upper))  return upper; // crypto-USD pair
+  if (/^[A-Z]{1,5}$/.test(upper)) return upper; // common stock / ETF ticker
+  if (/^\^[A-Z0-9]{1,10}$/.test(upper)) return upper; // Yahoo index symbol
+  if (/^[A-Z0-9]{1,10}(?:[.\-=][A-Z0-9]{1,8})+$/.test(upper)) return upper; // Yahoo symbol with suffix/pair
   return null;
+}
+
+/** Convert a Yahoo Finance symbol into the symbol format used by StockTwits.
+ *  Returns null for Yahoo-only instruments that do not have a reliable stream. */
+export function resolveStockTwitsSymbol(raw: string): string | null {
+  const symbol = resolveSymbol(raw) ?? raw.trim().toUpperCase();
+  const cryptoBase = symbol.match(/^([A-Z0-9]{2,10})-USD$/)?.[1];
+  if (cryptoBase) return `${cryptoBase}.X`;
+  if (/^[A-Z]{1,5}$/.test(symbol)) return symbol;
+  return null;
+}
+
+/** Build a compact Reddit search query from a Yahoo Finance symbol. */
+export function buildSocialSearchQuery(raw: string): string {
+  const symbol = resolveSymbol(raw) ?? raw.trim().toUpperCase();
+  const aliases = SOCIAL_SEARCH_ALIASES[symbol];
+  if (aliases) return aliases.join(' OR ');
+
+  const stockTwitsSymbol = resolveStockTwitsSymbol(symbol);
+  if (stockTwitsSymbol) {
+    const cashtag = stockTwitsSymbol.replace(/\.X$/, '');
+    return `${cashtag} OR $${cashtag}`;
+  }
+
+  return symbol;
 }

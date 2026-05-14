@@ -212,7 +212,7 @@ export class AIService {
       const content = await this.llm.callText({
         messages: [{ role: 'user', content: buildAnalysisPrompt(prompt) }],
         temperature: 0.3,
-        maxTokens: 2000,
+        maxTokens: 4096,
         responseFormat: 'json',
         nvidiaMode: 'analysis',
       });
@@ -294,6 +294,67 @@ export class AIService {
         warnings: extracted.warnings,
       };
     }
+
+    // ── Sanitize NVIDIA NIM quirks before AJV validation ──────────────────────
+    // Nemotron and other NIM reasoning models return non-standard field values.
+    if (parsed !== null && typeof parsed === 'object') {
+      const p = parsed as Record<string, unknown>;
+
+      // 1. Coerce `status` — model may return 'success', 'good', 'warning', etc.
+      if (typeof p.status === 'string') {
+        const s = p.status.toLowerCase().trim();
+        if (['ok', 'success', 'good', 'valid'].includes(s))        p.status = 'ok';
+        else if (['uncertain', 'warning', 'partial', 'unknown'].includes(s)) p.status = 'uncertain';
+        else if (!['ok', 'uncertain', 'error'].includes(s))        p.status = 'error';
+      }
+
+      // 2. Coerce `prediction` — model may return 'BULLISH', 'BEARISH', 'NEUTRAL', etc.
+      if (typeof p.prediction === 'string') {
+        const pr = p.prediction.toUpperCase().trim();
+        if (['UP', 'BULLISH', 'LONG', 'BUY'].includes(pr))          p.prediction = 'UP';
+        else if (['DOWN', 'BEARISH', 'SHORT', 'SELL'].includes(pr)) p.prediction = 'DOWN';
+        else                                                          p.prediction = 'UNKNOWN';
+      }
+
+      // 3. Coerce `reasons` — model may emit null/numeric items.
+      if (Array.isArray(p.reasons)) {
+        p.reasons = (p.reasons as unknown[])
+          .filter((r) => r !== null && r !== undefined)
+          .map((r) => (typeof r === 'string' ? r : String(r)))
+          .filter((r) => (r as string).trim().length > 0);
+      }
+
+      // 4. If status is ok but prediction is missing, try to recover it from other fields
+      //    before demoting — Nemotron sometimes omits prediction when token budget is tight.
+      if (p.status === 'ok' && !p.prediction) {
+        // Try to infer prediction from strategy or reasons text
+        const textHints = [
+          typeof p.strategy === 'string' ? p.strategy : '',
+          ...(Array.isArray(p.reasons) ? (p.reasons as string[]) : []),
+        ].join(' ').toUpperCase();
+        if (/\bBULL|\bLONG|\bUPSIDE|\bBUY/.test(textHints))       p.prediction = 'UP';
+        else if (/\bBEAR|\bSHORT|\bDOWNSIDE|\bSELL/.test(textHints)) p.prediction = 'DOWN';
+        else {
+          // Cannot infer — demote to uncertain with a meaningful reason
+          p.status = 'uncertain';
+          p.reason = typeof p.strategy === 'string' && p.strategy.trim()
+            ? p.strategy.trim()
+            : 'Model did not provide a prediction';
+        }
+      }
+
+      // 5. If status is error/uncertain but reason is missing, pull from reasons[] or strategy.
+      if ((p.status === 'error' || p.status === 'uncertain') && !p.reason) {
+        const fallbackReason =
+          (Array.isArray(p.reasons) && (p.reasons as string[]).length > 0)
+            ? (p.reasons as string[])[0]
+            : typeof p.strategy === 'string' && p.strategy.trim()
+            ? p.strategy.trim()
+            : 'Model returned no reason';
+        p.reason = fallbackReason;
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     const valid = validateAiPrediction(parsed);
     if (!valid) {
