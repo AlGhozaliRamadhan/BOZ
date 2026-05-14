@@ -16,26 +16,13 @@
 //   • synthesiseFinish() called on error-exit so partial state is never lost
 //   • null-guard on assistantMsg.content before printThought
 
-import OpenAI from 'openai';
-import axios  from 'axios';
 import { log, clr } from '../utils/logger.js';
-import { config }   from '../config/config.js';
+import { LLMAdapter } from '../services/llm.adapter.js';
+import type { LLMMessage, RawToolCall } from '../types/llm.types.js';
 
 // ─── Shared message / tool-call types ────────────────────────────────────────
 
-export interface AgentMessage {
-  role:          'system' | 'user' | 'assistant' | 'tool';
-  content:       string | null;
-  tool_calls?:   RawToolCall[];
-  tool_call_id?: string;
-  name?:         string;
-}
-
-export interface RawToolCall {
-  id:       string;
-  type:     'function';
-  function: { name: string; arguments: string };
-}
+export type AgentMessage = LLMMessage;
 
 export interface ParsedToolCall {
   id:        string;
@@ -46,6 +33,8 @@ export interface ParsedToolCall {
 // ─── BaseAgent ────────────────────────────────────────────────────────────────
 
 export abstract class BaseAgent {
+  protected readonly llm: LLMAdapter;
+
   // ── Safety limits ────────────────────────────────────────────────────────
   protected readonly TIME_LIMIT_MS  = 20 * 60 * 1000; // 20 min hard cap
   protected readonly SOFT_NUDGE_MS  = 15 * 60 * 1000; // 15 min soft nudge
@@ -55,6 +44,10 @@ export abstract class BaseAgent {
   // ── Retry config for AI calls ────────────────────────────────────────────
   private readonly AI_MAX_RETRIES   = 3;
   private readonly AI_RETRY_BASE_MS = 5_000; // 5s → 15s → 45s
+
+  constructor(llmAdapter = new LLMAdapter()) {
+    this.llm = llmAdapter;
+  }
 
   // ── Abstract surface — subclasses must implement these ───────────────────
 
@@ -268,40 +261,12 @@ export abstract class BaseAgent {
     temperature  = 0.3,
     maxTokens    = 4096,
   ): Promise<AgentMessage> {
-    if (config.aiProvider === 'nvidia') {
-      const client = new OpenAI({
-        apiKey:  config.nvidia.apiKey,
-        baseURL: config.nvidia.baseURL,
-      });
-      const res = await client.chat.completions.create({
-        model:       config.nvidia.model,
-        messages:    messages as any,
-        tools:       tools as any,
-        tool_choice: 'auto',
-        temperature,
-        max_tokens:  maxTokens,
-      });
-      return this.normalizeOpenAIResponse(res.choices[0].message);
-
-    } else if (config.aiProvider === 'github') {
-      const res = await axios.post(
-        `${config.github.endpoint}/chat/completions`,
-        {
-          model:       config.github.model,
-          messages,
-          tools,
-          tool_choice: 'auto',
-          temperature,
-          max_tokens:  maxTokens,
-        },
-        { headers: { Authorization: `Bearer ${config.github.token}` }, timeout: 90_000 },
-      );
-      return this.normalizeOpenAIResponse(res.data.choices[0].message);
-
-    } else {
-      // Ollama / offline — simulate tool calling with JSON
-      return this.callAIOffline(messages, tools);
-    }
+    return this.llm.callWithTools({
+      messages,
+      tools,
+      temperature,
+      maxTokens,
+    });
   }
 
   /** Plain text AI call — no tools, returns raw string. */
@@ -310,99 +275,11 @@ export abstract class BaseAgent {
     temperature = 0.5,
     maxTokens   = 1500,
   ): Promise<string> {
-    if (config.aiProvider === 'nvidia') {
-      const client = new OpenAI({
-        apiKey:  config.nvidia.apiKey,
-        baseURL: config.nvidia.baseURL,
-      });
-      const res = await client.chat.completions.create({
-        model:       config.nvidia.model,
-        messages:    messages as any,
-        temperature,
-        max_tokens:  maxTokens,
-      });
-      return res.choices[0].message.content ?? '';
-
-    } else if (config.aiProvider === 'github') {
-      const res = await axios.post(
-        `${config.github.endpoint}/chat/completions`,
-        { model: config.github.model, messages, temperature, max_tokens: maxTokens },
-        { headers: { Authorization: `Bearer ${config.github.token}` }, timeout: 90_000 },
-      );
-      return res.data.choices[0].message.content ?? '';
-
-    } else {
-      const res = await axios.post(
-        `${config.aiEndpoint}/api/chat`,
-        { model: config.aiModel, messages, stream: false },
-        { timeout: 120_000 },
-      );
-      const raw: string = res.data.message?.content ?? res.data.response ?? '';
-      return raw.includes('</think>') ? raw.split('</think>').pop()!.trim() : raw.trim();
-    }
-  }
-
-  // ─── Offline / Ollama tool-call simulation ────────────────────────────────
-
-  private async callAIOffline(
-    messages: AgentMessage[],
-    tools:    object[],
-  ): Promise<AgentMessage> {
-    const toolNames = (tools as any[]).map(t => t.function?.name ?? '').join(', ');
-    const injected  = [
-      ...messages,
-      {
-        role: 'system' as const,
-        content:
-          `You have access to these tools: ${toolNames}.\n` +
-          `To call a tool respond ONLY with valid JSON:\n` +
-          `{"tool":"<name>","args":{...}}\n` +
-          `To call multiple tools, put each on its own line as a separate JSON object.`,
-      },
-    ];
-    const res = await axios.post(
-      `${config.aiEndpoint}/api/chat`,
-      { model: config.aiModel, messages: injected, stream: false },
-      { timeout: 120_000 },
-    );
-    const raw: string = res.data.message?.content ?? res.data.response ?? '';
-    return this.parseOfflineToolResponse(raw);
-  }
-
-  private parseOfflineToolResponse(raw: string): AgentMessage {
-    const cleaned = raw.includes('</think>')
-      ? raw.split('</think>').pop()!.trim()
-      : raw.trim();
-
-    const toolCalls: RawToolCall[] = [];
-    for (const line of cleaned.split('\n')) {
-      const t = line.trim();
-      if (!t.startsWith('{')) continue;
-      try {
-        const parsed = JSON.parse(t);
-        if (parsed.tool && typeof parsed.tool === 'string') {
-          toolCalls.push({
-            id:       `offline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            type:     'function',
-            function: { name: parsed.tool, arguments: JSON.stringify(parsed.args ?? {}) },
-          });
-        }
-      } catch {}
-    }
-
-    return {
-      role:       'assistant',
-      content:    toolCalls.length === 0 ? cleaned : null,
-      tool_calls: toolCalls.length > 0  ? toolCalls : undefined,
-    };
-  }
-
-  private normalizeOpenAIResponse(msg: any): AgentMessage {
-    return {
-      role:       'assistant',
-      content:    msg.content ?? null,
-      tool_calls: msg.tool_calls ?? undefined,
-    };
+    return this.llm.callText({
+      messages,
+      temperature,
+      maxTokens,
+    });
   }
 
   // ─── Tool call parser ─────────────────────────────────────────────────────

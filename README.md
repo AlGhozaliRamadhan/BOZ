@@ -20,7 +20,7 @@
   <a href="https://github.com/AlGhozaliRamadhan">
     <img src="https://img.shields.io/badge/Author-AGR-111111?style=flat"/>
   </a>
-  <img src="https://img.shields.io/badge/version-1.5.5-brightgreen?style=flat"/>
+  <img src="https://img.shields.io/badge/version-1.5.6-brightgreen?style=flat"/>
 </p>
 
 ---
@@ -142,7 +142,7 @@ Average volume on up-moves vs down-moves over the last 20 candles. Ratio above 1
 > **Note:** All RSS sources are cached to disk (`%TEMP%/boz-news-cache.json`) with per-feed TTLs (5–10 min). Back-to-back runs reuse the cache and do not re-fetch.
 
 ### AI Synthesis
-Structured prompt sent to the configured model with full reasoning context. Market analysis output is parsed for PREDICTION, CONFIDENCE, STRATEGY, TARGET, and STOP. News Intel output is parsed for regime, events, opportunities, contrarian signals, and risk warnings.
+Structured prompt sent to the configured model with full reasoning context. All AI outputs are required to return strict JSON and are validated against schemas. Market analysis returns prediction, confidence, strategy, target, and stop fields. News Intel returns regime, events, opportunities, contrarian signals, and risk warnings in JSON arrays.
 
 ---
 
@@ -243,7 +243,7 @@ flowchart TD
     subgraph NewsIntelAgent[News Intel Agent — Autonomous ReAct Loop]
       NF[RSS · CoinGecko · CryptoCompare\nAlpha Vantage · Finnhub · FRED\nYahoo Finance Live Prices] --> NFS[NewsFetchService Singleton\nDisk-cached · TTL-aware]
       NFS --> BA[BaseAgent\ncallAIWithRetry · runLoop · synthesiseFinish]
-      BA --> NIA[NewsIntelAgent\n8 tools · reflection protocol]
+      BA --> NIA[NewsIntelAgent\n13 tools · reflection protocol]
       NIA --> OPP[Opportunities\nentry · target · stop · confidence]
       NIA --> REG[Regime · Summary\nContrarian · Risk Warnings]
     end

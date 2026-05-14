@@ -1,0 +1,271 @@
+import OpenAI from 'openai';
+import axios from 'axios';
+import { config } from '../config/config.js';
+import type { LLMMessage, RawToolCall } from '../types/llm.types.js';
+import type { ValidateFunction } from 'ajv';
+import { formatSchemaErrors } from './llm.schemas.js';
+
+export type JsonCallResult<T> =
+  | { type: 'ok'; value: T; raw: string; warnings: string[] }
+  | { type: 'invalid_json'; raw: string; errors: string[] }
+  | { type: 'schema_error'; raw: string; errors: string[] };
+
+export type NvidiaMode = 'default' | 'analysis';
+
+const DEFAULT_TIMEOUT_MS = 90_000;
+
+export class LLMAdapter {
+  constructor(private readonly timeoutMs = DEFAULT_TIMEOUT_MS) {}
+
+  async callText(options: {
+    messages: LLMMessage[];
+    temperature?: number;
+    maxTokens?: number;
+    model?: string;
+    responseFormat?: 'json';
+    nvidiaMode?: NvidiaMode;
+  }): Promise<string> {
+    const provider = config.aiProvider ?? 'github';
+    const temperature = options.temperature ?? 0.4;
+    const maxTokens = options.maxTokens ?? 1500;
+    const model = options.model;
+
+    if (provider === 'nvidia') {
+      if (!config.nvidia.apiKey) throw new Error('No NVIDIA API key configured');
+      const client = new OpenAI({ apiKey: config.nvidia.apiKey, baseURL: config.nvidia.baseURL });
+      const modelName = model ?? config.nvidia.model;
+      const params: Record<string, any> = {
+        model: modelName,
+        messages: options.messages as any,
+        temperature,
+        max_tokens: maxTokens,
+      };
+      if (options.responseFormat === 'json') {
+        params.response_format = { type: 'json_object' };
+      }
+      if (options.nvidiaMode === 'analysis') {
+        const isDeepSeek = modelName.startsWith('deepseek-ai/');
+        if (isDeepSeek) {
+          params.extra_body = { chat_template_kwargs: { thinking: false } };
+        } else {
+          params.reasoning_budget = 16384;
+          params.chat_template_kwargs = { enable_thinking: true };
+        }
+      }
+      const res = await client.chat.completions.create(params as any);
+      return LLMAdapter.stripThinking(res.choices?.[0]?.message?.content ?? '');
+    }
+
+    if (provider === 'offline') {
+      if (!config.aiEndpoint) throw new Error('No offline endpoint configured');
+      const res = await axios.post(
+        `${config.aiEndpoint.replace(/\/$/, '')}/api/chat`,
+        {
+          model: model ?? config.aiModel,
+          messages: options.messages,
+          stream: false,
+        },
+        { timeout: this.timeoutMs },
+      );
+      const raw: string = res.data.message?.content ?? res.data.response ?? '';
+      return LLMAdapter.stripThinking(raw);
+    }
+
+    if (!config.github.token) throw new Error('No GitHub token configured');
+    const res = await axios.post(
+      `${config.github.endpoint}/chat/completions`,
+      {
+        model: model ?? config.github.model,
+        messages: options.messages,
+        temperature,
+        max_tokens: maxTokens,
+        ...(options.responseFormat === 'json' ? { response_format: { type: 'json_object' } } : {}),
+      },
+      { headers: { Authorization: `Bearer ${config.github.token}` }, timeout: this.timeoutMs },
+    );
+    const content = res.data.choices?.[0]?.message?.content ?? '';
+    return LLMAdapter.stripThinking(content);
+  }
+
+  async callWithTools(options: {
+    messages: LLMMessage[];
+    tools: object[];
+    temperature?: number;
+    maxTokens?: number;
+    model?: string;
+  }): Promise<LLMMessage> {
+    const provider = config.aiProvider ?? 'github';
+    const temperature = options.temperature ?? 0.3;
+    const maxTokens = options.maxTokens ?? 4096;
+    const model = options.model;
+
+    if (provider === 'nvidia') {
+      if (!config.nvidia.apiKey) throw new Error('No NVIDIA API key configured');
+      const client = new OpenAI({ apiKey: config.nvidia.apiKey, baseURL: config.nvidia.baseURL });
+      const res = await client.chat.completions.create({
+        model: model ?? config.nvidia.model,
+        messages: options.messages as any,
+        tools: options.tools as any,
+        tool_choice: 'auto',
+        temperature,
+        max_tokens: maxTokens,
+      });
+      return LLMAdapter.normalizeOpenAIResponse(res.choices?.[0]?.message ?? {});
+    }
+
+    if (provider === 'offline') {
+      return this.callOfflineTooling(options.messages, options.tools, model);
+    }
+
+    if (!config.github.token) throw new Error('No GitHub token configured');
+    const res = await axios.post(
+      `${config.github.endpoint}/chat/completions`,
+      {
+        model: model ?? config.github.model,
+        messages: options.messages,
+        tools: options.tools,
+        tool_choice: 'auto',
+        temperature,
+        max_tokens: maxTokens,
+      },
+      { headers: { Authorization: `Bearer ${config.github.token}` }, timeout: this.timeoutMs },
+    );
+    return LLMAdapter.normalizeOpenAIResponse(res.data.choices?.[0]?.message ?? {});
+  }
+
+  async callJSON<T>(options: {
+    messages: LLMMessage[];
+    validator: ValidateFunction;
+    temperature?: number;
+    maxTokens?: number;
+    model?: string;
+    nvidiaMode?: NvidiaMode;
+  }): Promise<JsonCallResult<T>> {
+    const raw = await this.callText({
+      messages: options.messages,
+      temperature: options.temperature,
+      maxTokens: options.maxTokens,
+      model: options.model,
+      responseFormat: 'json',
+      nvidiaMode: options.nvidiaMode,
+    });
+
+    const extracted = LLMAdapter.extractJson(raw);
+    if (!extracted) {
+      return { type: 'invalid_json', raw, errors: ['No JSON object found in response'] };
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(extracted.jsonText);
+    } catch (err: any) {
+      return { type: 'invalid_json', raw, errors: [err?.message ?? 'Invalid JSON'] };
+    }
+
+    const valid = options.validator(parsed);
+    if (!valid) {
+      return {
+        type: 'schema_error',
+        raw,
+        errors: formatSchemaErrors(options.validator.errors),
+      };
+    }
+
+    return { type: 'ok', value: parsed as T, raw, warnings: extracted.warnings };
+  }
+
+  private async callOfflineTooling(
+    messages: LLMMessage[],
+    tools: object[],
+    modelOverride?: string,
+  ): Promise<LLMMessage> {
+    if (!config.aiEndpoint) throw new Error('No offline endpoint configured');
+    const toolNames = (tools as any[]).map(t => t.function?.name ?? '').join(', ');
+    const injected: LLMMessage[] = [
+      ...messages,
+      {
+        role: 'system',
+        content:
+          `You have access to these tools: ${toolNames}.\n` +
+          `To call a tool respond ONLY with valid JSON:\n` +
+          `{"tool":"<name>","args":{...}}\n` +
+          `To call multiple tools, put each on its own line as a separate JSON object.`,
+      },
+    ];
+
+    const res = await axios.post(
+      `${config.aiEndpoint.replace(/\/$/, '')}/api/chat`,
+      { model: modelOverride ?? config.aiModel, messages: injected, stream: false },
+      { timeout: this.timeoutMs },
+    );
+    const raw: string = res.data.message?.content ?? res.data.response ?? '';
+    return LLMAdapter.parseOfflineToolResponse(raw);
+  }
+
+  static extractJson(raw: string): { jsonText: string; warnings: string[] } | null {
+    if (!raw) return null;
+    let text = raw.trim();
+    const warnings: string[] = [];
+
+    const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fenceMatch) {
+      text = fenceMatch[1].trim();
+      warnings.push('Stripped markdown code fences from response');
+    }
+
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) return null;
+
+    const jsonText = text.slice(firstBrace, lastBrace + 1);
+    if (firstBrace !== 0 || lastBrace !== text.length - 1) {
+      warnings.push('Trimmed non-JSON text around response');
+    }
+
+    return { jsonText, warnings };
+  }
+
+  private static parseOfflineToolResponse(raw: string): LLMMessage {
+    const cleaned = LLMAdapter.stripThinking(raw).trim();
+    const toolCalls: RawToolCall[] = [];
+
+    for (const line of cleaned.split('\n')) {
+      const t = line.trim();
+      if (!t.startsWith('{')) continue;
+      try {
+        const parsed = JSON.parse(t);
+        if (parsed.tool && typeof parsed.tool === 'string') {
+          toolCalls.push({
+            id: `offline_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            type: 'function',
+            function: { name: parsed.tool, arguments: JSON.stringify(parsed.args ?? {}) },
+          });
+        }
+      } catch {
+        // Ignore non-JSON lines
+      }
+    }
+
+    return {
+      role: 'assistant',
+      content: toolCalls.length === 0 ? cleaned : null,
+      tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+    };
+  }
+
+  private static normalizeOpenAIResponse(msg: any): LLMMessage {
+    return {
+      role: 'assistant',
+      content: msg.content ?? null,
+      tool_calls: msg.tool_calls ?? undefined,
+    };
+  }
+
+  private static stripThinking(text: string): string {
+    if (!text) return '';
+    if (text.includes('</think>')) {
+      return text.split('</think>').pop()!.trim();
+    }
+    return text.trim();
+  }
+}

@@ -2,8 +2,6 @@
 // Non-agentic (single-shot) news intelligence analyzer.
 // All fetching → NewsFetchService  |  symbol/late logic → shared/
 
-import OpenAI from 'openai';
-import axios  from 'axios';
 import { log, clr }            from '../utils/logger.js';
 import { config }              from '../config/config.js';
 import { yahooFinance }        from '../services/yahoo.service.js';
@@ -11,6 +9,8 @@ import { newsFetchService,
          AllNewsData, NewsItem } from '../services/news.fetch.service.js';
 import { resolveSymbol }       from '../shared/market-constants.js';
 import { buildTradeLevels }    from '../shared/trade-levels.js';
+import { LLMAdapter } from '../services/llm.adapter.js';
+import { validateNewsIntel } from '../services/llm.schemas.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,9 +46,12 @@ interface AnalysisResult {
   raw?:                     string;
 }
 
+type NewsIntelPayload = Omit<AnalysisResult, 'parse_warnings' | 'ai_reasoning_chain' | 'error' | 'warning' | 'raw'>;
+
 // ─── Main class ───────────────────────────────────────────────────────────────
 
 export class NewsIntelAnalyzer {
+  private readonly llm = new LLMAdapter();
 
   // ─── Entry point ──────────────────────────────────────────────────────────
 
@@ -225,190 +228,97 @@ STAGE 4 — CROWD ANALYSIS: Apply the crowd sentiment rules. Is the crowd at an 
 STAGE 5 — TIMING: For each opportunity, is the move fresh or already extended? Be explicit.
 STAGE 6 — CONVICTION RANKING: Apply the signal quality standards. Assign confidence honestly.
 
-═══ OUTPUT FORMAT (use EXACT headers, no extra text between sections) ══════════
+═══ OUTPUT FORMAT (JSON ONLY, no extra text) ═══════════════════════════════════
 
-MARKET_REGIME: [RISK_ON / RISK_OFF / TRANSITION] | [2-3 sentence evidence citing specific data points]
-MARKET_SUMMARY: [2-3 sentence synthesis of the dominant cross-asset theme]
-SENTIMENT: [RISK_ON / RISK_OFF / NEUTRAL]
+Return a single JSON object with this exact shape:
+{
+  "market_regime": "RISK_ON|RISK_OFF|TRANSITION",
+  "market_summary": "string",
+  "overall_market_sentiment": "RISK_ON|RISK_OFF|NEUTRAL",
+  "cross_asset_themes": ["string"],
+  "high_impact_events": [
+    {
+      "event": "string",
+      "affected_assets": ["string"],
+      "direction": "BULL|BEAR|NEUTRAL",
+      "impact_level": "HIGH|MEDIUM|LOW",
+      "time_horizon": "IMMEDIATE|SHORT_TERM|MEDIUM_TERM|LONG_TERM",
+      "reasoning": "string",
+      "second_order": "string"
+    }
+  ],
+  "opportunities": [
+    {
+      "asset": "string",
+      "asset_type": "crypto|stock|commodity|forex|index",
+      "action": "BUY|SELL|WATCH",
+      "confidence": 0,
+      "reasoning": "string",
+      "entry_range": "from X to Y",
+      "target_range": "from A to B",
+      "stop_loss": "Z",
+      "late_signal": "YES|NO",
+      "invalidation": "string",
+      "risks": "risk1, risk2",
+      "spot_price": null
+    }
+  ],
+  "contrarian_signals": ["string"],
+  "risk_warnings": ["string"],
+  "recommended_actions": ["string"]
+}
 
-CROSS_ASSET_THEMES:
-- [Theme 1: show the propagation chain explicitly, e.g. "X causes Y which causes Z"]
-- [Theme 2]
-- [Theme 3]
-
-EVENTS:
-1. [EVENT NAME] | [AFFECTED ASSETS] | [BULL/BEAR/NEUTRAL] | [HIGH/MEDIUM/LOW] | [IMMEDIATE/SHORT_TERM/MEDIUM_TERM] | [first-order reasoning] | [second-order effect]
-(list up to 8 events, prioritise HIGH impact)
-
-OPPORTUNITIES:
-1. [ASSET] | [crypto/stock/commodity/forex/index] | [BUY/SELL/WATCH] | [confidence 0-100] | [bull vs bear case reasoning] | [ENTRY from X to Y] | [TARGET from A to B] | [STOP Z] | [LATE YES/NO — reason] | [specific invalidation condition] | [risk1, risk2, risk3]
-(list 4–7 opportunities across different asset classes)
-
-CONTRARIAN_SIGNALS:
-- [Something the consensus is wrong about — cite specific crowd data point]
-
-RISK_WARNINGS:
-- [Specific actionable risk]
-
-RECOMMENDED_ACTIONS:
-- [Specific action with timeframe]
-
-RULES:
+Rules:
 - Confidence > 80 requires 3+ independent confirming signals — state them explicitly in reasoning
 - Use WATCH when signals conflict or move is already extended
 - Include specific price levels or events in every invalidation condition
 - Use "from X to Y" format for all price ranges
-- If crowd sentiment is at an extreme, it MUST appear in contrarian signals`;
+- If crowd sentiment is at an extreme, it MUST appear in contrarian signals
+- Output only JSON, no markdown or commentary.`;
 
     log.ai('ai', `Sending to ${config.aiProvider} (${config.aiModel || 'default'})...`);
 
-    let content = '';
     try {
-      if (config.aiProvider === 'github') {
-        if (!config.github.token) throw new Error('No GitHub token — set GITHUB_TOKEN in .env');
-        const res = await axios.post(
-          `${config.github.endpoint}/chat/completions`,
-          {
-            model:       config.github.model ?? 'openai/gpt-4o',
-            messages:    [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-            temperature: 0.35,
-            max_tokens:  8000,
-          },
-          { headers: { Authorization: `Bearer ${config.github.token}` }, timeout: 90_000 },
-        );
-        content = res.data.choices[0].message.content ?? '';
+      const messages = [
+        { role: 'system' as const, content: systemPrompt },
+        { role: 'user' as const, content: userPrompt },
+      ];
 
-      } else if (config.aiProvider === 'nvidia') {
-        if (!config.nvidia.apiKey) throw new Error('No NVIDIA API key — set NVIDIA_API_KEY in .env');
-        const client = new OpenAI({ apiKey: config.nvidia.apiKey, baseURL: config.nvidia.baseURL });
-        const res = await client.chat.completions.create({
-          model:       config.nvidia.model,
-          messages:    [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-          temperature: 0.35,
-          max_tokens:  8000,
-        });
-        content = res.choices[0].message.content ?? '';
+      const result = await this.llm.callJSON<NewsIntelPayload>({
+        messages,
+        validator: validateNewsIntel,
+        temperature: 0.35,
+        maxTokens: 8000,
+      });
 
-      } else {
-        const res = await axios.post(
-          `${config.aiEndpoint}/api/chat`,
-          {
-            model:    config.aiModel,
-            messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-            stream:   false,
-          },
-          { timeout: 120_000 },
-        );
-        content = res.data.message?.content ?? res.data.response ?? '';
+      if (result.type === 'ok') {
+        const parsed: AnalysisResult = {
+          ...this.emptyResult(),
+          ...result.value,
+          parse_warnings: result.warnings,
+          ai_reasoning_chain: '',
+        };
+        return await this.enrichWithLivePrices(parsed, newsData);
       }
 
-      log.ok('ai', `Response received (${content.length.toLocaleString()} chars)`);
+      const warning = result.type === 'invalid_json'
+        ? 'AI response was not valid JSON'
+        : 'AI response failed schema validation';
+      const parseWarnings = result.type === 'invalid_json' || result.type === 'schema_error'
+        ? result.errors
+        : [];
 
-      let reasoning = '';
-      if (content.includes('</think>')) {
-        const parts = content.split('</think>');
-        reasoning = parts[0].replace('<think>', '').trim();
-        content   = parts[parts.length - 1].trim();
-        log.info('ai', `Reasoning chain extracted (${reasoning.length} chars)`);
-      }
+      const fallback = this.buildFallback(result.raw, newsData);
+      if (fallback) return { ...fallback, warning, raw: result.raw, parse_warnings: parseWarnings };
 
-      const parsed = this.parseResponse(content, reasoning);
-      if (parsed) return await this.enrichWithLivePrices(parsed, newsData);
-
-      const fallback = this.buildFallback(content, newsData);
-      if (fallback) return { ...fallback, warning: 'Parser fell back to keyword extraction' };
-
-      return { ...this.emptyResult(), error: 'Unable to parse AI response', raw: content };
+      return { ...this.emptyResult(), error: warning, raw: result.raw, parse_warnings: parseWarnings };
 
     } catch (err: any) {
       log.error('ai', err.message);
-      const fallback = this.buildFallback(content, newsData);
+      const fallback = this.buildFallback('', newsData);
       if (fallback) return { ...fallback, warning: err.message };
-      return { ...this.emptyResult(), error: err.message, raw: content };
+      return { ...this.emptyResult(), error: err.message };
     }
-  }
-
-  // ─── Response parser ──────────────────────────────────────────────────────
-
-  private parseResponse(text: string, reasoning = ''): AnalysisResult | null {
-    const result = this.emptyResult();
-    result.ai_reasoning_chain = reasoning;
-
-    const lines  = text.trim().split('\n');
-    let   section: string | null = null;
-
-    for (const raw of lines) {
-      const line = raw.trim();
-      if (!line) continue;
-
-      if (line.startsWith('MARKET_REGIME:'))      { result.market_regime = line.replace('MARKET_REGIME:', '').trim(); continue; }
-      if (line.startsWith('MARKET_SUMMARY:'))      { result.market_summary = line.replace('MARKET_SUMMARY:', '').trim(); continue; }
-      if (line.startsWith('SENTIMENT:')) {
-        const s = line.replace('SENTIMENT:', '').trim().toUpperCase();
-        result.overall_market_sentiment =
-          s.includes('RISK_ON')  ? 'RISK_ON'  :
-          s.includes('RISK_OFF') ? 'RISK_OFF' : 'NEUTRAL';
-        continue;
-      }
-
-      if (line.startsWith('EVENTS:'))             { section = 'events';     continue; }
-      if (line.startsWith('OPPORTUNITIES:'))       { section = 'opps';       continue; }
-      if (line.startsWith('RISK_WARNINGS:'))       { section = 'risks';      continue; }
-      if (line.startsWith('CROSS_ASSET_THEMES:'))  { section = 'themes';     continue; }
-      if (line.startsWith('CONTRARIAN_SIGNALS:'))  { section = 'contrarian'; continue; }
-      if (line.startsWith('RECOMMENDED_ACTIONS:')) { section = 'actions';    continue; }
-      if (line.startsWith('RULES:'))               { section = null;         continue; }
-
-      if (section === 'events' && line.includes('|')) {
-        const p = line.split('|').map(x => x.trim());
-        if (p.length >= 4) {
-          result.high_impact_events.push({
-            event:           p[0].replace(/^\d+\.\s*/, ''),
-            affected_assets: p[1].split(',').map(a => a.trim()),
-            direction:       p[2],
-            impact_level:    p[3],
-            time_horizon:    p[4] ?? 'SHORT_TERM',
-            reasoning:       p[5] ?? '',
-            second_order:    p[6] ?? '',
-          });
-        }
-      } else if (section === 'opps' && line.includes('|')) {
-        const p = line.split('|').map(x => x.trim());
-        if (p.length >= 4) {
-          const confMatch = p[3].match(/\d+/);
-          result.opportunities.push({
-            asset:        p[0].replace(/^\d+\.\s*/, ''),
-            asset_type:   p[1] ?? 'unknown',
-            action:
-              p[2].toUpperCase().includes('BUY')  ? 'BUY'  :
-              p[2].toUpperCase().includes('SELL') ? 'SELL' : 'WATCH',
-            confidence:   confMatch ? parseInt(confMatch[0], 10) : 60,
-            reasoning:    p[4] ?? '',
-            entry_range:  p[5] ?? '',
-            target_range: p[6] ?? '',
-            stop_loss:    p[7] ?? '',
-            late_signal:  p[8] ?? '',
-            invalidation: p[9] ?? '',
-            risks:        p[10] ?? '',
-          });
-        }
-      } else if (line.startsWith('-')) {
-        const val = line.substring(1).trim();
-        if (!val) continue;
-        if (section === 'themes')     result.cross_asset_themes.push(val);
-        if (section === 'risks')      result.risk_warnings.push(val);
-        if (section === 'contrarian') result.contrarian_signals.push(val);
-        if (section === 'actions')    result.recommended_actions.push(val);
-      }
-    }
-
-    if (
-      !result.market_summary &&
-      result.high_impact_events.length === 0 &&
-      result.opportunities.length === 0
-    ) return null;
-
-    return result;
   }
 
   // ─── Enrich with live prices ──────────────────────────────────────────────
