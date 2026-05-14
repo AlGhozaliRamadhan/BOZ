@@ -37,6 +37,7 @@ describe('SentimentService', () => {
   afterEach(() => {
     mockState.ticker = 'BTC-USD';
     mockState.get.mockReset();
+    vi.unstubAllGlobals();
   });
 
   it('normalizes Yahoo crypto symbols for StockTwits and Reddit', async () => {
@@ -65,13 +66,20 @@ describe('SentimentService', () => {
       throw new Error(`Unexpected URL: ${url}`);
     });
 
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ data: { children: [] } }),
+    })) as unknown as typeof fetch;
+    vi.stubGlobal('fetch', fetchMock);
+
     const { SentimentService } = await import('../src/services/sentiment.service.js');
     await new SentimentService().fetchCrowdSentiment();
 
     const urls = mockState.get.mock.calls.map(([url]) => String(url));
+    const fetchUrls = fetchMock.mock.calls.map(([url]) => String(url));
     expect(urls.some(url => url.includes('/streams/symbol/BTC.X.json'))).toBe(true);
     expect(urls.some(url => url.includes('BTC-USD'))).toBe(false);
-    expect(urls.some(url => url.includes('q=BTC%20OR%20Bitcoin%20OR%20%24BTC'))).toBe(true);
-    expect(urls.some(url => url.includes('old.reddit.com'))).toBe(false);
+    expect(fetchUrls.some(url => url.includes('q=BTC%20OR%20Bitcoin%20OR%20%24BTC'))).toBe(true);
+    expect(fetchUrls.some(url => url.includes('old.reddit.com'))).toBe(false);
   });
 });

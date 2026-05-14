@@ -2,7 +2,7 @@ import axios from 'axios';
 import https from 'https';
 import { log, clr } from '../utils/logger.js';
 import { config } from '../config/config.js';
-import { resolveStockTwitsSymbol } from '../shared/market-constants.js';
+import { buildSocialSearchQuery, resolveStockTwitsSymbol } from '../shared/market-constants.js';
 
 // axios TLS agent for CNN / StockTwits / alternative.me (standard servers, no JA3 issues)
 const tlsAgent = new https.Agent({
@@ -122,9 +122,7 @@ export class SentimentService {
     // Cloudflare (which protects reddit.com) rejects Node's OpenSSL JA3 fingerprint
     // with SSL alert 40. Undici has a different TLS fingerprint that passes the check.
     try {
-      const stSymbol = resolveStockTwitsSymbol(config.ticker) ?? config.ticker;
-      const baseTag  = stSymbol.replace(/\.X$/, '').toUpperCase();
-      const query    = encodeURIComponent('$' + baseTag + ' OR ' + baseTag);
+      const query    = encodeURIComponent(buildSocialSearchQuery(config.ticker));
       const searchUrl = `https://www.reddit.com/search.json?q=${query}&sort=new&limit=10&t=day`;
 
       const res = await fetch(searchUrl, {
