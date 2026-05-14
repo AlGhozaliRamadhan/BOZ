@@ -1,8 +1,20 @@
-import OpenAI from 'openai';
 import { config } from '../config/config.js';
 import { GITHUB_TOKEN_URL } from '../config/github.config.js';
 import { NVIDIA_API_KEY_URL } from '../config/nvidia.config.js';
 import { log, clr } from '../utils/logger.js';
+import { LLMAdapter } from './llm.adapter.js';
+import { formatSchemaErrors, validateAiPrediction } from './llm.schemas.js';
+
+interface AIPredictionPayload {
+  status: 'ok' | 'uncertain' | 'error';
+  prediction?: 'UP' | 'DOWN' | 'UNKNOWN';
+  confidence?: number;
+  strategy?: string;
+  target_price?: number | null;
+  stop_loss?: number | null;
+  reasons?: string[];
+  reason?: string;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,8 +43,21 @@ const FALLBACK_MODELS = [
   'openai/gpt-5',
 ] as const;
 
-const RESPONSE_PATTERN =
-  /PREDICTION:\s*(UP|DOWN).*?CONFIDENCE:\s*(\d+).*?STRATEGY:\s*([^\n]+).*?TARGET:\s*\$?([\d,]+\.?\d*).*?STOP:\s*\$?([\d,]+\.?\d*)/is;
+const JSON_OUTPUT_RULES = [
+  'OUTPUT JSON ONLY. No markdown, no commentary.',
+  'Schema:',
+  '{',
+  '  "status": "ok|uncertain|error",',
+  '  "prediction": "UP|DOWN|UNKNOWN",',
+  '  "confidence": 0-100,',
+  '  "strategy": "string",',
+  '  "target_price": number|null,',
+  '  "stop_loss": number|null,',
+  '  "reasons": ["string", ...],',
+  '  "reason": "string" // required when status != ok',
+  '}',
+  'If data is insufficient, set status to "uncertain", prediction to "UNKNOWN", and explain in reason.',
+].join('\n');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -62,7 +87,9 @@ function buildAnalysisPrompt(userPrompt: string): string {
     `  - Use only evidence from the provided data; do not invent metrics or news.\n` +
     `  - If a key data point is missing, say so and lower confidence.\n` +
     `  - Ensure prediction, confidence, and levels align with cited signals.\n\n` +
-    userPrompt
+    userPrompt +
+    `\n\n` +
+    JSON_OUTPUT_RULES
   );
 }
 
@@ -76,6 +103,8 @@ function buildWaterfall(): string[] {
 // ─── AIService ────────────────────────────────────────────────────────────────
 
 export class AIService {
+  private readonly llm = new LLMAdapter();
+
   analyze(prompt: string): Promise<AIResult> {
     switch (config.aiProvider) {
       case 'offline': return this.analyzeWithOffline(prompt);
@@ -99,6 +128,8 @@ export class AIService {
     const primary        = models[0];
     let   lastError      = '';
 
+    const messages = [{ role: 'user' as const, content: combinedPrompt }];
+
     for (const model of models) {
       const isFallback = model !== primary;
 
@@ -107,100 +138,56 @@ export class AIService {
       log.ai('endpoint', clr.dim(endpoint));
       log.ai('timeout',  clr.dim((TIMEOUT_MS / 1000) + 's'));
 
-      const result = await this.callOnce(endpoint, token, model, combinedPrompt);
+      try {
+        const content = await this.llm.callText({
+          messages,
+          temperature: 0.3,
+          maxTokens: 2000,
+          model,
+          responseFormat: 'json',
+        });
 
-      if (result.type === 'ok') {
-        if (isFallback) log.ok('ai', `Success via fallback  ${clr.dim(model)}`);
-        return this.parseResponse(result.content);
-      }
+        const parsed = this.validateResponse(content);
+        if (parsed.ok) {
+          if (isFallback) log.ok('ai', `Success via fallback  ${clr.dim(model)}`);
+          if (parsed.warnings.length > 0) {
+            parsed.warnings.forEach(w => log.warn('ai', w));
+          }
+          return parsed.result;
+        }
 
-      if (result.type === 'rate_limit') {
-        log.warn('ai', `${clr.yellow(model)} rate-limited (429) — trying next model…`);
-        lastError = `${model}: rate limited`;
+        lastError = `${model}: ${parsed.error}`;
+        log.warn('ai', `${clr.yellow(model)} invalid JSON — trying next model…`);
         continue;
-      }
 
-      if (result.type === 'timeout') {
-        log.warn('ai', `${clr.yellow(model)} timed out — trying next model…`);
-        lastError = `${model}: timeout`;
-        continue;
-      }
+      } catch (err: any) {
+        const status: number | undefined = err?.response?.status ?? err?.status;
+        if (status === 429) {
+          log.warn('ai', `${clr.yellow(model)} rate-limited (429) — trying next model…`);
+          lastError = `${model}: rate limited`;
+          continue;
+        }
 
-      log.error('ai', `${model} — ${result.message}`);
-      lastError = `${model}: ${result.message}`;
+        if (err?.code === 'ECONNABORTED' || err?.code === 'ETIMEDOUT') {
+          log.warn('ai', `${clr.yellow(model)} timed out — trying next model…`);
+          lastError = `${model}: timeout`;
+          continue;
+        }
 
-      if (result.type === 'auth_error') {
-        log.error('ai', 'Token rejected — stopping fallback chain.');
-        break;
+        if (status === 401 || status === 403) {
+          log.error('ai', `${model} — HTTP ${status} Unauthorized`);
+          log.error('ai', 'Token rejected — stopping fallback chain.');
+          lastError = `${model}: auth_error`;
+          break;
+        }
+
+        log.error('ai', `${model} — ${err?.message ?? 'Unknown error'}`);
+        lastError = `${model}: ${err?.message ?? 'Unknown error'}`;
       }
     }
 
     log.error('ai', `All models exhausted.  Last error: ${lastError}`);
     return errResult('All models failed');
-  }
-
-  // ─── Single attempt (GitHub) ───────────────────────────────────────────────
-
-  private async callOnce(
-    endpoint: string,
-    token:    string,
-    model:    string,
-    prompt:   string,
-  ): Promise<
-    | { type: 'ok';         content: string }
-    | { type: 'rate_limit' }
-    | { type: 'timeout' }
-    | { type: 'auth_error'; message: string }
-    | { type: 'error';      message: string }
-  > {
-    const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-    try {
-      const res = await fetch(endpoint, {
-        method:  'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens:  32000,
-          temperature: 0.3,
-          messages: [{ role: 'user', content: prompt }],
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (res.status === 429) return { type: 'rate_limit' };
-      if (res.status === 401 || res.status === 403) {
-        return { type: 'auth_error', message: `HTTP ${res.status} Unauthorized` };
-      }
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        return { type: 'error', message: `HTTP ${res.status}: ${body.slice(0, 120)}` };
-      }
-
-      const json = await res.json() as any;
-      let content: string = json.choices?.[0]?.message?.content ?? '';
-      if (!content) return { type: 'error', message: 'Empty content in response' };
-
-      log.ok('ai', `Response received  ${clr.dim(content.length + ' chars')}`);
-
-      if (content.includes('</think>')) {
-        content = content.split('</think>').pop()!.trim();
-        log.info('ai', 'Stripped <think> block');
-      }
-
-      return { type: 'ok', content };
-
-    } catch (err: unknown) {
-      clearTimeout(timeoutId);
-      if (err instanceof Error && err.name === 'AbortError') return { type: 'timeout' };
-      return { type: 'error', message: err instanceof Error ? err.message : String(err) };
-    }
   }
 
   // ─── NVIDIA NIM ────────────────────────────────────────────────────────────
@@ -221,78 +208,28 @@ export class AIService {
     log.ai('endpoint', clr.dim(baseURL));
     log.ai('timeout',  clr.dim((TIMEOUT_MS / 1000) + 's'));
 
-    const client = new OpenAI({ apiKey, baseURL });
-
-    const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-    // DeepSeek V4 Pro uses chat_template_kwargs.thinking instead of
-    // reasoning_budget / enable_thinking used by Nemotron.
-    const isDeepSeek = model.startsWith('deepseek-ai/');
-
     try {
-      const nvidiaParams = isDeepSeek
-        ? {
-            model,
-            messages:             [{ role: 'user', content: buildAnalysisPrompt(prompt) }],
-            temperature:          1,
-            top_p:                0.95,
-            max_tokens:           16384,
-            extra_body:           { chat_template_kwargs: { thinking: false } },
-            stream:               true as const,
-          }
-        : {
-            model,
-            messages:             [{ role: 'user', content: buildAnalysisPrompt(prompt) }],
-            temperature:          1,
-            top_p:                0.95,
-            max_tokens:           16384,
-            reasoning_budget:     16384,
-            chat_template_kwargs: { enable_thinking: true },
-            stream:               true as const,
-          };
+      const content = await this.llm.callText({
+        messages: [{ role: 'user', content: buildAnalysisPrompt(prompt) }],
+        temperature: 0.3,
+        maxTokens: 2000,
+        responseFormat: 'json',
+        nvidiaMode: 'analysis',
+      });
 
-      const stream = await client.chat.completions.create(nvidiaParams as any) as unknown as AsyncIterable<any>;
-
-      clearTimeout(timeoutId);
-
-      let reasoning = '';
-      let content   = '';
-      let chunkCount = 0;
-
-      for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta as any;
-        if (delta?.reasoning_content) reasoning += delta.reasoning_content;
-        if (delta?.content)           content   += delta.content;
-        chunkCount++;
+      const parsed = this.validateResponse(content);
+      if (parsed.ok) {
+        if (parsed.warnings.length > 0) {
+          parsed.warnings.forEach(w => log.warn('ai', w));
+        }
+        return parsed.result;
       }
 
-      if (!content && !reasoning) {
-        return errResult('Empty response from NVIDIA NIM');
-      }
-
-      log.ok('ai', `Stream complete  ${clr.dim(chunkCount + ' chunks · ' + content.length + ' chars')}`);
-
-      if (reasoning) {
-        log.info('ai', `Thinking tokens: ${clr.dim(reasoning.length + ' chars')}`);
-      }
-
-      // Strip any residual <think> wrappers from the content field
-      let finalContent = content || reasoning;
-      if (finalContent.includes('</think>')) {
-        finalContent = finalContent.split('</think>').pop()!.trim();
-        log.info('ai', 'Stripped <think> block from content');
-      }
-
-      return this.parseResponse(finalContent);
+      log.error('ai', `Invalid JSON from NVIDIA NIM: ${parsed.error}`);
+      return uncertain('NVIDIA response failed schema validation');
 
     } catch (err: unknown) {
-      clearTimeout(timeoutId);
       const msg = err instanceof Error ? err.message : String(err);
-      if (err instanceof Error && err.name === 'AbortError') {
-        log.error('ai', 'NVIDIA request timed out');
-        return errResult('NVIDIA request timed out');
-      }
       log.error('ai', `NVIDIA error: ${msg}`);
       return errResult(`NVIDIA API call failed: ${msg}`);
     }
@@ -311,33 +248,26 @@ export class AIService {
     log.ai('endpoint', clr.dim(endpoint));
     log.ai('model',    clr.dim(config.aiModel));
 
-    const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
     try {
-      const res = await fetch(`${endpoint}/api/chat`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model:    config.aiModel,
-          messages: [{ role: 'user', content: prompt }],
-          stream:   false,
-        }),
-        signal: controller.signal,
+      const content = await this.llm.callText({
+        messages: [{ role: 'user', content: buildAnalysisPrompt(prompt) }],
+        temperature: 0.3,
+        maxTokens: 2000,
+        responseFormat: 'json',
       });
 
-      clearTimeout(timeoutId);
+      const parsed = this.validateResponse(content);
+      if (parsed.ok) {
+        if (parsed.warnings.length > 0) {
+          parsed.warnings.forEach(w => log.warn('ai', w));
+        }
+        return parsed.result;
+      }
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const data    = await res.json() as any;
-      const content = (data?.message?.content ?? data?.response ?? '') as string;
-      if (!content) return errResult('Empty response from offline AI');
-
-      return this.parseResponse(content);
+      log.warn('ai', `Invalid JSON from offline AI: ${parsed.error}`);
+      return uncertain('Offline response failed schema validation');
 
     } catch (err: unknown) {
-      clearTimeout(timeoutId);
       const msg = err instanceof Error ? err.message : String(err);
       log.error('ai', `Offline error: ${msg}`);
       return errResult('Offline API call failed');
@@ -346,49 +276,58 @@ export class AIService {
 
   // ─── Response Parsing ─────────────────────────────────────────────────────
 
-  private parseResponse(content: string): AIResult {
-    const extractReasons = (text: string): string[] | undefined => {
-      const match = text.match(/REASONS?:\s*([\s\S]+)/i);
-      if (!match) return undefined;
-      const lines = match[1]
-        .split('\n')
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
-      const reasons = lines
-        .filter((l) => l.startsWith('-') || /^\d+\./.test(l))
-        .map((l) => l.replace(/^(-|\d+\.)\s*/, '').trim())
-        .filter((l) => l.length > 0);
-      return reasons.length > 0 ? reasons.slice(0, 5) : undefined;
-    };
+  private validateResponse(content: string):
+    | { ok: true; result: AIResult; warnings: string[] }
+    | { ok: false; error: string; warnings: string[] } {
+    const extracted = LLMAdapter.extractJson(content);
+    if (!extracted) {
+      return { ok: false, error: 'No JSON object found', warnings: [] };
+    }
 
-    const reasons = extractReasons(content);
-    const match = content.match(RESPONSE_PATTERN);
-
-    if (match) {
-      log.ok('ai', 'Structured prediction parsed successfully.');
-      const rawTarget = parseFloat(match[4].replace(/,/g, ''));
-      const rawStop   = parseFloat(match[5].replace(/,/g, ''));
-      const target_price = rawTarget > 0 ? rawTarget : undefined;
-      const stop_loss    = rawStop   > 0 ? rawStop   : undefined;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(extracted.jsonText);
+    } catch (err: any) {
       return {
-        status:       'ok',
-        prediction:   match[1].toUpperCase() as 'UP' | 'DOWN',
-        confidence:   parseInt(match[2], 10),
-        strategy:     match[3].trim(),
-        target_price,
-        stop_loss,
-        reasons,
-        raw_response: content,
+        ok: false,
+        error: err?.message ?? 'Invalid JSON',
+        warnings: extracted.warnings,
       };
     }
 
-    log.warn('ai', 'No structured prediction — returning raw response.');
+    const valid = validateAiPrediction(parsed);
+    if (!valid) {
+      const errors = formatSchemaErrors(validateAiPrediction.errors).join('; ');
+      return { ok: false, error: errors || 'Schema validation failed', warnings: extracted.warnings };
+    }
+
+    const result = this.normalizeResult(parsed as AIPredictionPayload, extracted.jsonText);
+    return { ok: true, result, warnings: extracted.warnings };
+  }
+
+  private normalizeResult(payload: AIPredictionPayload, raw: string): AIResult {
+    if (payload.status !== 'ok') {
+      return { status: payload.status, reason: payload.reason ?? 'Model returned no reason' };
+    }
+
+    const confidence = Math.max(0, Math.min(100, Math.round(payload.confidence ?? 50)));
+    const reasons = payload.reasons?.filter(r => r.trim().length > 0).slice(0, 5);
+
     return {
-      status:       'ok',
-      prediction:   'UNKNOWN',
-      confidence:   50,
-      reasons,
-      raw_response: content,
+      status: 'ok',
+      prediction: (payload.prediction ?? 'UNKNOWN') as 'UP' | 'DOWN' | 'UNKNOWN',
+      confidence,
+      strategy: payload.strategy?.trim() || undefined,
+      target_price: payload.target_price ?? undefined,
+      stop_loss: payload.stop_loss ?? undefined,
+      reasons: reasons && reasons.length > 0 ? reasons : undefined,
+      raw_response: raw,
     };
+  }
+
+  public parseResponse(content: string): AIResult {
+    const parsed = this.validateResponse(content);
+    if (parsed.ok) return parsed.result;
+    return uncertain(`Invalid JSON response: ${parsed.error}`);
   }
 }
