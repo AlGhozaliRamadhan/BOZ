@@ -163,7 +163,7 @@ const TOOL_DEFINITIONS = [
                   type: 'array',
                   items: { type: 'string' },
                   description: 'REQUIRED. Exact tool calls backing this setup — e.g. ' +
-                    '["fetch_price:BTC","fetch_news:all","fetch_fear_greed"]. ' +
+                    '["fetch_price:BTC","fetch_price_momentum:BTC","fetch_news:all","fetch_fear_greed"]. ' +
                     'Only list tools already called this session.',
                 },
               },
@@ -373,8 +373,8 @@ export class NewsIntelAgent extends BaseAgent {
       switch (call.name) {
         case 'fetch_news':              result = await this.toolFetchNews(call.arguments, state); break;
         case 'fetch_price':             result = await this.toolFetchPrice(call.arguments, state); break;
-        case 'fetch_fear_greed':        result = await this.toolFetchFearGreed(); break;
-        case 'fetch_trending_crypto':   result = await this.toolFetchTrendingCrypto(); break;
+        case 'fetch_fear_greed':        result = await this.toolFetchFearGreed(state); break;
+        case 'fetch_trending_crypto':   result = await this.toolFetchTrendingCrypto(state); break;
         case 'fetch_social_sentiment':  result = await this.toolFetchSocialSentiment(call.arguments, state); break;
         case 'scan_upcoming_catalysts': result = await this.toolScanUpcomingCatalysts(state); break;
         case 'fetch_price_momentum':    result = await this.toolFetchPriceMomentum(call.arguments, state); break;
@@ -601,7 +601,8 @@ Fading momentum + falling news velocity = signal exhaustion. Accelerating moment
     }
   }
 
-  private async toolFetchFearGreed(): Promise<string> {
+  private async toolFetchFearGreed(state: AgentState): Promise<string> {
+    state.toolsUsed.push('fetch_fear_greed');
     try {
       const res = await axios.get(
         'https://api.alternative.me/fng/?limit=7',
@@ -652,7 +653,8 @@ Fading momentum + falling news velocity = signal exhaustion. Accelerating moment
     }
   }
 
-  private async toolFetchTrendingCrypto(): Promise<string> {
+  private async toolFetchTrendingCrypto(state: AgentState): Promise<string> {
+    state.toolsUsed.push('fetch_trending_crypto');
     const lines: string[] = ['TRENDING CRYPTO (CoinGecko)'];
 
     try {
@@ -705,6 +707,7 @@ Fading momentum + falling news velocity = signal exhaustion. Accelerating moment
     const result = [`NEWS FOR "${args.asset.toUpperCase()}" (${matches.length} items):`, ...matches];
     if (lateCount > 0)
       result.push(`\n[WARNING] ${lateCount} headline(s) contain late-entry language — momentum may be extended.`);
+    state.toolsUsed.push('search_news_by_asset');
     return result.join('\n');
   }
 
@@ -724,6 +727,12 @@ Fading momentum + falling news velocity = signal exhaustion. Accelerating moment
   }
 
   private toolEmitOpportunities(args: any, state: AgentState): string {
+    const requiredSessionTools = ['scan_upcoming_catalysts', 'fetch_news', 'fetch_fear_greed'];
+    const missingSessionTools = requiredSessionTools.filter(t => !state.toolsUsed.includes(t));
+    if (missingSessionTools.length > 0) {
+      return `[BLOCKED] emit_opportunities requires these tools first: ${missingSessionTools.join(', ')}.`;
+    }
+
     const opps: any[] = Array.isArray(args.opportunities) ? args.opportunities : [];
     if (opps.length === 0) return 'No opportunities provided.';
 
@@ -733,20 +742,36 @@ Fading momentum + falling news velocity = signal exhaustion. Accelerating moment
     for (const o of opps) {
       const asset     = String(o.asset ?? '').toUpperCase();
       const action    = String(o.action ?? 'WATCH').toUpperCase() as 'BUY' | 'SELL' | 'WATCH';
-      const sources   = Array.isArray(o.sources) ? o.sources as string[] : [];
-      const hasFetchPrice = sources.some(s => s.toLowerCase().startsWith('fetch_price'));
+      const sources   = Array.isArray(o.sources) ? o.sources.map((s: unknown) => String(s).trim()).filter(Boolean) as string[] : [];
 
-      // Block BUY/SELL if price was never fetched — downgrade to WATCH
+      if (sources.length === 0) {
+        blocked.push(`[BLOCKED] ${asset}: sources[] is required and must cite the tool calls used.`);
+        continue;
+      }
+
+      const invalidSources = sources.filter(s => !state.toolsUsed.includes(s.split(':')[0] ?? s));
+      if (invalidSources.length > 0) {
+        blocked.push(`[BLOCKED] ${asset}: sources contain tools not called this session: ${invalidSources.join(', ')}`);
+        continue;
+      }
+
+      const hasFetchPrice = sources.some(s => s.toLowerCase().startsWith('fetch_price'));
+      const hasMomentum  = sources.some(s => s.toLowerCase().startsWith('fetch_price_momentum'));
+      const hasPriceCached = state.fetchedAssets.has(asset) || state.priceCache.has(asset);
+      const hasMomentumCached = state.momentumCache.has(asset);
+
+      // Require price + momentum coverage before accepting an opportunity
       let effectiveAction = action;
       let effectiveConf   = Number(o.confidence ?? 50);
-      const warnings: string[] = [];
 
-      if (!hasFetchPrice && !state.fetchedAssets.has(asset)) {
-        if (action !== 'WATCH') {
-          warnings.push(`[DOWNGRADE] ${asset}: no fetch_price call found — action changed BUY/SELL → WATCH, confidence capped at 55.`);
-          effectiveAction = 'WATCH';
-          effectiveConf   = Math.min(effectiveConf, 55);
-        }
+      if (!hasFetchPrice || !hasPriceCached) {
+        blocked.push(`[BLOCKED] ${asset}: fetch_price is required before emit_opportunities.`);
+        continue;
+      }
+
+      if (!hasMomentum || !hasMomentumCached) {
+        blocked.push(`[BLOCKED] ${asset}: fetch_price_momentum is required before emit_opportunities.`);
+        continue;
       }
 
       // Auto-fill spot_price from priceCache
@@ -767,14 +792,12 @@ Fading momentum + falling news velocity = signal exhaustion. Accelerating moment
         invalidation: String(o.invalidation ?? ''),
         risks:        String(o.risks ?? ''),
         late_signal:  String(o.late_signal ?? 'NO'),
-        sources,
+        sources: [...new Set(sources)],
         spot_price:   cachedPrice,
       };
       state.opportunities.push(opp);
       added.push(`${opp.action} ${opp.asset} (confidence: ${opp.confidence}%)`);
       log.info('agent', `  + opportunity: ${opp.action} ${opp.asset} @ ${opp.confidence}%`);
-      if (warnings.length) warnings.forEach(w => log.warn('agent', w));
-      blocked.push(...warnings);
     }
 
     const out = [`[OK] Recorded ${added.length} opportunity/ies:`, ...added.map(a => '  - ' + a)];
@@ -1183,6 +1206,9 @@ Fading momentum + falling news velocity = signal exhaustion. Accelerating moment
         }
         if (o.invalidation) this.wrapText(`invalidates if: ${o.invalidation}`).forEach(l => console.log(`      ${clr.dim(l)}`));
         if (o.risks) this.wrapText(`risks: ${o.risks}`).forEach(l => console.log(`      ${clr.dim(l)}`));
+        if (o.sources && o.sources.length > 0) {
+          this.wrapText(`sources: ${o.sources.join(' · ')}`).forEach(l => console.log(`      ${clr.dim(l)}`));
+        }
       }
       br();
     } else {

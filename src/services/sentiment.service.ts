@@ -22,6 +22,70 @@ const tlsAgent = new https.Agent({
 });
 
 export class SentimentService {
+  private readonly retryableStatuses = new Set([429, 500, 502, 503, 504]);
+  private readonly retryableCodes = new Set(['ECONNABORTED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND']);
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private shouldRetry(err: any): boolean {
+    const status = err?.response?.status as number | undefined;
+    if (status && this.retryableStatuses.has(status)) return true;
+    const code = err?.code as string | undefined;
+    if (code && this.retryableCodes.has(code)) return true;
+    return false;
+  }
+
+  private async withRetry<T>(label: string, fn: () => Promise<T>, attempts = 3): Promise<T> {
+    let lastErr: any;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        return await fn();
+      } catch (err: any) {
+        lastErr = err;
+        if (!this.shouldRetry(err) || attempt === attempts - 1) throw err;
+        const base = 500 * Math.pow(2, attempt);
+        const jitter = Math.round(Math.random() * 250);
+        const delay = Math.min(8000, base + jitter);
+        if (process.env.DEBUG_CROWD) {
+          log.warn('crowd', `Retrying ${label} in ${delay}ms (attempt ${attempt + 2}/${attempts})`);
+        }
+        await this.sleep(delay);
+      }
+    }
+    throw lastErr;
+  }
+
+  private async fetchWithRetry(url: string, init: RequestInit, attempts = 3): Promise<any> {
+    let lastErr: any;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        const res = await fetch(url, init);
+        if (res.ok) return res;
+        if (!this.retryableStatuses.has(res.status) || attempt === attempts - 1) return res;
+        const base = 500 * Math.pow(2, attempt);
+        const jitter = Math.round(Math.random() * 250);
+        const delay = Math.min(8000, base + jitter);
+        if (process.env.DEBUG_CROWD) {
+          log.warn('crowd', `Retrying fetch ${url} in ${delay}ms (attempt ${attempt + 2}/${attempts})`);
+        }
+        await this.sleep(delay);
+      } catch (err: any) {
+        lastErr = err;
+        if (attempt === attempts - 1) throw err;
+        const base = 500 * Math.pow(2, attempt);
+        const jitter = Math.round(Math.random() * 250);
+        const delay = Math.min(8000, base + jitter);
+        if (process.env.DEBUG_CROWD) {
+          log.warn('crowd', `Retrying fetch ${url} in ${delay}ms (attempt ${attempt + 2}/${attempts})`);
+        }
+        await this.sleep(delay);
+      }
+    }
+    throw lastErr;
+  }
+
   async fetchCrowdSentiment(): Promise<any> {
     const crowd = {
       fear_greed:          null as any,
@@ -50,9 +114,11 @@ export class SentimentService {
 
     // ── Fear & Greed (CNN Money) ───────────────────────────────────────────────
     try {
-      const fgRes = await axios.get(
-        'https://production.dataviz.cnn.io/index/fearandgreed/graphdata',
-        { headers, httpsAgent: tlsAgent, timeout: 10_000 },
+      const fgRes = await this.withRetry('fear_greed_cnn', () =>
+        axios.get(
+          'https://production.dataviz.cnn.io/index/fearandgreed/graphdata',
+          { headers, httpsAgent: tlsAgent, timeout: 10_000 },
+        ),
       );
       const score  = fgRes.data?.fear_and_greed?.score;
       const rating = fgRes.data?.fear_and_greed?.rating;
@@ -71,7 +137,12 @@ export class SentimentService {
       // Silently fall through — CNN 418s are expected (anti-bot WAF), alternative.me is reliable
       if (process.env.DEBUG_CROWD) log.warn('crowd', `Fear & Greed (CNN) error: ${(err as Error).message}`);
       try {
-        const fgRes2 = await axios.get('https://api.alternative.me/fng/?limit=1', { headers, httpsAgent: tlsAgent, timeout: 8_000 });
+        const fgRes2 = await this.withRetry('fear_greed_altme', () =>
+          axios.get(
+            'https://api.alternative.me/fng/?limit=1',
+            { headers, httpsAgent: tlsAgent, timeout: 8_000 },
+          ),
+        );
         const latest = fgRes2.data?.data?.[0];
         if (latest) {
           crowd.fear_greed = {
@@ -89,9 +160,11 @@ export class SentimentService {
       if (!stockTwitsSymbol) {
         log.crowd('stocktwits', clr.dim(`skipped for ${config.ticker}`));
       } else {
-        const stRes = await axios.get(
-          `https://api.stocktwits.com/api/2/streams/symbol/${stockTwitsSymbol}.json`,
-          { headers: stHeaders, httpsAgent: tlsAgent, timeout: 10_000 },
+        const stRes = await this.withRetry('stocktwits_stream', () =>
+          axios.get(
+            `https://api.stocktwits.com/api/2/streams/symbol/${stockTwitsSymbol}.json`,
+            { headers: stHeaders, httpsAgent: tlsAgent, timeout: 10_000 },
+          ),
         );
         if (stRes.data?.messages) {
           const messages = stRes.data.messages as any[];
@@ -125,7 +198,7 @@ export class SentimentService {
       const query    = encodeURIComponent(buildSocialSearchQuery(config.ticker));
       const searchUrl = `https://www.reddit.com/search.json?q=${query}&sort=new&limit=10&t=day`;
 
-      const res = await fetch(searchUrl, {
+      const res = await this.fetchWithRetry(searchUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
           'Accept': 'application/json',
