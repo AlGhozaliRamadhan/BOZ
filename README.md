@@ -20,7 +20,7 @@
   <a href="https://github.com/AlGhozaliRamadhan">
     <img src="https://img.shields.io/badge/Author-AGR-111111?style=flat"/>
   </a>
-  <img src="https://img.shields.io/badge/version-1.5.7-brightgreen?style=flat"/>
+  <img src="https://img.shields.io/badge/version-1.5.8-brightgreen?style=flat"/>
 </p>
 
 ---
@@ -74,6 +74,7 @@ Every emitted opportunity must include a **Conviction Level**:
 | < 50% | — | Skip |
 
 Every emitted opportunity includes: asset, asset type, action, conviction, confidence, reasoning, entry range, target range, stop loss, invalidation condition, risks, late-signal flag, and **exact tool sources**.
+Hard enforcement: `emit_opportunities` is blocked unless `scan_upcoming_catalysts`, `fetch_news`, `fetch_fear_greed`, `fetch_price`, and `fetch_price_momentum` were run and cited in `sources`.
 
 ### Session Memory & Retrospective
 
@@ -82,6 +83,8 @@ The agent now remembers its past sessions. At the start of a new run, it reads t
 ### Resilience
 
 - **Retry on 429 / 5xx:** every AI call is wrapped in `callAIWithRetry` up to 3 attempts with linear backoff (5 s → 10 s → 15 s). Retries also cover network-level errors (`ECONNRESET`, `ETIMEDOUT`).
+- **News + sentiment backoff:** external news and crowd sentiment fetches retry on 429/5xx with exponential backoff and jitter to reduce rate-limit failures.
+- **Data freshness visibility:** intraday and long-term outputs show latest candle time, age, stale threshold, and incomplete-candle flags (Yahoo data may be delayed).
 - **Partial state on crash:** if the loop exits due to an unrecoverable error, `synthesiseFinish()` runs automatically so whatever the agent had accumulated is always rendered never a blank output.
 - **Soft nudge:** at 15 minutes the agent is asked to wrap up. Hard cap is 20 minutes / 80 iterations.
 - **Meta-summary fallback:** if the post-session AI debrief call fails, the inline `marketSummary`, `riskWarnings`, and `contrarian` signals are rendered instead.

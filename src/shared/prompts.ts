@@ -25,8 +25,18 @@ export interface CrowdSentimentData {
   } | null;
 }
 
+export interface DataFreshnessPrompt {
+  latest_candle_utc: string;
+  age_minutes: number;
+  is_stale: boolean;
+  is_incomplete: boolean;
+  market_open: boolean;
+  stale_threshold_minutes: number;
+}
+
 export interface IntradayPromptData {
   summary: MarketData;
+  dataFreshness: DataFreshnessPrompt;
   mtfBias: {
     bias1h: string;
     bias4h: string;
@@ -51,6 +61,7 @@ export interface IntradayPromptData {
 
 export interface LongTermPromptData {
   price: number;
+  dataFreshness: DataFreshnessPrompt;
   high52w: number;
   low52w: number;
   pctFromHigh: number;
@@ -99,7 +110,7 @@ function formatSocialBuzz(crowdSentiment: CrowdSentimentData): string {
 }
 
 export function buildIntradayPrompt(data: IntradayPromptData): string {
-  const { summary, mtfBias, marketStructure, volumePrice, patterns, chartPatterns, macroContext, newsItems, crowdSentiment } = data;
+  const { summary, dataFreshness, mtfBias, marketStructure, volumePrice, patterns, chartPatterns, macroContext, newsItems, crowdSentiment } = data;
 
   return `You are an expert ${config.ticker} stock trading analyst focused on INTRADAY trading.
 Assess the current setup for ${config.ticker} and provide an actionable prediction for the next 2-6 hours.
@@ -117,6 +128,12 @@ CURRENT MARKET DATA:
 - Volatility Regime: ${summary.volatility_regime}  (${summary.volatility_warning})
 - ATR: $${summary.atr.toFixed(2)}  (${summary.atr_percent.toFixed(2)}%)
 - BB Width: ${summary.bb_width.toFixed(2)}%  Squeeze: ${summary.bb_squeeze_status}  Position: ${summary.bb_position}
+
+DATA FRESHNESS (Yahoo delayed data possible):
+- Latest Candle (UTC): ${dataFreshness.latest_candle_utc}
+- Age: ${dataFreshness.age_minutes.toFixed(1)} minutes  (stale threshold ${dataFreshness.stale_threshold_minutes} min)
+- Stale: ${dataFreshness.is_stale ? 'YES' : 'NO'}  |  Incomplete Candle: ${dataFreshness.is_incomplete ? 'YES' : 'NO'}
+- Market Open: ${dataFreshness.market_open ? 'YES' : 'NO'}
 
 MULTI-TIMEFRAME:
 - 1H Bias: ${mtfBias.bias1h}
@@ -177,6 +194,7 @@ REASONS:
 export function buildLongTermPrompt(data: LongTermPromptData): string {
   const {
     price,
+    dataFreshness,
     high52w,
     low52w,
     pctFromHigh,
@@ -215,6 +233,12 @@ PRICE & TREND DATA:
 - RSI (14): ${rsi?.toFixed(1) ?? 'N/A'}  (${rsi ? rsiLabel(rsi) : 'N/A'})
 - ATR: ${atr ? '$' + atr.toFixed(2) + ' (' + ((atr / price) * 100).toFixed(1) + '%)' : 'N/A'}
 - Max Drawdown from 52w High: ${maxDrawdown.toFixed(1)}%
+
+DATA FRESHNESS (Yahoo delayed data possible):
+- Latest Candle (UTC): ${dataFreshness.latest_candle_utc}
+- Age: ${dataFreshness.age_minutes.toFixed(1)} minutes  (stale threshold ${dataFreshness.stale_threshold_minutes} min)
+- Stale: ${dataFreshness.is_stale ? 'YES' : 'NO'}  |  Incomplete Candle: ${dataFreshness.is_incomplete ? 'YES' : 'NO'}
+- Market Open: ${dataFreshness.market_open ? 'YES' : 'NO'}
 
 WEEKLY TREND (2-year):
 - Direction: ${weeklyTrend}

@@ -66,6 +66,7 @@ export class MarketAnalyzer {
 
     const rawLatest = candles[candles.length - 1];
     const isIncomplete = isLikelyIncomplete(rawLatest, intervalMinutes, now);
+    const dataAgeMinutes = Math.max(0, (now.getTime() - rawLatest.date.getTime()) / 60000);
     const shouldDrop = options?.dropIncomplete === true && isIncomplete && candles.length > 2;
     const analysisCandles = shouldDrop ? candles.slice(0, -1) : candles;
 
@@ -158,6 +159,7 @@ export class MarketAnalyzer {
       bb_squeeze_status:     squeezeStatus,
       bb_position:           bbPosition,
       is_incomplete_candle:  isIncomplete,
+      data_age_minutes:      dataAgeMinutes,
     };
   }
 

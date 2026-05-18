@@ -1,4 +1,3 @@
-import { createRequire } from 'module';
 import { MarketAnalyzer } from './market.analyzer.js';
 import { ChartAnalyzer } from './chart.analyzer.js';
 import { IndicatorsService } from '../services/indicators.service.js';
@@ -9,9 +8,10 @@ import { NewsService } from '../services/news.service.js';
 import { MacroService } from '../services/macro.service.js';
 import { config } from '../config/config.js';
 import { buildLongTermPrompt } from '../shared/prompts.js';
+import { computeDataFreshness } from '../utils/data-freshness.js';
+import { getBuildVersion } from '../utils/version.js';
 
-const _require = createRequire(import.meta.url);
-const PKG_VERSION: string = (_require('../../package.json') as { version: string }).version;
+const BUILD_VERSION = getBuildVersion();
 import { clr, badge, OK, WARN, ERR, hr, hr2, BadgeColor } from '../utils/logger.js';
 import {
   ln, row, section, sep, pctColor,
@@ -70,7 +70,7 @@ export class LongTermAnalyzer {
 
   async runAnalysis(): Promise<void> {
     ln(hr2());
-    ln(`  ${clr.white(config.ticker)}  ${clr.dim('AI Long-Term Analyzer')}  ${clr.ghost('v' + PKG_VERSION)}`);
+    ln(`  ${clr.white(config.ticker)}  ${clr.dim('AI Long-Term Analyzer')}  ${clr.ghost('v' + BUILD_VERSION)}`);
     ln(hr2());
 
     try {
@@ -104,11 +104,20 @@ export class LongTermAnalyzer {
       const summary    = this.marketAnalyzer.getMarketSummary(dailyCandles, {
         intervalMinutes: 1440,
         dropIncomplete: false,
+        now,
       });
       const patterns30d  = this.marketAnalyzer.getRecentPatterns(dailyCandles, 30);
       const patterns90d  = this.marketAnalyzer.getRecentPatterns(dailyCandles, 90);
       const patterns365d = this.marketAnalyzer.getRecentPatterns(dailyCandles, Math.min(dailyCandles.length, 252));
       stopCalc('ok');
+
+      const latestCandle = dailyAll[dailyAll.length - 1];
+      const dataFreshness = computeDataFreshness(
+        latestCandle,
+        now,
+        1440,
+        summary.is_incomplete_candle === true,
+      );
 
       // ── Chart patterns ────────────────────────────────────────────────────
       const stopChart = spinner(`  ${badge('chart')}  Analyzing long-term chart patterns`);
@@ -167,6 +176,14 @@ export class LongTermAnalyzer {
       // ── AI prompt ─────────────────────────────────────────────────────────
       const prompt = buildLongTermPrompt({
         price,
+        dataFreshness: {
+          latest_candle_utc: dataFreshness.latestCandleUtc,
+          age_minutes: dataFreshness.ageMinutes,
+          is_stale: dataFreshness.isStale,
+          is_incomplete: dataFreshness.isIncomplete,
+          market_open: dataFreshness.marketOpen,
+          stale_threshold_minutes: dataFreshness.staleThresholdMinutes,
+        },
         high52w,
         low52w,
         pctFromHigh,
@@ -245,12 +262,23 @@ export class LongTermAnalyzer {
       row('target',   clr.green('$' + target.toFixed(2)) + clr.dim('  (' + pctColor(targetPct) + '  upside)'), 'green');
       row('stop',     clr.red('$'   + stop.toFixed(2))   + clr.dim('  (' + pctColor(stopPct)   + '  invalidation)'), 'red');
       row('strategy', clr.dim(displayStrategy));
+      row('data age', clr.dim(`${dataFreshness.ageMinutes.toFixed(1)} min`));
+      row('stale', dataFreshness.isStale ? clr.yellow('STALE') : clr.green('FRESH'));
+      if (dataFreshness.isIncomplete) ln(`  ${WARN}  Latest candle appears incomplete — treat signals cautiously`);
       ln(hr2());
 
       if (gateBear) {
         ln(`  ${WARN}  ${gateNote}`);
         ln('');
       }
+
+      section('freshness', 'DATA FRESHNESS', 'yellow');
+      row('latest',    clr.dim(dataFreshness.latestCandleUtc));
+      row('age',       clr.dim(`${dataFreshness.ageMinutes.toFixed(1)} min old`));
+      row('threshold', clr.dim(`${dataFreshness.staleThresholdMinutes} min`));
+      row('market',    clr.dim(dataFreshness.marketOpen ? 'OPEN' : 'CLOSED'));
+      row('stale',     dataFreshness.isStale ? clr.yellow('STALE') : clr.green('FRESH'));
+      row('incomplete', dataFreshness.isIncomplete ? clr.yellow('YES') : clr.green('NO'));
 
       if (aiAnalysis.reasons && aiAnalysis.reasons.length > 0) {
         section('reasons', 'AI RATIONALE');

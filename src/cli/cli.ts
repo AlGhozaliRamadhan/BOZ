@@ -2,7 +2,6 @@ import * as readline from 'readline';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
-import { createRequire } from 'module';
 import { IntradayAnalyzer } from '../analyzers/intraday.analyzer.js';
 import { LongTermAnalyzer } from '../analyzers/longterm.analyzer.js';
 import { NewsIntelAnalyzer } from '../analyzers/news.intel.analyzer.js';
@@ -12,11 +11,11 @@ import { githubConfig, GITHUB_TOKEN_URL } from '../config/github.config.js';
 import { nvidiaConfig, NVIDIA_MODELS, NVIDIA_API_KEY_URL } from '../config/nvidia.config.js';
 import { resolveSymbol } from '../shared/market-constants.js';
 import { yahooFinance } from '../services/yahoo.service.js';
+import { getBuildVersion } from '../utils/version.js';
 
 // ─── Version ──────────────────────────────────────────────────────────────────
 
-const _require = createRequire(import.meta.url);
-const PKG_VERSION: string = (_require('../../package.json') as { version: string }).version;
+const BUILD_VERSION = getBuildVersion();
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -294,7 +293,7 @@ function printMascot(): void {
   process.stdout.write(`   ${Wh('(')} ${Ye('o')} ${Di('.')} ${Ye('o')} ${Wh(')')}\n`);
   process.stdout.write(`   ${Gh('(')} ${Wh('> ^ <')} ${Gh(')')}\n`);
   process.stdout.write('\n');
-  process.stdout.write(`  ${Wh('Boz')}  ${Gh('\u00b7 AI Market Analyzer')}  ${Di('v' + PKG_VERSION)}\n`);
+  process.stdout.write(`  ${Wh('Boz')}  ${Gh('\u00b7 AI Market Analyzer')}  ${Di('v' + BUILD_VERSION)}\n`);
   process.stdout.write(`  ${Di('\u2500'.repeat(37))}\n`);
   process.stdout.write(`  ${Gh('AI-powered \u00b7 Multi-timeframe \u00b7 Live data')}\n`);
   process.stdout.write('\n');
@@ -774,7 +773,7 @@ export class CLI {
         description: 'Show Boz version',
         handler: async () => {
           process.stdout.write(
-            `\n  ${c.wrap(c.white, 'Boz')}  ${c.wrap(c.ghost, 'v' + PKG_VERSION)}\n\n`,
+            `\n  ${c.wrap(c.white, 'Boz')}  ${c.wrap(c.ghost, 'v' + BUILD_VERSION)}\n\n`,
           );
         },
       },

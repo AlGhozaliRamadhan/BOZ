@@ -1,4 +1,3 @@
-import { createRequire } from 'module';
 import { MarketAnalyzer } from './market.analyzer.js';
 import { ChartAnalyzer } from './chart.analyzer.js';
 import { IndicatorsService } from '../services/indicators.service.js';
@@ -9,9 +8,10 @@ import { NewsService } from '../services/news.service.js';
 import { MacroService } from '../services/macro.service.js';
 import { config } from '../config/config.js';
 import { buildIntradayPrompt } from '../shared/prompts.js';
+import { computeDataFreshness } from '../utils/data-freshness.js';
+import { getBuildVersion } from '../utils/version.js';
 
-const _require = createRequire(import.meta.url);
-const PKG_VERSION: string = (_require('../../package.json') as { version: string }).version;
+const BUILD_VERSION = getBuildVersion();
 import { clr, badge, OK, WARN, ERR, hr, hr2, BadgeColor } from '../utils/logger.js';
 import {
   ln, row, section, sep, pctColor,
@@ -30,7 +30,7 @@ export class IntradayAnalyzer {
 
   async runAnalysis(): Promise<void> {
     ln(hr2());
-    ln(`  ${clr.white(config.ticker)}  ${clr.dim('AI Intraday Analyzer')}  ${clr.ghost('v' + PKG_VERSION)}`);    
+    ln(`  ${clr.white(config.ticker)}  ${clr.dim('AI Intraday Analyzer')}  ${clr.ghost('v' + BUILD_VERSION)}`);
     ln(hr2());
 
     try {
@@ -60,9 +60,18 @@ export class IntradayAnalyzer {
       const summary  = this.marketAnalyzer.getMarketSummary(candles, {
         intervalMinutes: 60,
         dropIncomplete: true,
+        now,
       });
       const patterns = this.marketAnalyzer.getRecentPatterns(candles, 96);
       stopCalc('ok');
+
+      const latestCandle = candles[candles.length - 1];
+      const dataFreshness = computeDataFreshness(
+        latestCandle,
+        now,
+        60,
+        summary.is_incomplete_candle === true,
+      );
 
       // ── Chart patterns ────────────────────────────────────────────────────
       const stopChart = spinner(`  ${badge('chart')}  Analyzing chart patterns`);
@@ -160,6 +169,14 @@ export class IntradayAnalyzer {
       // ── AI prompt ─────────────────────────────────────────────────────────
       const prompt = buildIntradayPrompt({
         summary,
+        dataFreshness: {
+          latest_candle_utc: dataFreshness.latestCandleUtc,
+          age_minutes: dataFreshness.ageMinutes,
+          is_stale: dataFreshness.isStale,
+          is_incomplete: dataFreshness.isIncomplete,
+          market_open: dataFreshness.marketOpen,
+          stale_threshold_minutes: dataFreshness.staleThresholdMinutes,
+        },
         mtfBias: {
           bias1h,
           bias4h,
@@ -243,6 +260,9 @@ export class IntradayAnalyzer {
         ln(`  ${WARN}  Target is >50% from entry — verify AI output format`);
       }
       row('strategy', clr.dim(displayStrategy));
+      row('data age', clr.dim(`${dataFreshness.ageMinutes.toFixed(1)} min`));
+      row('stale', dataFreshness.isStale ? clr.yellow('STALE') : clr.green('FRESH'));
+      if (dataFreshness.isIncomplete) ln(`  ${WARN}  Latest candle appears incomplete — treat signals cautiously`);
       ln(hr2());
 
       if (gateShort) {
@@ -272,7 +292,11 @@ export class IntradayAnalyzer {
       // MARKET SNAPSHOT
       // ════════════════════════════════════════════════════════════════════════
       section('snapshot', 'MARKET SNAPSHOT');
-      row('source',   clr.dim('Yahoo Finance  ·  ~15 min delay'), 'dim');
+      row('source',   clr.dim(`Yahoo Finance  ·  latest ${dataFreshness.latestCandleUtc}`), 'dim');
+      row('age',      clr.dim(`${dataFreshness.ageMinutes.toFixed(1)} min old  ·  threshold ${dataFreshness.staleThresholdMinutes} min`));
+      row('market',   clr.dim(dataFreshness.marketOpen ? 'OPEN' : 'CLOSED'));
+      row('stale',    dataFreshness.isStale ? clr.yellow('STALE') : clr.green('FRESH'));
+      row('incomplete', dataFreshness.isIncomplete ? clr.yellow('YES') : clr.green('NO'));
       row('price',    clr.cyan('$' + summary.current_price.toFixed(2)), 'cyan');
       row('1h',       pctColor(summary.change_1h));
       row('4h',       pctColor(summary.change_4h));

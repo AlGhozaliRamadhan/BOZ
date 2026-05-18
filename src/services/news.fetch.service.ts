@@ -73,6 +73,9 @@ export class NewsFetchService {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36',
   };
 
+  private readonly retryableStatuses = new Set([429, 500, 502, 503, 504]);
+  private readonly retryableCodes = new Set(['ECONNABORTED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND']);
+
   // ── Simple in-memory cache ─────────────────────────────────────────────
   private cache: Record<string, { time: number; data: any }> = {};
   private readonly cacheFile = join(tmpdir(), 'boz-news-cache.json');
@@ -86,6 +89,38 @@ export class NewsFetchService {
 
   public constructor() {
     this.cache = this.loadDiskCache();
+  }
+
+  // ─── Retry helpers ───────────────────────────────────────────────────
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private shouldRetry(err: any): boolean {
+    const status = err?.response?.status as number | undefined;
+    if (status && this.retryableStatuses.has(status)) return true;
+    const code = err?.code as string | undefined;
+    if (code && this.retryableCodes.has(code)) return true;
+    return false;
+  }
+
+  private async withRetry<T>(label: string, fn: () => Promise<T>, attempts = 3): Promise<T> {
+    let lastErr: any;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        return await fn();
+      } catch (err: any) {
+        lastErr = err;
+        if (!this.shouldRetry(err) || attempt === attempts - 1) throw err;
+        const base = 500 * Math.pow(2, attempt);
+        const jitter = Math.round(Math.random() * 250);
+        const delay = Math.min(8000, base + jitter);
+        log.info('news', `Retrying ${label} in ${delay}ms (attempt ${attempt + 2}/${attempts})`);
+        await this.sleep(delay);
+      }
+    }
+    throw lastErr;
   }
 
   // ── RSS feed registry ──────────────────────────────────────────────────
@@ -150,14 +185,16 @@ export class NewsFetchService {
   // parseURL() so we control the input.
 
   private async parseURLSafe(url: string): Promise<ReturnType<Parser['parseString']>> {
-    const res = await axios.get<string>(url, {
-      headers:        { ...this.headers, Accept: 'application/rss+xml, application/xml, text/xml, */*' },
-      timeout:        8000,
-      responseType:   'text',
-      // Treat any 2xx as success; let non-2xx propagate so the caller's
-      // status-code branch can log it correctly.
-      validateStatus: s => s >= 200 && s < 300,
-    });
+    const res = await this.withRetry(`rss:${url}`, () =>
+      axios.get<string>(url, {
+        headers:        { ...this.headers, Accept: 'application/rss+xml, application/xml, text/xml, */*' },
+        timeout:        8000,
+        responseType:   'text',
+        // Treat any 2xx as success; let non-2xx propagate so the caller's
+        // status-code branch can log it correctly.
+        validateStatus: s => s >= 200 && s < 300,
+      }),
+    );
 
     // Replace bare & that are NOT already part of a valid XML entity reference.
     // Valid references: &amp; &lt; &gt; &quot; &apos; &#123; &#xAB; &namedRef;
@@ -229,9 +266,11 @@ export class NewsFetchService {
 
       // CoinGecko trending
       try {
-        const res = await axios.get(
-          'https://api.coingecko.com/api/v3/search/trending',
-          { headers: this.headers, timeout: 5000 },
+        const res = await this.withRetry('coingecko_trending', () =>
+          axios.get(
+            'https://api.coingecko.com/api/v3/search/trending',
+            { headers: this.headers, timeout: 5000 },
+          ),
         );
         for (const coin of (res.data?.coins ?? []).slice(0, 10)) {
           items.push({
@@ -248,9 +287,11 @@ export class NewsFetchService {
 
       // CryptoCompare
       try {
-        const res = await axios.get(
-          'https://min-api.cryptocompare.com/data/v2/news/?lang=EN',
-          { headers: this.headers, timeout: 5000 },
+        const res = await this.withRetry('cryptocompare_news', () =>
+          axios.get(
+            'https://min-api.cryptocompare.com/data/v2/news/?lang=EN',
+            { headers: this.headers, timeout: 5000 },
+          ),
         );
         const highKw = ['regulation', 'sec', 'etf', 'approved', 'banned', 'hack',
                         'lawsuit', 'crash', 'surge', 'billion', 'fed', 'rate'];
@@ -291,9 +332,11 @@ export class NewsFetchService {
 
       if (process.env.ALPHA_VANTAGE_API_KEY) {
         try {
-          const res = await axios.get(
-            `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&apikey=${process.env.ALPHA_VANTAGE_API_KEY}`,
-            { headers: this.headers, timeout: 5000 },
+          const res = await this.withRetry('alpha_vantage_news', () =>
+            axios.get(
+              `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&apikey=${process.env.ALPHA_VANTAGE_API_KEY}`,
+              { headers: this.headers, timeout: 5000 },
+            ),
           );
           for (const art of (res.data?.feed ?? []).slice(0, 10)) {
             items.push({
@@ -314,9 +357,11 @@ export class NewsFetchService {
 
       if (process.env.FINNHUB_API_KEY) {
         try {
-          const res = await axios.get(
-            `https://finnhub.io/api/v1/news?category=general&token=${process.env.FINNHUB_API_KEY}`,
-            { headers: this.headers, timeout: 5000 },
+          const res = await this.withRetry('finnhub_news', () =>
+            axios.get(
+              `https://finnhub.io/api/v1/news?category=general&token=${process.env.FINNHUB_API_KEY}`,
+              { headers: this.headers, timeout: 5000 },
+            ),
           );
           for (const art of (res.data ?? []).slice(0, 10)) {
             const title  = (art.headline ?? '').toLowerCase();
@@ -346,9 +391,11 @@ export class NewsFetchService {
       const items: NewsItem[] = [];
       if (process.env.FRED_API_KEY) {
         try {
-          const res = await axios.get(
-            `https://api.stlouisfed.org/fred/releases?api_key=${process.env.FRED_API_KEY}&file_type=json&limit=10`,
-            { headers: this.headers, timeout: 5000 },
+          const res = await this.withRetry('fred_releases', () =>
+            axios.get(
+              `https://api.stlouisfed.org/fred/releases?api_key=${process.env.FRED_API_KEY}&file_type=json&limit=10`,
+              { headers: this.headers, timeout: 5000 },
+            ),
           );
           for (const r of (res.data?.releases ?? []).slice(0, 10)) {
             items.push({
@@ -424,9 +471,11 @@ export class NewsFetchService {
 
       // Primary: alternative.me (7-day trend)
       try {
-        const res = await axios.get(
-          'https://api.alternative.me/fng/?limit=7',
-          { headers: this.headers, timeout: 5000 },
+        const res = await this.withRetry('fear_greed_altme', () =>
+          axios.get(
+            'https://api.alternative.me/fng/?limit=7',
+            { headers: this.headers, timeout: 5000 },
+          ),
         );
         const data = res.data?.data ?? [];
         if (data.length > 0) {
@@ -448,9 +497,11 @@ export class NewsFetchService {
       // Fallback: CNN Fear & Greed
       if (!crowd.fear_greed) {
         try {
-          const res = await axios.get(
-            'https://production.dataviz.cnn.io/index/fearandgreed/graphdata',
-            { headers: this.headers, timeout: 5000 },
+          const res = await this.withRetry('fear_greed_cnn', () =>
+            axios.get(
+              'https://production.dataviz.cnn.io/index/fearandgreed/graphdata',
+              { headers: this.headers, timeout: 5000 },
+            ),
           );
           const score  = res.data?.fear_and_greed?.score;
           const rating = res.data?.fear_and_greed?.rating;
@@ -465,11 +516,13 @@ export class NewsFetchService {
 
       // CoinGecko top-10 community sentiment
       try {
-        const res = await axios.get(
-          'https://api.coingecko.com/api/v3/coins/markets' +
-          '?vs_currency=usd&order=market_cap_desc&per_page=10&page=1' +
-          '&sparkline=false&price_change_percentage=24h',
-          { headers: this.headers, timeout: 5000 },
+        const res = await this.withRetry('coingecko_markets', () =>
+          axios.get(
+            'https://api.coingecko.com/api/v3/coins/markets' +
+            '?vs_currency=usd&order=market_cap_desc&per_page=10&page=1' +
+            '&sparkline=false&price_change_percentage=24h',
+            { headers: this.headers, timeout: 5000 },
+          ),
         );
         let bull = 0, bear = 0;
         for (const coin of (res.data ?? [])) {
@@ -489,9 +542,11 @@ export class NewsFetchService {
 
       // StockTwits trending
       try {
-        const res = await axios.get(
-          'https://api.stocktwits.com/api/2/trending/symbols.json',
-          { headers: this.headers, timeout: 5000 },
+        const res = await this.withRetry('stocktwits_trending', () =>
+          axios.get(
+            'https://api.stocktwits.com/api/2/trending/symbols.json',
+            { headers: this.headers, timeout: 5000 },
+          ),
         );
         for (const sym of (res.data?.symbols ?? []).slice(0, 15)) {
           crowd.stocktwits_trending.push({
