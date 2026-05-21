@@ -32,7 +32,7 @@ export interface ChartPatternResult {
 
 export class ChartAnalyzer {
   analyzeChartPatterns(candles: Candle[]): ChartPatternResult {
-    const recent = candles.slice(-24);
+    const recent = candles.slice(-120);
     if (recent.length < 2) return {
       patterns:           ['Insufficient data'],
       pattern_confidence: ['LOW'],
@@ -54,7 +54,58 @@ export class ChartAnalyzer {
     const peaks   = this.findPeaks(highs);
     const troughs = this.findPeaks(lows.map((l) => -l));
 
-    if (peaks.length >= 2) {
+    // 1. Triple Top
+    if (peaks.length >= 3) {
+      const p3 = highs[peaks[peaks.length - 1]];
+      const p2 = highs[peaks[peaks.length - 2]];
+      const p1 = highs[peaks[peaks.length - 3]];
+      const diff1 = Math.abs(p3 - p2) / p2;
+      const diff2 = Math.abs(p2 - p1) / p1;
+      const diff3 = Math.abs(p3 - p1) / p1;
+      if (diff1 < 0.015 && diff2 < 0.015 && diff3 < 0.015) {
+        patterns_found.push('Potential TRIPLE TOP detected');
+        pattern_confidence.push('HIGH');
+      }
+    }
+
+    // 2. Triple Bottom
+    if (troughs.length >= 3) {
+      const t3 = lows[troughs[troughs.length - 1]];
+      const t2 = lows[troughs[troughs.length - 2]];
+      const t1 = lows[troughs[troughs.length - 3]];
+      const diff1 = Math.abs(t3 - t2) / t2;
+      const diff2 = Math.abs(t2 - t1) / t1;
+      const diff3 = Math.abs(t3 - t1) / t1;
+      if (diff1 < 0.015 && diff2 < 0.015 && diff3 < 0.015) {
+        patterns_found.push('Potential TRIPLE BOTTOM detected');
+        pattern_confidence.push('HIGH');
+      }
+    }
+
+    // 3. Head & Shoulders
+    if (peaks.length >= 3) {
+      const p3 = highs[peaks[peaks.length - 1]];
+      const p2 = highs[peaks[peaks.length - 2]];
+      const p1 = highs[peaks[peaks.length - 3]];
+      if (p2 > p1 && p2 > p3 && Math.abs(p1 - p3) / p3 < 0.03) {
+        patterns_found.push('Potential HEAD & SHOULDERS detected');
+        pattern_confidence.push('HIGH');
+      }
+    }
+
+    // 4. Inverse Head & Shoulders
+    if (troughs.length >= 3) {
+      const t3 = lows[troughs[troughs.length - 1]];
+      const t2 = lows[troughs[troughs.length - 2]];
+      const t1 = lows[troughs[troughs.length - 3]];
+      if (t2 < t1 && t2 < t3 && Math.abs(t1 - t3) / t3 < 0.03) {
+        patterns_found.push('Potential INVERSE HEAD & SHOULDERS detected');
+        pattern_confidence.push('HIGH');
+      }
+    }
+
+    // 5. Double Top (only check if Triple Top was not detected)
+    if (peaks.length >= 2 && !patterns_found.includes('Potential TRIPLE TOP detected')) {
       const lastPeak  = peaks[peaks.length - 1];
       const prevPeak  = peaks[peaks.length - 2];
       const separation = lastPeak - prevPeak;
@@ -64,13 +115,14 @@ export class ChartAnalyzer {
         ? Math.abs(lastPrice - prevPrice) / Math.abs(prevPrice)
         : Number.POSITIVE_INFINITY;
 
-      if (separation >= 6 && priceDiff < 0.01) {
+      if (separation >= 6 && priceDiff < 0.015) {
         patterns_found.push('Potential DOUBLE TOP detected');
         pattern_confidence.push(separation === 6 ? 'LOW' : 'HIGH');
       }
     }
 
-    if (troughs.length >= 2) {
+    // 6. Double Bottom (only check if Triple Bottom was not detected)
+    if (troughs.length >= 2 && !patterns_found.includes('Potential TRIPLE BOTTOM detected')) {
       const lastTrough = troughs[troughs.length - 1];
       const prevTrough = troughs[troughs.length - 2];
       const separation = lastTrough - prevTrough;
@@ -80,9 +132,33 @@ export class ChartAnalyzer {
         ? Math.abs(lastPrice - prevPrice) / Math.abs(prevPrice)
         : Number.POSITIVE_INFINITY;
 
-      if (separation >= 6 && priceDiff < 0.01) {
+      if (separation >= 6 && priceDiff < 0.015) {
         patterns_found.push('Potential DOUBLE BOTTOM detected');
         pattern_confidence.push(separation === 6 ? 'LOW' : 'HIGH');
+      }
+    }
+
+    // 7. Triangles (Ascending, Descending, Symmetrical)
+    if (peaks.length >= 2 && troughs.length >= 2) {
+      const pLast = highs[peaks[peaks.length - 1]];
+      const pPrev = highs[peaks[peaks.length - 2]];
+      const tLast = lows[troughs[troughs.length - 1]];
+      const tPrev = lows[troughs[troughs.length - 2]];
+
+      const peaksHorizontal = Math.abs(pLast - pPrev) / pPrev < 0.015;
+      const troughsHorizontal = Math.abs(tLast - tPrev) / tPrev < 0.015;
+      const peaksFalling = pLast < pPrev;
+      const troughsRising = tLast > tPrev;
+
+      if (peaksHorizontal && troughsRising) {
+        patterns_found.push('Potential ASCENDING TRIANGLE detected');
+        pattern_confidence.push('HIGH');
+      } else if (troughsHorizontal && peaksFalling) {
+        patterns_found.push('Potential DESCENDING TRIANGLE detected');
+        pattern_confidence.push('HIGH');
+      } else if (peaksFalling && troughsRising) {
+        patterns_found.push('Potential SYMMETRICAL TRIANGLE detected');
+        pattern_confidence.push('HIGH');
       }
     }
 
@@ -311,24 +387,37 @@ export class ChartAnalyzer {
       });
     }
 
-    // ── Aggregate bias ────────────────────────────────────────────────────────
-    const bullCount = signals.filter((s) => s.bias === 'BULL').length;
-    const bearCount = signals.filter((s) => s.bias === 'BEAR').length;
-    const highCount = signals.filter((s) => s.confidence === 'HIGH').length;
+    // ── Aggregate bias (Confidence-weighted scores to resolve conflict) ───────
+    let bullScore = 0;
+    let bearScore = 0;
+    signals.forEach((s) => {
+      const weight = s.confidence === 'HIGH' ? 3 : s.confidence === 'MEDIUM' ? 2 : 1;
+      if (s.bias === 'BULL') bullScore += weight;
+      else if (s.bias === 'BEAR') bearScore += weight;
+    });
 
+    const hasConflict = bullScore > 0 && bearScore > 0;
     let overall_bias: 'BULL' | 'BEAR' | 'NEUTRAL' = 'NEUTRAL';
-    if (bullCount > bearCount) overall_bias = 'BULL';
-    else if (bearCount > bullCount) overall_bias = 'BEAR';
+    if (bullScore > bearScore) overall_bias = 'BULL';
+    else if (bearScore > bullScore) overall_bias = 'BEAR';
 
-    const margin = Math.abs(bullCount - bearCount);
+    const scoreDiff = Math.abs(bullScore - bearScore);
     const bias_strength: 'STRONG' | 'MODERATE' | 'WEAK' =
-      (margin >= 2 || (margin >= 1 && highCount >= 1)) ? 'STRONG' :
-      margin === 1 ? 'MODERATE' : 'WEAK';
+      scoreDiff >= 4 ? 'STRONG' :
+      scoreDiff >= 2 ? 'MODERATE' : 'WEAK';
 
     const patternNames = signals.map((s) => s.name).join(', ');
+    let conflictResolutionLog = '';
+    if (hasConflict) {
+      conflictResolutionLog = `[Conflict resolved: Bullish weight ${bullScore} vs Bearish weight ${bearScore}. ${overall_bias === 'NEUTRAL' ? 'Tie results in Neutral bias' : `${overall_bias} wins`}] `;
+    }
+
+    const firstActiveSignal = signals.find((s) => s.bias === overall_bias && (s.confidence === 'HIGH' || s.confidence === 'MEDIUM'));
+    const meaningText = firstActiveSignal?.meaning ?? '';
+
     const summary_text = overall_bias === 'NEUTRAL'
-      ? `Indecision — ${patternNames}. No clear directional edge from candle structure alone.`
-      : `${overall_bias === 'BULL' ? 'Bullish' : 'Bearish'} candle signal (${bias_strength.toLowerCase()} conviction) — ${patternNames}. ${signals.find((s) => s.confidence === 'HIGH' || s.confidence === 'MEDIUM')?.meaning ?? ''}`;
+      ? `${conflictResolutionLog}Indecision — ${patternNames}. No clear directional edge from candle structure alone.`
+      : `${conflictResolutionLog}${overall_bias === 'BULL' ? 'Bullish' : 'Bearish'} candle signal (${bias_strength.toLowerCase()} conviction) — ${patternNames}. ${meaningText}`;
 
     return { signals, overall_bias, bias_strength, summary_text };
   }

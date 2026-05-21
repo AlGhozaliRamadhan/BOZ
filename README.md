@@ -20,7 +20,7 @@
   <a href="https://github.com/AlGhozaliRamadhan">
     <img src="https://img.shields.io/badge/Author-AGR-111111?style=flat"/>
   </a>
-  <img src="https://img.shields.io/badge/version-1.5.8-brightgreen?style=flat"/>
+  <img src="https://img.shields.io/badge/version-1.6.0-brightgreen?style=flat"/>
 </p>
 
 ---

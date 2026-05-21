@@ -65,7 +65,7 @@ const uncertain = (reason: string): AIResult => ({ status: 'uncertain', reason }
 const errResult = (reason: string): AIResult => ({ status: 'error',     reason });
 
 /** The system-level analysis preamble injected for all providers */
-function buildAnalysisPrompt(userPrompt: string): string {
+function buildSystemPrompt(): string {
   return (
     `You are a senior ${config.ticker} stock analyst at a top hedge fund. Your job is to produce ` +
     `ruthlessly objective, high-conviction analysis based on the provided technical, macro, ` +
@@ -87,8 +87,6 @@ function buildAnalysisPrompt(userPrompt: string): string {
     `  - Use only evidence from the provided data; do not invent metrics or news.\n` +
     `  - If a key data point is missing, say so and lower confidence.\n` +
     `  - Ensure prediction, confidence, and levels align with cited signals.\n\n` +
-    userPrompt +
-    `\n\n` +
     JSON_OUTPUT_RULES
   );
 }
@@ -123,12 +121,15 @@ export class AIService {
     }
 
     const endpoint      = `${config.github.endpoint}/chat/completions`;
-    const combinedPrompt = buildAnalysisPrompt(prompt);
+    const systemPrompt  = buildSystemPrompt();
     const models         = buildWaterfall();
     const primary        = models[0];
     let   lastError      = '';
 
-    const messages = [{ role: 'user' as const, content: combinedPrompt }];
+    const messages = [
+      { role: 'system' as const, content: systemPrompt },
+      { role: 'user' as const, content: prompt },
+    ];
 
     for (const model of models) {
       const isFallback = model !== primary;
@@ -210,7 +211,10 @@ export class AIService {
 
     try {
       const content = await this.llm.callText({
-        messages: [{ role: 'user', content: buildAnalysisPrompt(prompt) }],
+        messages: [
+          { role: 'system', content: buildSystemPrompt() },
+          { role: 'user', content: prompt }
+        ],
         temperature: 0.3,
         maxTokens: 4096,
         responseFormat: 'json',
@@ -250,7 +254,10 @@ export class AIService {
 
     try {
       const content = await this.llm.callText({
-        messages: [{ role: 'user', content: buildAnalysisPrompt(prompt) }],
+        messages: [
+          { role: 'system', content: buildSystemPrompt() },
+          { role: 'user', content: prompt }
+        ],
         temperature: 0.3,
         maxTokens: 2000,
         responseFormat: 'json',

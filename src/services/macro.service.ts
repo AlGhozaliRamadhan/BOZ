@@ -3,6 +3,12 @@ import { MacroContext } from '../types/types.js';
 import { log } from '../utils/logger.js';
 import { config } from '../config/config.js';
 
+function standardizeTnxYield(val: number): number {
+  if (val < 0.2) return val * 100; // decimal format (e.g. 0.0425 -> 4.25%)
+  if (val > 10.0) return val / 10; // scaled-by-10 format (e.g. 42.5 -> 4.25%)
+  return val;                     // percentage format (e.g. 4.25 -> 4.25%)
+}
+
 export class MacroService {
   private yahooService: YahooService;
 
@@ -99,12 +105,13 @@ export class MacroService {
       macroData.sp500_correlation = 'Manual Override - Risk-off';
     } else {
       try {
-        const [assetData, spyData, qqqData, vixData, tnxData] = await Promise.all([
+        const [assetData, spyData, qqqData, vixData, tnxData, xlkData] = await Promise.all([
           this.yahooService.getHistoricalData(config.ticker, date, '1d', false, { adjustPrices: true }),
           this.yahooService.getHistoricalData('SPY', date, '1d', false, { adjustPrices: true }),
           this.yahooService.getHistoricalData('QQQ', date, '1d', false, { adjustPrices: true }),
           this.yahooService.getHistoricalData('^VIX', date, '1d', false),
           this.yahooService.getHistoricalData('^TNX', date, '1d', false),
+          this.yahooService.getHistoricalData('XLK', date, '1d', false, { adjustPrices: true }),
         ]);
 
         const spy20d = nDayReturn(spyData, 20);
@@ -112,6 +119,42 @@ export class MacroService {
           if (spy20d > 1.5) macroData.risk_sentiment = 'RISK_ON';
           else if (spy20d < -1.5) macroData.risk_sentiment = 'RISK_OFF';
         }
+
+        // Determine market regime based on SPY's relation to its SMA-50 and 20-day return momentum
+        let spySma50 = null;
+        if (spyData.length >= 50) {
+          const last50 = spyData.slice(-50);
+          spySma50 = last50.reduce((sum, c) => sum + c.close, 0) / 50;
+        }
+
+        if (spyData.length > 0 && spySma50 !== null && spy20d !== null) {
+          const spyLastPrice = spyData[spyData.length - 1].close;
+          const isAboveSma50 = spyLastPrice > spySma50;
+          const isPositiveMomentum = spy20d > 0;
+
+          if (isAboveSma50 && isPositiveMomentum) {
+            macroData.market_regime = 'BULL_CONFIRMED';
+          } else if (isAboveSma50 && !isPositiveMomentum) {
+            macroData.market_regime = 'BULL_CORRECTION';
+          } else if (!isAboveSma50 && !isPositiveMomentum) {
+            macroData.market_regime = 'BEAR_CONFIRMED';
+          } else if (!isAboveSma50 && isPositiveMomentum) {
+            macroData.market_regime = 'BEAR_RECOVERY';
+          }
+        }
+
+        // Populate tech sector (XLK) performance and relative strength
+        const xlk1d = nDayReturn(xlkData, 1);
+        const xlk5d = nDayReturn(xlkData, 5);
+        const xlk20d = nDayReturn(xlkData, 20);
+        const relativeStrength = (xlk20d !== null && spy20d !== null) ? xlk20d - spy20d : null;
+
+        macroData.tech_sector_performance = {
+          xlk_1d_performance: xlk1d,
+          xlk_5d_performance: xlk5d,
+          xlk_20d_performance: xlk20d,
+          relative_strength_vs_spy: relativeStrength,
+        };
 
         const assetReturns = buildReturnMap(assetData);
         const spyReturns   = buildReturnMap(spyData);
@@ -151,7 +194,9 @@ export class MacroService {
         if (typeof vixLast === 'number') macroData.vix_level = vixLast;
 
         const tnxLast = tnxData[tnxData.length - 1]?.close;
-        if (typeof tnxLast === 'number') macroData.tnx_yield = tnxLast / 10;
+        if (typeof tnxLast === 'number') {
+          macroData.tnx_yield = standardizeTnxYield(tnxLast);
+        }
       } catch (err) {
         log.warn('macro', `Macro fetch failed: ${(err as Error).message}`);
       }

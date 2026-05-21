@@ -49,6 +49,61 @@ function getCloseAtOrBefore(candles: Candle[], cutoffMs: number): number {
   return candles[0].close;
 }
 
+function computeOBVDivergence(candles: Candle[]): string {
+  if (candles.length < 10) return 'NONE';
+
+  const obvs = candles.map(c => c.OBV ?? 0);
+  const highs = candles.map(c => c.high);
+  const lows = candles.map(c => c.low);
+
+  // Find price peaks (local maxima of highs)
+  const peaks: number[] = [];
+  for (let i = 2; i < candles.length - 2; i++) {
+    if (highs[i] > highs[i - 1] && highs[i] > highs[i - 2] &&
+        highs[i] > highs[i + 1] && highs[i] > highs[i + 2]) {
+      peaks.push(i);
+    }
+  }
+
+  // Find price troughs (local minima of lows)
+  const troughs: number[] = [];
+  for (let i = 2; i < candles.length - 2; i++) {
+    if (lows[i] < lows[i - 1] && lows[i] < lows[i - 2] &&
+        lows[i] < lows[i + 1] && lows[i] < lows[i + 2]) {
+      troughs.push(i);
+    }
+  }
+
+  let isBullish = false;
+  let isBearish = false;
+
+  if (troughs.length >= 2) {
+    const t2 = troughs[troughs.length - 1];
+    const t1 = troughs[troughs.length - 2];
+    if (lows[t2] < lows[t1] && obvs[t2] > obvs[t1]) {
+      isBullish = true;
+    }
+  }
+
+  if (peaks.length >= 2) {
+    const p2 = peaks[peaks.length - 1];
+    const p1 = peaks[peaks.length - 2];
+    if (highs[p2] > highs[p1] && obvs[p2] < obvs[p1]) {
+      isBearish = true;
+    }
+  }
+
+  if (isBullish && isBearish) {
+    const lastTrough = troughs[troughs.length - 1];
+    const lastPeak = peaks[peaks.length - 1];
+    return lastTrough > lastPeak ? 'BULLISH' : 'BEARISH';
+  }
+
+  if (isBullish) return 'BULLISH';
+  if (isBearish) return 'BEARISH';
+  return 'NONE';
+}
+
 // ─── MarketAnalyzer ───────────────────────────────────────────────────────────
 
 export class MarketAnalyzer {
@@ -103,20 +158,65 @@ export class MarketAnalyzer {
     const vol4h  = stdDev(returnsWithin(cutoff4h));
     const vol24h = stdDev(returnsWithin(cutoff24h));
 
-    // ── Volatility regime ─────────────────────────────────────────────────────
+    // ── Volatility regime (Relative to historical rolling 24-period volatilities) ──
+    const rollingPeriod = Math.min(24, Math.max(5, analysisCandles.length - 1));
+    const historicalVols: number[] = [];
+    for (let i = rollingPeriod; i <= analysisCandles.length; i++) {
+      const windowReturns = returns.slice(Math.max(0, i - rollingPeriod), i).map(r => r.value);
+      if (windowReturns.length >= 2) {
+        historicalVols.push(stdDev(windowReturns));
+      }
+    }
+
+    const currentVol = historicalVols[historicalVols.length - 1] ?? vol24h;
     let volRegime  = 'NORMAL';
     let volWarning = 'Normal volatility conditions';
-    if      (vol1h < 0.3 && vol24h < 0.5) { volRegime = 'EXTREMELY_LOW'; volWarning = '⚠️ COMPRESSION — Explosive move likely imminent'; }
-    else if (vol1h < 0.5)                  { volRegime = 'LOW';           volWarning = 'Low volatility — watch for breakout'; }
-    else if (vol1h > 2.5)                  { volRegime = 'EXTREME';       volWarning = '🚨 EXTREME VOLATILITY — High risk environment'; }
-    else if (vol1h > 1.5)                  { volRegime = 'HIGH';          volWarning = '⚠️ HIGH VOLATILITY — Increased whipsaw risk'; }
 
-    // ── Bollinger Band metrics ────────────────────────────────────────────────
+    if (historicalVols.length >= 10) {
+      const sorted = [...historicalVols].sort((a, b) => a - b);
+      const rank = sorted.indexOf(currentVol);
+      const percentile = (rank / sorted.length) * 100;
+
+      if (percentile < 10) {
+        volRegime = 'EXTREMELY_LOW';
+        volWarning = '⚠️ COMPRESSION — Explosive move likely imminent';
+      } else if (percentile < 25) {
+        volRegime = 'LOW';
+        volWarning = 'Low volatility — watch for breakout';
+      } else if (percentile > 90) {
+        volRegime = 'EXTREME';
+        volWarning = '🚨 EXTREME VOLATILITY — High risk environment';
+      } else if (percentile > 75) {
+        volRegime = 'HIGH';
+        volWarning = '⚠️ HIGH VOLATILITY — Increased whipsaw risk';
+      }
+    } else {
+      if      (vol24h < 0.3) { volRegime = 'EXTREMELY_LOW'; volWarning = '⚠️ COMPRESSION — Explosive move likely imminent'; }
+      else if (vol24h < 0.5) { volRegime = 'LOW';           volWarning = 'Low volatility — watch for breakout'; }
+      else if (vol24h > 2.5) { volRegime = 'EXTREME';       volWarning = '🚨 EXTREME VOLATILITY — High risk environment'; }
+      else if (vol24h > 1.5) { volRegime = 'HIGH';          volWarning = '⚠️ HIGH VOLATILITY — Increased whipsaw risk'; }
+    }
+
+    // ── Bollinger Band metrics (Relative to historical widths) ─────────────────
     const bbWidth       = latest.BB_Width ?? 0;
+    const historicalBBWidths = analysisCandles
+      .map(c => c.BB_Width)
+      .filter((w): w is number => w !== undefined && w > 0);
+
     let squeezeStatus   = 'NORMAL';
-    if      (bbWidth < 2.0) squeezeStatus = 'TIGHT_SQUEEZE';
-    else if (bbWidth < 3.5) squeezeStatus = 'SQUEEZING';
-    else if (bbWidth > 7.0) squeezeStatus = 'EXPANDING';
+    if (historicalBBWidths.length >= 10) {
+      const sorted = [...historicalBBWidths].sort((a, b) => a - b);
+      const rank = sorted.indexOf(bbWidth);
+      const percentile = (rank / sorted.length) * 100;
+
+      if      (percentile < 10) squeezeStatus = 'TIGHT_SQUEEZE';
+      else if (percentile < 25) squeezeStatus = 'SQUEEZING';
+      else if (percentile > 75) squeezeStatus = 'EXPANDING';
+    } else {
+      if      (bbWidth < 2.0) squeezeStatus = 'TIGHT_SQUEEZE';
+      else if (bbWidth < 3.5) squeezeStatus = 'SQUEEZING';
+      else if (bbWidth > 7.0) squeezeStatus = 'EXPANDING';
+    }
 
     let bbPosition = 'UNKNOWN';
     if      (latest.BB_High && latest.close > latest.BB_High) bbPosition = 'ABOVE_UPPER';
@@ -126,6 +226,14 @@ export class MarketAnalyzer {
 
     // ── Volume metrics ────────────────────────────────────────────────────────
     const volumeRatio = latest.Volume_Ratio ?? 1;
+
+    const last5 = analysisCandles.slice(-5);
+    const avgVol5 = last5.reduce((sum, c) => sum + c.volume, 0) / last5.length;
+    const avgVol20 = latest.Volume_SMA ?? (analysisCandles.reduce((sum, c) => sum + c.volume, 0) / analysisCandles.length);
+
+    let volumeTrend = 'NORMAL';
+    if (avgVol5 > 1.2 * avgVol20) volumeTrend = 'RISING';
+    else if (avgVol5 < 0.8 * avgVol20) volumeTrend = 'DECLINING';
 
     return {
       current_price:         latest.close,
@@ -138,10 +246,10 @@ export class MarketAnalyzer {
       volume:                latest.volume,
       volume_ratio:          volumeRatio,
       volume_classification: classifyVolume(volumeRatio),
-      volume_trend:          'NORMAL',
+      volume_trend:          volumeTrend,
       obv_signal:            latest.OBV_Trend ? 'ACCUMULATION' : 'DISTRIBUTION',
       obv_trend:             latest.OBV_Trend ? 'BULLISH'      : 'BEARISH',
-      obv_divergence:        'NONE',
+      obv_divergence:        computeOBVDivergence(analysisCandles),
       rsi:                   latest.RSI         ?? 50,
       macd:                  latest.MACD        ?? 0,
       macd_signal:           latest.MACD_Signal ?? 0,
@@ -164,14 +272,15 @@ export class MarketAnalyzer {
   }
 
   getRecentPatterns(candles: Candle[], lookback = 24): string {
-    if (candles.length < lookback) return 'Insufficient data';
+    if (candles.length < 2) return 'Insufficient data';
 
-    const recent = candles.slice(-lookback);
+    const actualLookback = Math.min(lookback, candles.length);
+    const recent = candles.slice(-actualLookback);
     const first  = recent[0].close;
     const last   = recent[recent.length - 1].close;
 
     const trend  = last > first ? 'UPTREND' : 'DOWNTREND';
-    const change = ((last - first) / first) * 100;
+    const change = first > 0 ? ((last - first) / first) * 100 : 0;
 
     let support    = recent[0].low;
     let resistance = recent[0].high;
@@ -180,6 +289,6 @@ export class MarketAnalyzer {
       if (c.high > resistance) resistance = c.high;
     }
 
-    return `${trend} (${change.toFixed(2)}% over last ${lookback} bars) | Support: $${support.toFixed(2)}, Resistance: $${resistance.toFixed(2)}`;
+    return `${trend} (${change.toFixed(2)}% over last ${actualLookback} bars) | Support: $${support.toFixed(2)}, Resistance: $${resistance.toFixed(2)}`;
   }
 }

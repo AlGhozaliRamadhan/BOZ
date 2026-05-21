@@ -44,7 +44,7 @@ export class IntradayAnalyzer {
 
       // ── Data fetch ────────────────────────────────────────────────────────
       const stopData = spinner(`  ${badge('data')}  Fetching price data`);
-      const past = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+      const past = new Date(now.getTime() - 20 * 24 * 60 * 60 * 1000);
       let candles = await this.yahoo.getHistoricalData(config.ticker, past, '1h', true, {
         regularHours: true,
       });
@@ -124,12 +124,22 @@ export class IntradayAnalyzer {
       const mtfBias = (c: typeof candles) => {
         if (c.length < 2) return 'NEUTRAL';
         const l = c[c.length - 1];
-        const p = c[c.length - 2];
-        const macdBull = (l.MACD ?? 0) > (l.MACD_Signal ?? 0);
-        const rsiBull  = (l.RSI ?? 50) > 50;
-        const aboveSma = l.SMA_20 ? l.close > l.SMA_20 : null;
-        const score    = [macdBull, rsiBull, aboveSma].filter(Boolean).length;
-        return score >= 2 ? 'BULL' : score <= 1 ? 'BEAR' : 'NEUTRAL';
+        const signals: boolean[] = [];
+        if (l.MACD !== undefined && l.MACD !== null && l.MACD_Signal !== undefined && l.MACD_Signal !== null) {
+          signals.push(l.MACD > l.MACD_Signal);
+        }
+        if (l.RSI !== undefined && l.RSI !== null) {
+          signals.push(l.RSI > 50);
+        }
+        if (l.SMA_20 !== undefined && l.SMA_20 !== null) {
+          signals.push(l.close > l.SMA_20);
+        }
+        if (signals.length === 0) return 'NEUTRAL';
+        const bullCount = signals.filter(Boolean).length;
+        const ratio = bullCount / signals.length;
+        if (ratio > 0.5) return 'BULL';
+        if (ratio < 0.5) return 'BEAR';
+        return 'NEUTRAL';
       };
       const bias1h    = mtfBias(mtf1h);
       const bias4h    = mtfBias(mtf4h);
@@ -241,8 +251,19 @@ export class IntradayAnalyzer {
         displayPrediction === 'DOWN' ? 'red'   : 'yellow';
 
       const entryPrice  = summary.current_price;
-      const targetPrice = aiAnalysis.target_price ?? (entryPrice * 1.02);
-      const stopPrice   = aiAnalysis.stop_loss    ?? (entryPrice * 0.99);
+      const atr = summary.atr > 0 ? summary.atr : (entryPrice * 0.01);
+      let targetPrice: number;
+      let stopPrice: number;
+      if (aiAnalysis.prediction === 'UP') {
+        targetPrice = aiAnalysis.target_price ?? (entryPrice + 2 * atr);
+        stopPrice = aiAnalysis.stop_loss ?? (entryPrice - 1.5 * atr);
+      } else if (aiAnalysis.prediction === 'DOWN') {
+        targetPrice = aiAnalysis.target_price ?? (entryPrice - 2 * atr);
+        stopPrice = aiAnalysis.stop_loss ?? (entryPrice + 1.5 * atr);
+      } else {
+        targetPrice = aiAnalysis.target_price ?? (entryPrice * 1.02);
+        stopPrice = aiAnalysis.stop_loss ?? (entryPrice * 0.99);
+      }
       const targetPct   = ((targetPrice - entryPrice) / entryPrice) * 100;
       const stopPct     = ((stopPrice   - entryPrice) / entryPrice) * 100;
       const rrRatio     = (stopPct !== 0 && isFinite(stopPct) && isFinite(targetPct))
