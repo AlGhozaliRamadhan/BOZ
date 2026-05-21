@@ -266,6 +266,13 @@ MACRO CONTEXT:
 RECENT NEWS & CATALYSTS:
 ${newsItems.join('\n')}
 
+CROWD SENTIMENT (apply CONTRARIAN logic — see framework above):
+- Fear & Greed Index : ${crowdSentiment.fear_greed?.value ?? 'N/A'} / 100  (${crowdSentiment.fear_greed?.label ?? 'N/A'})
+- F&G Momentum      : ${crowdSentiment.fear_greed?.momentum ?? 'N/A'}
+- StockTwits Data   : ${crowdSentiment.stocktwits_data?.bull_ratio?.toFixed(1) ?? 'N/A'}% bullish  (bulls ${crowdSentiment.stocktwits_data?.bullish ?? 0} · bears ${crowdSentiment.stocktwits_data?.bearish ?? 0} · total tagged ${crowdSentiment.stocktwits_data?.total_with_sentiment ?? 0})
+- Overall Signals   : ${crowdSentiment.summary?.overall_signals?.join(', ') ?? 'NEUTRAL'}
+- Contrarian Note   : ${buildContrarianNote(crowdSentiment)}
+
 SOCIAL MEDIA BUZZ:
 ${formatSocialBuzz(crowdSentiment)}
 

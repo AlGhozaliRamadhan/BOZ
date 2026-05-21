@@ -163,12 +163,29 @@ export class LongTermAnalyzer {
       const aboveSma200  = sma200 !== null ? price > sma200 : null;
       const aboveSma50   = sma50  !== null ? price > sma50  : null;
 
-      // ── Weekly trend (sample every 5 candles from 2yr data) ──────────────
-      const weekSampled = weeklyCandles.filter((_, i) => i % 5 === 0);
-      const wkFirst = weekSampled[0]?.close ?? price;
-      const wkLast  = weekSampled[weekSampled.length - 1]?.close ?? price;
-      const weeklyTrend = wkLast > wkFirst * 1.05 ? 'UPTREND' : wkLast < wkFirst * 0.95 ? 'DOWNTREND' : 'SIDEWAYS';
-      const weeklyChange = ((wkLast - wkFirst) / wkFirst) * 100;
+      // ── Weekly trend (10-week SMA and 2-year change) ────────────────────
+      const firstWk = weeklyCandles[0];
+      const lastWk = weeklyCandles[weeklyCandles.length - 1];
+      const weeklyChange = firstWk && lastWk ? ((lastWk.close - firstWk.close) / firstWk.close) * 100 : 0;
+
+      let weeklyTrend = 'SIDEWAYS';
+      if (weeklyCandles.length >= 10) {
+        const last10 = weeklyCandles.slice(-10);
+        const sma10 = last10.reduce((sum, c) => sum + c.close, 0) / 10;
+        const latestWeeklyClose = lastWk.close;
+        if (latestWeeklyClose > sma10 * 1.02) {
+          weeklyTrend = 'UPTREND';
+        } else if (latestWeeklyClose < sma10 * 0.98) {
+          weeklyTrend = 'DOWNTREND';
+        } else {
+          weeklyTrend = 'SIDEWAYS';
+        }
+      } else if (weeklyCandles.length > 0) {
+        const fw = weeklyCandles[0].close;
+        const lw = lastWk.close;
+        if (lw > fw * 1.02) weeklyTrend = 'UPTREND';
+        else if (lw < fw * 0.98) weeklyTrend = 'DOWNTREND';
+      }
 
       // ── Drawdown from 52w high ────────────────────────────────────────────
       const maxDrawdown = pctFromHigh; // already negative if below high
@@ -246,8 +263,19 @@ export class LongTermAnalyzer {
         displayPrediction === 'DOWN' ? 'red'   : 'yellow';
 
       const entry      = price;
-      const target     = aiAnalysis.target_price ?? (entry * 1.20);
-      const stop       = aiAnalysis.stop_loss    ?? (entry * 0.85);
+      const dailyAtr   = (atr !== null && atr > 0) ? atr : (entry * 0.02);
+      let target: number;
+      let stop: number;
+      if (aiAnalysis.prediction === 'UP') {
+        target = aiAnalysis.target_price ?? (entry + 6 * dailyAtr);
+        stop   = aiAnalysis.stop_loss ?? (entry - 4 * dailyAtr);
+      } else if (aiAnalysis.prediction === 'DOWN') {
+        target = aiAnalysis.target_price ?? (entry - 6 * dailyAtr);
+        stop   = aiAnalysis.stop_loss ?? (entry + 4 * dailyAtr);
+      } else {
+        target = aiAnalysis.target_price ?? (entry * 1.20);
+        stop   = aiAnalysis.stop_loss ?? (entry * 0.85);
+      }
       const targetPct  = ((target - entry) / entry) * 100;
       const stopPct    = ((stop   - entry) / entry) * 100;
       const rrRatio    = (stopPct !== 0 && isFinite(stopPct) && isFinite(targetPct))

@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Build output
 dist/
@@ -9,6 +10,10 @@ dist/
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.pfx
+*.cert
 
 # Logs
 npm-debug.log*
@@ -22,17 +27,27 @@ pnpm-debug.log*
 *.seed
 *.pid.lock
 
-# Coverage and reports
+# Test and coverage
 coverage/
 .nyc_output/
+.vitest/
 
 # IDE and editor
 .vscode/
 .idea/
 *.swp
 *.swo
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
 
-# OS files
+# OS and temporary files
 .DS_Store
 Thumbs.db
 data/
+temp/
+tmp/
+.temp/
+.tmp/

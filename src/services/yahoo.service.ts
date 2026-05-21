@@ -211,14 +211,4 @@ export class YahooService {
       return [];
     }
   }
-
-  async getRealtimePrice(symbol: string): Promise<number | null> {
-    try {
-      const quote = await yahooFinance.quote(symbol);
-      return quote.regularMarketPrice ?? null;
-    } catch (error) {
-      log.error('yahoo', `Real-time price error: ${(error as Error).message}`);
-      return null;
-    }
-  }
 }
