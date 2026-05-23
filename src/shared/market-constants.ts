@@ -6,6 +6,14 @@ export const SYMBOL_MAP: Record<string, string> = {
   // Indices
   'SP500': '^GSPC', 'S&P500': '^GSPC', 'S&P 500': '^GSPC', 'SPX': '^GSPC', 'SPY': 'SPY',
   'NASDAQ': '^IXIC', 'QQQ': 'QQQ', 'DOW': '^DJI', 'DJI': '^DJI',
+  // Indonesian Market
+  'IHSG': '^JKSE', 'IDX': '^JKSE', 'JKSE': '^JKSE', 'JCI': '^JKSE',
+  'BBCA': 'BBCA.JK', 'BBRI': 'BBRI.JK', 'BMRI': 'BMRI.JK', 'TLKM': 'TLKM.JK',
+  'ASII': 'ASII.JK', 'GOTO': 'GOTO.JK', 'BYAN': 'BYAN.JK', 'ITMG': 'ITMG.JK',
+  'UNVR': 'UNVR.JK', 'INDF': 'INDF.JK', 'ICBP': 'ICBP.JK', 'HMSP': 'HMSP.JK',
+  'ANTM': 'ANTM.JK', 'PTBA': 'PTBA.JK', 'ADRO': 'ADRO.JK', 'INKP': 'INKP.JK',
+  'PGAS': 'PGAS.JK', 'SMGR': 'SMGR.JK', 'KLBF': 'KLBF.JK', 'SIDO': 'SIDO.JK',
+  'MDKA': 'MDKA.JK', 'EMTK': 'EMTK.JK', 'BKSL': 'BKSL.JK', 'CPIN': 'CPIN.JK',
   // Forex / macro
   'DXY': 'DX-Y.NYB', 'DOLLAR': 'DX-Y.NYB',
   'EURUSD': 'EURUSD=X', 'USDJPY': 'JPY=X', 'GBPUSD': 'GBPUSD=X',
@@ -69,7 +77,9 @@ export function resolveSymbol(raw: string): string | null {
   if (SYMBOL_MAP[upper]) return SYMBOL_MAP[upper];
   if (/^[A-Z]{1,5}$/.test(upper)) return upper; // common stock / ETF ticker
   if (/^\^[A-Z0-9]{1,10}$/.test(upper)) return upper; // Yahoo index symbol
-  if (/^[A-Z0-9]{1,10}(?:[.\-=][A-Z0-9]{1,8})+$/.test(upper)) return upper; // Yahoo symbol with suffix/pair
+  if (/^[A-Z0-9]{1,10}(?:[.\-=][A-Z0-9]{1,8})+$/.test(upper)) return upper; // Yahoo symbol with suffix/pair (e.g. BBCA.JK, BTC-USD)
+  // Indonesian IDX stocks: e.g. BBCA.JK — allow 2–4 letter suffix after dot
+  if (/^[A-Z]{1,6}\.[A-Z]{2,4}$/.test(upper)) return upper;
   return null;
 }
 
