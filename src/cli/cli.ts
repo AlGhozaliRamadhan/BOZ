@@ -6,6 +6,7 @@ import { IntradayAnalyzer } from '../analyzers/intraday.analyzer.js';
 import { LongTermAnalyzer } from '../analyzers/longterm.analyzer.js';
 import { NewsIntelAnalyzer } from '../analyzers/news.intel.analyzer.js';
 import { NewsIntelAgent } from '../agents/news.intel.agent.js';
+import { InteractiveChatAgent } from '../agents/chat.agent.js';
 import { config, type AIProvider } from '../config/config.js';
 import { githubConfig, GITHUB_TOKEN_URL } from '../config/github.config.js';
 import { nvidiaConfig, NVIDIA_MODELS, NVIDIA_API_KEY_URL } from '../config/nvidia.config.js';
@@ -127,7 +128,7 @@ function vPick(options: string[], defaultIdx = 0, indent = '    '): Promise<numb
 
 // ─── Plain text question ──────────────────────────────────────────────────────
 
-function askQuestion(prompt: string): Promise<string> {
+export function askQuestion(prompt: string): Promise<string> {
   return new Promise((resolve) => {
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -135,7 +136,7 @@ function askQuestion(prompt: string): Promise<string> {
   });
 }
 
-function restoreRawMode(): void {
+export function restoreRawMode(): void {
   if (process.stdin.isTTY) { process.stdin.setRawMode(true); process.stdin.resume(); }
   readline.emitKeypressEvents(process.stdin);
 }
@@ -574,7 +575,6 @@ class Renderer {
 export class CLI {
   private currentInput = '';
   private suggestion   = '';
-  private isPrompting  = false;
   private isHandling   = false;
 
   private readonly renderer = new Renderer();
@@ -609,7 +609,7 @@ export class CLI {
             `  ${c.wrap(c.ghost, 'Mode')}  ` +
             `${c.wrap(c.ghost, 'up / down to select, Enter to confirm')}\n\n`,
           );
-          const modeIdx = await vPick(['AI Market Analyzer', 'News Intel Analyzer', 'News Intel Agent']);
+          const modeIdx = await vPick(['AI Market Analyzer', 'News Intel Analyzer', 'News Intel Agent', 'Interactive Chat Agent']);
 
           if (modeIdx === 0) {
             process.stdout.write(`\n  mode  ${c.wrap(c.green, 'ai-market-analyzer')}\n\n`);
@@ -647,10 +647,13 @@ export class CLI {
           } else if (modeIdx === 1) {
             process.stdout.write(`\n  mode  ${c.wrap(c.yellow, 'news-intel-analyzer')}\n\n`);
             await new NewsIntelAnalyzer().runAnalysis();
-          } else {
+          } else if (modeIdx === 2) {
             process.stdout.write(`\n  mode  ${c.wrap(c.yellow, 'news-intel-agent')}\n`);
             process.stdout.write(`  ${c.wrap(c.yellow, '[EXPERIMENTAL - Still in Beta]')}\n\n`);
             await new NewsIntelAgent().runAnalysis();
+          } else {
+            process.stdout.write(`\n  mode  ${c.wrap(c.magenta, 'interactive-chat-agent')}\n\n`);
+            await new InteractiveChatAgent().run();
           }
           process.stdout.write('\n');
         },
@@ -854,6 +857,7 @@ export class CLI {
       );
     }
 
+    this.enterRawMode();
     this.renderer.renderPrompt('', '');
     this.isHandling = false;
   }
@@ -861,12 +865,14 @@ export class CLI {
   // ─── Keypress ─────────────────────────────────────────────────────────────
 
   private handleKeypress(_str: unknown, key: KeypressEvent): void {
-    if (!key || this.isPrompting) return;
+    if (!key) return;
 
     if (key.ctrl && key.name === 'c') {
       process.stdout.write('\n  Bye.\n');
       process.exit(0);
     }
+
+    if (this.isHandling) return;
 
     switch (key.name) {
       case 'return':
