@@ -20,7 +20,7 @@
   <a href="https://github.com/AlGhozaliRamadhan">
     <img src="https://img.shields.io/badge/Author-AGR-111111?style=flat"/>
   </a>
-  <img src="https://img.shields.io/badge/version-1.6.1-brightgreen?style=flat"/>
+  <img src="https://img.shields.io/badge/version-1.6.2-brightgreen?style=flat"/>
 </p>
 
 ---
@@ -36,7 +36,7 @@ Four analysis modes are available, selected interactively at runtime:
 | **Market Intraday** | 2–6 hours | MTF confluence, momentum, volatility (searchable ticker/asset) |
 | **Market Long-term** | 3–12 months | SMA structure, 52-week context, trend integrity (searchable ticker/asset) |
 | **News Intel Analyzer** | Cross-asset | Multi-source news aggregation, cross-asset opportunity detection |
-| **News Intel Agent** *(Experimental)* | Cross-asset | Autonomous ReAct agent self-directed multi-step research with tool orchestration, internal reflection, and opportunity emission |
+| **Interactive Chat Agent** | Adaptive | Autonomous conversational agent with persistent memory, concurrent tool execution, and sub-agent delegation. |
 
 Three AI providers are supported, selectable interactively at startup or switched mid-session:
 
@@ -78,7 +78,18 @@ Hard enforcement: `emit_opportunities` is blocked unless `scan_upcoming_catalyst
 
 ### Session Memory & Retrospective
 
-The agent now remembers its past sessions. At the start of a new run, it reads the previous `session.log.json` and loads a **Retrospective Context**. Before making new calls, it checks its past calls (e.g. "BUY BTC @ 85% conviction"), fetches the live price, and scores itself ("AGED WELL" or "MISS") to continually calibrate its confidence.
+The agent now remembers its past sessions. At the start of a new run, it reads the previous `session.log.json` and loads a **Retrospective Context**. Before making new calls, it checks its past calls (e.g. "BUY BTC @ 85% conviction"), fetches the live price, and scores itself ("AGED WELL" or "MISS") to continually calibrate its confidence. 
+
+Additionally, the **Interactive Chat Agent** utilizes a local disk-backed **MemoryService**. It can autonomously extract and permanently store your trading preferences, risk tolerance, and portfolio rules across sessions, injecting them into its context at startup.
+
+### Sub-Agent Delegation
+
+To handle extremely complex multi-step reasoning, the main BOZ agent can concurrently delegate tasks to highly specialized sub-agents:
+- 🧮 **QuantBrain**: Ignores sentiment and focuses strictly on technical indicators, math, and risk-reward ratios.
+- 🐶 **NewsHound**: Specializes in reading macro-economic events and crowd sentiment.
+- 🛡️ **RiskManager**: Acts as a strict devil's advocate whose sole job is to identify flaws, traps, and red flags in any setup.
+
+Sub-agents are injected with the full conversation history and the verified data ledger before beginning their analysis, ensuring they have perfect context without blind spots.
 
 ### Resilience
 

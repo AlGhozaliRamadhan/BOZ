@@ -1,7 +1,7 @@
 import YahooFinance from 'yahoo-finance2';
-export const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
-import { Candle } from '../types/types.js';
-import { log, clr } from '../utils/logger.js';
+export const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey', 'ripHistorical'] });
+import { Candle } from '../../types/types.js';
+import { log, clr } from '../../utils/logger.js';
 
 type HistoricalOptions = {
   includePrePost?: boolean;

@@ -4,13 +4,13 @@
 
 import { log, clr }            from '../utils/logger.js';
 import { config }              from '../config/config.js';
-import { yahooFinance }        from '../services/yahoo.service.js';
+import { yahooFinance }        from '../services/market/yahoo.service.js';
 import { newsFetchService,
-         AllNewsData, NewsItem } from '../services/news.fetch.service.js';
+         AllNewsData, NewsItem } from '../services/news/news.fetch.service.js';
 import { resolveSymbol }       from '../shared/market-constants.js';
 import { buildTradeLevels }    from '../shared/trade-levels.js';
-import { LLMAdapter } from '../services/llm.adapter.js';
-import { validateNewsIntel } from '../services/llm.schemas.js';
+import { LLMAdapter } from '../services/ai/llm.adapter.js';
+import { validateNewsIntel } from '../services/ai/llm.schemas.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

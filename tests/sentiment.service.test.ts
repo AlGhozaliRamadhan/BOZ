@@ -72,7 +72,7 @@ describe('SentimentService', () => {
     })) as unknown as typeof fetch;
     vi.stubGlobal('fetch', fetchMock);
 
-    const { SentimentService } = await import('../src/services/sentiment.service.js');
+    const { SentimentService } = await import('../src/services/market/sentiment.service.js');
     await new SentimentService().fetchCrowdSentiment();
 
     const urls = mockState.get.mock.calls.map(([url]) => String(url));

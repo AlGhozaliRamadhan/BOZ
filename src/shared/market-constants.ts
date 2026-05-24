@@ -8,12 +8,34 @@ export const SYMBOL_MAP: Record<string, string> = {
   'NASDAQ': '^IXIC', 'QQQ': 'QQQ', 'DOW': '^DJI', 'DJI': '^DJI',
   // Indonesian Market
   'IHSG': '^JKSE', 'IDX': '^JKSE', 'JKSE': '^JKSE', 'JCI': '^JKSE',
-  'BBCA': 'BBCA.JK', 'BBRI': 'BBRI.JK', 'BMRI': 'BMRI.JK', 'TLKM': 'TLKM.JK',
-  'ASII': 'ASII.JK', 'GOTO': 'GOTO.JK', 'BYAN': 'BYAN.JK', 'ITMG': 'ITMG.JK',
+  // Banking
+  'BBCA': 'BBCA.JK', 'BBRI': 'BBRI.JK', 'BMRI': 'BMRI.JK', 'BBNI': 'BBNI.JK',
+  'BRIS': 'BRIS.JK', 'BNII': 'BNII.JK', 'BTPS': 'BTPS.JK', 'BNGA': 'BNGA.JK',
+  'PNBN': 'PNBN.JK', 'MEGA': 'MEGA.JK',
+  // Consumer
   'UNVR': 'UNVR.JK', 'INDF': 'INDF.JK', 'ICBP': 'ICBP.JK', 'HMSP': 'HMSP.JK',
-  'ANTM': 'ANTM.JK', 'PTBA': 'PTBA.JK', 'ADRO': 'ADRO.JK', 'INKP': 'INKP.JK',
-  'PGAS': 'PGAS.JK', 'SMGR': 'SMGR.JK', 'KLBF': 'KLBF.JK', 'SIDO': 'SIDO.JK',
-  'MDKA': 'MDKA.JK', 'EMTK': 'EMTK.JK', 'BKSL': 'BKSL.JK', 'CPIN': 'CPIN.JK',
+  'GGRM': 'GGRM.JK', 'CPIN': 'CPIN.JK', 'JPFA': 'JPFA.JK', 'MYOR': 'MYOR.JK',
+  'SIDO': 'SIDO.JK', 'ULTJ': 'ULTJ.JK',
+  // Mining
+  'ADRO': 'ADRO.JK', 'PTBA': 'PTBA.JK', 'ITMG': 'ITMG.JK', 'BYAN': 'BYAN.JK',
+  'HRUM': 'HRUM.JK', 'ANTM': 'ANTM.JK', 'MDKA': 'MDKA.JK', 'INCO': 'INCO.JK',
+  'TINS': 'TINS.JK', 'DSSA': 'DSSA.JK',
+  // Energy
+  'PGAS': 'PGAS.JK', 'MEDC': 'MEDC.JK', 'AKRA': 'AKRA.JK', 'RAJA': 'RAJA.JK',
+  'ELSA': 'ELSA.JK',
+  // Tech
+  'GOTO': 'GOTO.JK', 'EMTK': 'EMTK.JK', 'BUKA': 'BUKA.JK', 'INET': 'INET.JK',
+  'MTDL': 'MTDL.JK',
+  // Property
+  'BSDE': 'BSDE.JK', 'CTRA': 'CTRA.JK', 'PWON': 'PWON.JK', 'SMRA': 'SMRA.JK',
+  'LPKR': 'LPKR.JK', 'BKSL': 'BKSL.JK',
+  // Telecom
+  'TLKM': 'TLKM.JK', 'ISAT': 'ISAT.JK', 'EXCL': 'EXCL.JK', 'FREN': 'FREN.JK',
+  // Healthcare
+  'KLBF': 'KLBF.JK', 'MIKA': 'MIKA.JK', 'HEAL': 'HEAL.JK', 'PRDA': 'PRDA.JK',
+  // Industrial
+  'ASII': 'ASII.JK', 'UNTR': 'UNTR.JK', 'SRIL': 'SRIL.JK', 'INKP': 'INKP.JK',
+  'TKIM': 'TKIM.JK', 'SMGR': 'SMGR.JK', 'INTP': 'INTP.JK',
   // Forex / macro
   'DXY': 'DX-Y.NYB', 'DOLLAR': 'DX-Y.NYB',
   'EURUSD': 'EURUSD=X', 'USDJPY': 'JPY=X', 'GBPUSD': 'GBPUSD=X',
@@ -81,6 +103,21 @@ export function resolveSymbol(raw: string): string | null {
   // Indonesian IDX stocks: e.g. BBCA.JK — allow 2–4 letter suffix after dot
   if (/^[A-Z]{1,6}\.[A-Z]{2,4}$/.test(upper)) return upper;
   return null;
+}
+
+/** Same as resolveSymbol but with an IDX (.JK) bias.
+ *  Use this in fetch_price when the context is clearly an Indonesian stock
+ *  (e.g. the symbol came out of scan_indonesia_momentum).
+ *  Falls back to resolveSymbol for everything else. */
+export function resolveSymbolIDX(raw: string): string | null {
+  const upper = raw.trim().toUpperCase();
+  // Direct map hit — already correct (BBCA → BBCA.JK, BTC → BTC-USD, etc.)
+  if (SYMBOL_MAP[upper]) return SYMBOL_MAP[upper];
+  // Already has a Yahoo suffix — pass through as-is
+  if (/^[A-Z0-9]{1,10}(?:[.\-=][A-Z0-9]{1,8})+$/.test(upper)) return upper;
+  // Bare 2-6 letter code not in the map and not a known US mega-cap → try .JK
+  if (/^[A-Z]{2,6}$/.test(upper)) return upper + '.JK';
+  return resolveSymbol(raw);
 }
 
 /** Convert a Yahoo Finance symbol into the symbol format used by StockTwits.

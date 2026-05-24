@@ -1,11 +1,11 @@
 import { MarketAnalyzer } from './market.analyzer.js';
 import { ChartAnalyzer } from './chart.analyzer.js';
-import { IndicatorsService } from '../services/indicators.service.js';
-import { YahooService } from '../services/yahoo.service.js';
-import { AIService } from '../services/ai.service.js';
-import { SentimentService } from '../services/sentiment.service.js';
-import { NewsService } from '../services/news.service.js';
-import { MacroService } from '../services/macro.service.js';
+import { IndicatorsService } from '../services/market/indicators.service.js';
+import { YahooService } from '../services/market/yahoo.service.js';
+import { AIService } from '../services/ai/ai.service.js';
+import { SentimentService } from '../services/market/sentiment.service.js';
+import { NewsService } from '../services/news/news.service.js';
+import { MacroService } from '../services/market/macro.service.js';
 import { config } from '../config/config.js';
 import { buildIntradayPrompt } from '../shared/prompts.js';
 import { computeDataFreshness } from '../utils/data-freshness.js';

@@ -11,7 +11,7 @@ import { config, type AIProvider } from '../config/config.js';
 import { githubConfig, GITHUB_TOKEN_URL } from '../config/github.config.js';
 import { nvidiaConfig, NVIDIA_MODELS, NVIDIA_API_KEY_URL } from '../config/nvidia.config.js';
 import { resolveSymbol } from '../shared/market-constants.js';
-import { yahooFinance } from '../services/yahoo.service.js';
+import { yahooFinance } from '../services/market/yahoo.service.js';
 import { getBuildVersion } from '../utils/version.js';
 
 // ─── Version ──────────────────────────────────────────────────────────────────
@@ -897,10 +897,14 @@ export class CLI {
         break;
 
       default:
-        if (key.sequence && !key.ctrl && !key.meta && key.sequence.length === 1) {
-          this.currentInput += key.sequence;
-          this.suggestion   = this.ac.getSuggestion(this.currentInput);
-          this.renderer.renderPrompt(this.currentInput, this.suggestion);
+        if (key.sequence && !key.ctrl && !key.meta && key.sequence.length > 0) {
+          // Allow pasting longer strings
+          const isPrintable = /^[\x20-\x7E]*$/.test(key.sequence);
+          if (isPrintable) {
+            this.currentInput += key.sequence;
+            this.suggestion   = this.ac.getSuggestion(this.currentInput);
+            this.renderer.renderPrompt(this.currentInput, this.suggestion);
+          }
         }
     }
   }

@@ -1,14 +1,10 @@
 // ─── services/news.fetch.service.ts ──────────────────────────────────────────
-// Single news-fetching service shared by ALL analyzers and agents.
-// Previously this logic was duplicated between news.intel.analyzer.ts and
-// news.intel.agent.ts (fetchAllNews / fetchAllNewsData).  It now lives here.
-
 import axios            from 'axios';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { tmpdir }       from 'os';
 import { join }         from 'path';
 import Parser           from 'rss-parser';
-import { log }          from '../utils/logger.js';
+import { log }          from '../../utils/logger.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +28,7 @@ export interface AllNewsData {
   oil:            NewsItem[];
   forex:          NewsItem[];
   economy:        NewsItem[];
+  indonesia:      NewsItem[];
   all:            NewsItem[];
   crowd_sentiment?: CrowdSentiment;
 }
@@ -76,15 +73,15 @@ export class NewsFetchService {
   private readonly retryableStatuses = new Set([429, 500, 502, 503, 504]);
   private readonly retryableCodes = new Set(['ECONNABORTED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND']);
 
-  // ── Simple in-memory cache ─────────────────────────────────────────────
   private cache: Record<string, { time: number; data: any }> = {};
   private readonly cacheFile = join(tmpdir(), 'boz-news-cache.json');
   private readonly cacheTTL: Record<string, number> = {
-    crypto_news:       300,
-    stock_news:        300,
-    macro_news:        600,
-    news_broad_market: 300,
-    crowd_sentiment:   600,
+    crypto_news:        300,
+    stock_news:         300,
+    macro_news:         600,
+    news_broad_market:  300,
+    indonesia_news:     180,   // fresher TTL — Indonesian market moves fast
+    crowd_sentiment:    600,
   };
 
   public constructor() {
@@ -130,19 +127,23 @@ export class NewsFetchService {
       'https://www.marketwatch.com/rss/topstories',
     ],
     commodities: [
-      // kitco.com/rss/kitconews.xml → 404 (path moved)
-      // investing.com/rss/news_14.rss → 404 (blocks scrapers)
-      // news.goldseek.com/newsRSS.xml → malformed XML entities in feed content
-      // Replaced with clean, well-maintained feeds:
-      'https://silverseek.com/rss.xml',                    // SilverSeek — silver/metals news since 2003
-      'https://www.marketwatch.com/rss/realtimeheadlines', // MarketWatch real-time (incl. commodities)
+      'https://silverseek.com/rss.xml',
+      'https://www.marketwatch.com/rss/realtimeheadlines',
     ],
     oil:   ['https://oilprice.com/rss/main'],
     forex: ['https://www.fxstreet.com/rss/news'],
     economy: [
       'https://www.cnbc.com/id/100003114/device/rss/rss.html',
-      // feeds.reuters.com is dead (ENOTFOUND) — replaced with BBC Business
       'https://feeds.bbci.co.uk/news/business/rss.xml',
+    ],
+    // ── Indonesian market feeds ────────────────────────────────────────
+    // These are real, public, regularly updated RSS feeds for IDX/IHSG news.
+    indonesia: [
+      'https://www.cnbcindonesia.com/rss',                                  // CNBC Indonesia — top financial news source
+      'https://www.cnnindonesia.com/ekonomi/rss',                           // CNN Indonesia Economy
+      'https://www.antaranews.com/rss/ekonomi.xml',                         // Antara News Economy
+      'https://finance.detik.com/rss',                                      // Detik Finance
+      'https://www.idxchannel.com/rss',                                     // IDX Channel — IDX-specific
     ],
   };
 
@@ -179,10 +180,6 @@ export class NewsFetchService {
   }
 
   // ─── RSS XML sanitizer ─────────────────────────────────────────────────
-  // Some feeds (e.g. GoldSeek) embed bare & or non-standard named entities
-  // in their content, which breaks strict XML parsers.  Fetch the raw text,
-  // scrub it, then hand it to rss-parser via parseString() instead of
-  // parseURL() so we control the input.
 
   private async parseURLSafe(url: string): Promise<ReturnType<Parser['parseString']>> {
     const res = await this.withRetry(`rss:${url}`, () =>
@@ -190,15 +187,10 @@ export class NewsFetchService {
         headers:        { ...this.headers, Accept: 'application/rss+xml, application/xml, text/xml, */*' },
         timeout:        8000,
         responseType:   'text',
-        // Treat any 2xx as success; let non-2xx propagate so the caller's
-        // status-code branch can log it correctly.
         validateStatus: s => s >= 200 && s < 300,
       }),
     );
 
-    // Replace bare & that are NOT already part of a valid XML entity reference.
-    // Valid references: &amp; &lt; &gt; &quot; &apos; &#123; &#xAB; &namedRef;
-    // Everything else → &amp;
     const sanitized = res.data.replace(
       /&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[\dA-Fa-f]+|[A-Za-z][A-Za-z\d]*);)/g,
       '&amp;',
@@ -212,7 +204,7 @@ export class NewsFetchService {
   public async fetchAll(withCrowdSentiment = true): Promise<AllNewsData> {
     const data: AllNewsData = {
       cryptocurrency: [], stocks: [], commodities: [],
-      oil: [], forex: [], economy: [], all: [],
+      oil: [], forex: [], economy: [], indonesia: [], all: [],
     };
 
     log.info('news', 'Fetching crypto news...');
@@ -223,6 +215,9 @@ export class NewsFetchService {
 
     log.info('news', 'Fetching macro news...');
     data.economy = await this.fetchMacroNews();
+
+    log.info('news', 'Fetching Indonesian market news...');
+    data.indonesia = await this.fetchIndonesiaNews();
 
     log.info('news', 'Fetching broad market RSS...');
     const broad = await this.fetchBroadMarketNews();
@@ -239,8 +234,8 @@ export class NewsFetchService {
     }
 
     data.all = [
-      ...data.cryptocurrency, ...data.stocks, ...data.commodities,
-      ...data.oil, ...data.forex, ...data.economy,
+      ...data.indonesia, ...data.cryptocurrency, ...data.stocks,
+      ...data.commodities, ...data.oil, ...data.forex, ...data.economy,
     ];
 
     const order: Record<string, number> = { high: 0, medium: 1, low: 2 };
@@ -250,12 +245,68 @@ export class NewsFetchService {
 
     log.ok('news',
       `Total: ${data.all.length} items  ` +
-      `(crypto ${data.cryptocurrency.length} · stocks ${data.stocks.length} · ` +
-      `economy ${data.economy.length} · commodities ${data.commodities.length} · ` +
-      `oil ${data.oil.length} · forex ${data.forex.length})`,
+      `(indonesia ${data.indonesia.length} · crypto ${data.cryptocurrency.length} · ` +
+      `stocks ${data.stocks.length} · economy ${data.economy.length})`,
     );
 
     return data;
+  }
+
+  // ─── Indonesian market news ────────────────────────────────────────────
+
+  public async fetchIndonesiaNews(): Promise<NewsItem[]> {
+    return this.getCached('indonesia_news', async () => {
+      const items: NewsItem[] = [];
+      const highKw = ['ihsg', 'idx', 'bi rate', 'bank indonesia', 'rupiah', 'idr',
+                      'bursa', 'saham', 'crash', 'rally', 'koreksi', 'naik', 'turun',
+                      'record', 'all time', 'tertinggi', 'terendah', 'inflasi'];
+      const medKw  = ['bbca', 'bbri', 'bmri', 'tlkm', 'asii', 'goto', 'emiten',
+                      'dividen', 'laba', 'pendapatan', 'ekspor', 'impor'];
+
+      for (const url of this.marketRssFeeds.indonesia) {
+        try {
+          const feed = await this.parseURLSafe(url);
+          for (const entry of (feed.items ?? []).slice(0, 12)) {
+            const title = (entry.title ?? '').toLowerCase();
+            const snippet = (entry.contentSnippet ?? entry.content ?? '').toLowerCase();
+            const blob = title + ' ' + snippet;
+            const impact: 'high' | 'medium' | 'low' =
+              highKw.some(k => blob.includes(k)) ? 'high' :
+              medKw.some(k => blob.includes(k))  ? 'medium' : 'low';
+            items.push({
+              category:  'indonesia',
+              type:      'news',
+              impact,
+              title:     entry.title ?? '',
+              details:   (entry.contentSnippet ?? '').substring(0, 500),
+              source:    feed.title ?? new URL(url).hostname,
+              url:       entry.link,
+              timestamp: entry.pubDate ?? new Date().toISOString(),
+              assets:    ['IHSG', '^JKSE'],
+            });
+          }
+          log.info('news', `Indonesian RSS (${new URL(url).hostname}): ${feed.items?.length ?? 0} items`);
+        } catch (e: any) {
+          const status = e?.response?.status as number | undefined;
+          if (status === 404)
+            log.warn('news', `Indonesian RSS 404 — feed may have moved: ${url}`);
+          else if (status === 403 || status === 429)
+            log.info('news', `Indonesian RSS blocked (${status}): ${url}`);
+          else
+            log.warn('news', `Indonesian RSS (${url}): ${e.message}`);
+        }
+      }
+
+      // Sort: high-impact first, then by recency
+      items.sort((a, b) => {
+        const impactOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+        const imp = (impactOrder[a.impact] ?? 2) - (impactOrder[b.impact] ?? 2);
+        if (imp !== 0) return imp;
+        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+      });
+
+      return items;
+    });
   }
 
   // ─── Crypto news ───────────────────────────────────────────────────────
@@ -264,13 +315,9 @@ export class NewsFetchService {
     return this.getCached('crypto_news', async () => {
       const items: NewsItem[] = [];
 
-      // CoinGecko trending
       try {
         const res = await this.withRetry('coingecko_trending', () =>
-          axios.get(
-            'https://api.coingecko.com/api/v3/search/trending',
-            { headers: this.headers, timeout: 5000 },
-          ),
+          axios.get('https://api.coingecko.com/api/v3/search/trending', { headers: this.headers, timeout: 5000 }),
         );
         for (const coin of (res.data?.coins ?? []).slice(0, 10)) {
           items.push({
@@ -285,35 +332,29 @@ export class NewsFetchService {
         }
       } catch (e: any) { log.warn('news', `CoinGecko trending: ${e.message}`); }
 
-      // CryptoCompare
       try {
         const res = await this.withRetry('cryptocompare_news', () =>
-          axios.get(
-            'https://min-api.cryptocompare.com/data/v2/news/?lang=EN',
-            { headers: this.headers, timeout: 5000 },
-          ),
+          axios.get('https://min-api.cryptocompare.com/data/v2/news/?lang=EN', { headers: this.headers, timeout: 5000 }),
         );
         const highKw = ['regulation', 'sec', 'etf', 'approved', 'banned', 'hack',
                         'lawsuit', 'crash', 'surge', 'billion', 'fed', 'rate'];
-        const medKw  = ['partnership', 'launch', 'update', 'upgrade', 'adoption',
-                        'institutional', 'integration'];
+        const medKw  = ['partnership', 'launch', 'update', 'upgrade', 'adoption', 'institutional'];
         const ccData = Array.isArray(res.data?.Data) ? res.data.Data : [];
         for (const art of ccData.slice(0, 15)) {
           const blob   = `${art.title ?? ''} ${art.body ?? ''}`.toLowerCase();
           const impact: 'high' | 'medium' | 'low' =
             highKw.some(k => blob.includes(k)) ? 'high' :
             medKw.some(k => blob.includes(k))  ? 'medium' : 'low';
-          const cats = (art.categories ?? '')
-            .toUpperCase().split('|')
+          const cats = (art.categories ?? '').toUpperCase().split('|')
             .filter((c: string) => c.trim().length <= 5 && c.trim().length > 0);
           items.push({
-            category:  'cryptocurrency', type: 'news', impact,
-            title:     art.title ?? '',
-            details:   (art.body ?? '').substring(0, 500),
-            source:    art.source ?? 'CryptoCompare',
-            url:       art.url,
+            category: 'cryptocurrency', type: 'news', impact,
+            title:    art.title ?? '',
+            details:  (art.body ?? '').substring(0, 500),
+            source:   art.source ?? 'CryptoCompare',
+            url:      art.url,
             timestamp: new Date((art.published_on ?? 0) * 1000).toISOString(),
-            assets:    cats.length > 0 ? cats.slice(0, 5) : ['BTC', 'ETH'],
+            assets:   cats.length > 0 ? cats.slice(0, 5) : ['BTC', 'ETH'],
           });
         }
       } catch (e: any) { log.warn('news', `CryptoCompare: ${e.message}`); }
@@ -327,29 +368,24 @@ export class NewsFetchService {
   public async fetchStockNews(): Promise<NewsItem[]> {
     return this.getCached('stock_news', async () => {
       const items: NewsItem[] = [];
-      const macroKw = ['fed', 'rate', 'inflation', 'recession', 'earnings', 'ipo',
-                       'fomc', 'cpi', 'gdp', 'nfp'];
+      const macroKw = ['fed', 'rate', 'inflation', 'recession', 'earnings', 'ipo', 'fomc', 'cpi', 'gdp', 'nfp'];
 
       if (process.env.ALPHA_VANTAGE_API_KEY) {
         try {
           const res = await this.withRetry('alpha_vantage_news', () =>
-            axios.get(
-              `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&apikey=${process.env.ALPHA_VANTAGE_API_KEY}`,
-              { headers: this.headers, timeout: 5000 },
-            ),
+            axios.get(`https://www.alphavantage.co/query?function=NEWS_SENTIMENT&apikey=${process.env.ALPHA_VANTAGE_API_KEY}`, { headers: this.headers, timeout: 5000 }),
           );
           for (const art of (res.data?.feed ?? []).slice(0, 10)) {
             items.push({
-              category:  'stocks', type: 'news',
-              title:     art.title ?? '',
-              details:   (art.summary ?? '').substring(0, 500),
-              source:    art.source ?? 'Alpha Vantage',
-              url:       art.url,
+              category: 'stocks', type: 'news',
+              title:    art.title ?? '',
+              details:  (art.summary ?? '').substring(0, 500),
+              source:   art.source ?? 'Alpha Vantage',
+              url:      art.url,
               timestamp: art.time_published ?? new Date().toISOString(),
               sentiment: art.overall_sentiment_label ?? 'Neutral',
-              impact:    Math.abs(parseFloat(art.overall_sentiment_score ?? '0')) > 0.5
-                           ? 'high' : 'medium',
-              assets:    (art.ticker_sentiment ?? []).slice(0, 5).map((t: any) => t.ticker),
+              impact:   Math.abs(parseFloat(art.overall_sentiment_score ?? '0')) > 0.5 ? 'high' : 'medium',
+              assets:   (art.ticker_sentiment ?? []).slice(0, 5).map((t: any) => t.ticker),
             });
           }
         } catch (e: any) { log.warn('news', `Alpha Vantage: ${e.message}`); }
@@ -358,23 +394,19 @@ export class NewsFetchService {
       if (process.env.FINNHUB_API_KEY) {
         try {
           const res = await this.withRetry('finnhub_news', () =>
-            axios.get(
-              `https://finnhub.io/api/v1/news?category=general&token=${process.env.FINNHUB_API_KEY}`,
-              { headers: this.headers, timeout: 5000 },
-            ),
+            axios.get(`https://finnhub.io/api/v1/news?category=general&token=${process.env.FINNHUB_API_KEY}`, { headers: this.headers, timeout: 5000 }),
           );
           for (const art of (res.data ?? []).slice(0, 10)) {
-            const title  = (art.headline ?? '').toLowerCase();
-            const impact: 'high' | 'medium' | 'low' =
-              macroKw.some(w => title.includes(w)) ? 'high' : 'medium';
+            const title = (art.headline ?? '').toLowerCase();
+            const impact: 'high' | 'medium' | 'low' = macroKw.some(w => title.includes(w)) ? 'high' : 'medium';
             items.push({
-              category:  'stocks', type: 'news', impact,
-              title:     art.headline ?? '',
-              details:   (art.summary ?? '').substring(0, 500),
-              source:    art.source ?? 'Finnhub',
-              url:       art.url,
+              category: 'stocks', type: 'news', impact,
+              title:    art.headline ?? '',
+              details:  (art.summary ?? '').substring(0, 500),
+              source:   art.source ?? 'Finnhub',
+              url:      art.url,
               timestamp: new Date((art.datetime ?? 0) * 1000).toISOString(),
-              assets:    (art.related ?? '').split(',').slice(0, 5).filter(Boolean),
+              assets:   (art.related ?? '').split(',').slice(0, 5).filter(Boolean),
             });
           }
         } catch (e: any) { log.warn('news', `Finnhub: ${e.message}`); }
@@ -392,19 +424,16 @@ export class NewsFetchService {
       if (process.env.FRED_API_KEY) {
         try {
           const res = await this.withRetry('fred_releases', () =>
-            axios.get(
-              `https://api.stlouisfed.org/fred/releases?api_key=${process.env.FRED_API_KEY}&file_type=json&limit=10`,
-              { headers: this.headers, timeout: 5000 },
-            ),
+            axios.get(`https://api.stlouisfed.org/fred/releases?api_key=${process.env.FRED_API_KEY}&file_type=json&limit=10`, { headers: this.headers, timeout: 5000 }),
           );
           for (const r of (res.data?.releases ?? []).slice(0, 10)) {
             items.push({
-              category:  'economy', type: 'economic_release', impact: 'high',
-              title:     r.name ?? '',
-              details:   `Economic data release: ${r.name}`,
-              source:    'Federal Reserve (FRED)',
+              category: 'economy', type: 'economic_release', impact: 'high',
+              title:    r.name ?? '',
+              details:  `Economic data release: ${r.name}`,
+              source:   'Federal Reserve (FRED)',
               timestamp: new Date().toISOString(),
-              assets:    ['SPY', 'DXY', 'TLT', 'GLD'],
+              assets:   ['SPY', 'DXY', 'TLT', 'GLD'],
             });
           }
         } catch (e: any) { log.warn('news', `FRED API: ${e.message}`); }
@@ -418,16 +447,21 @@ export class NewsFetchService {
   public async fetchBroadMarketNews(): Promise<NewsItem[]> {
     return this.getCached('news_broad_market', async () => {
       const items: NewsItem[] = [];
-      const highKw = ['breaking', 'urgent', 'crash', 'surge', 'billion', 'regulation',
-                      'approved', 'banned', 'record', 'historic'];
-      const medKw  = ['announces', 'launches', 'partnership', 'update', 'report',
-                      'forecasts', 'warns'];
+      const highKw = ['breaking', 'urgent', 'crash', 'surge', 'billion', 'regulation', 'approved', 'banned', 'record', 'historic'];
+      const medKw  = ['announces', 'launches', 'partnership', 'update', 'report', 'forecasts', 'warns'];
 
-      for (const [category, feeds] of Object.entries(this.marketRssFeeds)) {
+      // Only the non-Indonesian feeds here
+      const feedsToFetch: Record<string, string[]> = {
+        stocks:      this.marketRssFeeds.stocks,
+        commodities: this.marketRssFeeds.commodities,
+        oil:         this.marketRssFeeds.oil,
+        forex:       this.marketRssFeeds.forex,
+        economy:     this.marketRssFeeds.economy,
+      };
+
+      for (const [category, feeds] of Object.entries(feedsToFetch)) {
         for (const url of feeds) {
           try {
-            // Use parseURLSafe: fetches raw XML, sanitizes bare & entities,
-            // then parses — so malformed feeds don't crash the whole category.
             const feed = await this.parseURLSafe(url);
             for (const entry of (feed.items ?? []).slice(0, 10)) {
               const title  = (entry.title ?? '').toLowerCase();
@@ -444,13 +478,10 @@ export class NewsFetchService {
               });
             }
           } catch (e: any) {
-            const status = (e?.response?.status as number | undefined);
-            if (status === 404)
-              log.warn('news', `RSS ${category}: feed returned 404 — URL may have moved (${url})`);
-            else if (status === 503 || status === 429)
-              log.info('news', `RSS ${category}: feed temporarily unavailable (${status})`);
-            else
-              log.warn('news', `RSS ${category}: ${e.message}`);
+            const status = e?.response?.status as number | undefined;
+            if (status === 404) log.warn('news', `RSS ${category}: 404 — URL may have moved (${url})`);
+            else if (status === 503 || status === 429) log.info('news', `RSS ${category}: temporarily unavailable (${status})`);
+            else log.warn('news', `RSS ${category}: ${e.message}`);
           }
         }
       }
@@ -469,19 +500,15 @@ export class NewsFetchService {
         summary:             {},
       };
 
-      // Primary: alternative.me (7-day trend)
       try {
         const res = await this.withRetry('fear_greed_altme', () =>
-          axios.get(
-            'https://api.alternative.me/fng/?limit=7',
-            { headers: this.headers, timeout: 5000 },
-          ),
+          axios.get('https://api.alternative.me/fng/?limit=7', { headers: this.headers, timeout: 5000 }),
         );
         const data = res.data?.data ?? [];
         if (data.length > 0) {
-          const latest  = data[0];
+          const latest = data[0];
           const values: number[] = data.map((d: any) => parseInt(d.value ?? '50', 10));
-          const avg7d   = values.reduce((a, b) => a + b, 0) / values.length;
+          const avg7d = values.reduce((a, b) => a + b, 0) / values.length;
           crowd.fear_greed = {
             value:    parseInt(latest.value ?? '50', 10),
             label:    latest.value_classification ?? 'Neutral',
@@ -494,72 +521,47 @@ export class NewsFetchService {
         }
       } catch (e: any) { log.warn('news', `Fear & Greed alt.me: ${e.message}`); }
 
-      // Fallback: CNN Fear & Greed
       if (!crowd.fear_greed) {
         try {
           const res = await this.withRetry('fear_greed_cnn', () =>
-            axios.get(
-              'https://production.dataviz.cnn.io/index/fearandgreed/graphdata',
-              { headers: this.headers, timeout: 5000 },
-            ),
+            axios.get('https://production.dataviz.cnn.io/index/fearandgreed/graphdata', { headers: this.headers, timeout: 5000 }),
           );
           const score  = res.data?.fear_and_greed?.score;
           const rating = res.data?.fear_and_greed?.rating;
           if (score !== undefined) {
-            crowd.fear_greed = {
-              value: Math.round(score), label: rating ?? 'Unknown',
-              momentum: 'N/A', avg_7d: null, trend_7d: [],
-            };
+            crowd.fear_greed = { value: Math.round(score), label: rating ?? 'Unknown', momentum: 'N/A', avg_7d: null, trend_7d: [] };
           }
         } catch { /* silent */ }
       }
 
-      // CoinGecko top-10 community sentiment
       try {
         const res = await this.withRetry('coingecko_markets', () =>
-          axios.get(
-            'https://api.coingecko.com/api/v3/coins/markets' +
-            '?vs_currency=usd&order=market_cap_desc&per_page=10&page=1' +
-            '&sparkline=false&price_change_percentage=24h',
-            { headers: this.headers, timeout: 5000 },
-          ),
+          axios.get('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1&sparkline=false&price_change_percentage=24h', { headers: this.headers, timeout: 5000 }),
         );
         let bull = 0, bear = 0;
         for (const coin of (res.data ?? [])) {
           const chg = coin.price_change_percentage_24h ?? 0;
           if (chg > 0) bull++; else bear++;
           crowd.coingecko_community.push({
-            symbol:          (coin.symbol ?? '').toUpperCase(),
-            name:            coin.name,
-            price:           coin.current_price,
-            change_24h:      Math.round(chg * 100) / 100,
+            symbol: (coin.symbol ?? '').toUpperCase(), name: coin.name,
+            price: coin.current_price, change_24h: Math.round(chg * 100) / 100,
             crowd_sentiment: chg > 0 ? 'bullish' : 'bearish',
           });
         }
-        crowd.summary.crypto_crowd =
-          `${bull} of top 10 coins bullish, ${bear} bearish in last 24h`;
+        crowd.summary.crypto_crowd = `${bull} of top 10 coins bullish, ${bear} bearish in last 24h`;
       } catch (e: any) { log.warn('news', `CoinGecko community: ${e.message}`); }
 
-      // StockTwits trending
       try {
         const res = await this.withRetry('stocktwits_trending', () =>
-          axios.get(
-            'https://api.stocktwits.com/api/2/trending/symbols.json',
-            { headers: this.headers, timeout: 5000 },
-          ),
+          axios.get('https://api.stocktwits.com/api/2/trending/symbols.json', { headers: this.headers, timeout: 5000 }),
         );
         for (const sym of (res.data?.symbols ?? []).slice(0, 15)) {
-          crowd.stocktwits_trending.push({
-            symbol: sym.symbol, title: sym.title,
-            watchlist_count: sym.watchlist_count,
-          });
+          crowd.stocktwits_trending.push({ symbol: sym.symbol, title: sym.title, watchlist_count: sym.watchlist_count });
         }
         const top5 = (res.data?.symbols ?? []).slice(0, 5).map((s: any) => s.symbol);
-        if (top5.length > 0)
-          crowd.summary.stocktwits_hot = `Top trending: ${top5.join(', ')}`;
+        if (top5.length > 0) crowd.summary.stocktwits_hot = `Top trending: ${top5.join(', ')}`;
       } catch (e: any) { log.warn('news', `StockTwits: ${e.message}`); }
 
-      // Overall crowd consensus label
       const fg = crowd.fear_greed;
       if (fg) {
         const v = fg.value;
@@ -575,20 +577,16 @@ export class NewsFetchService {
     });
   }
 
-  // ─── Utility: collect a flat news blob for keyword matching ───────────
+  // ─── Utility ──────────────────────────────────────────────────────────
 
   public collectNewsBlob(data: AllNewsData, assetFilter = ''): string {
     const filter = assetFilter.trim().toUpperCase();
     return data.all
-      .filter(n =>
-        !filter ||
-        `${n.title ?? ''} ${n.details ?? ''}`.toUpperCase().includes(filter),
-      )
+      .filter(n => !filter || `${n.title ?? ''} ${n.details ?? ''}`.toUpperCase().includes(filter))
       .map(n => `${n.title ?? ''} ${n.details ?? ''}`)
       .join(' ')
       .toLowerCase();
   }
 }
 
-// ─── Singleton export (mirrors pattern used by yahoo.service.ts) ──────────────
 export const newsFetchService = new NewsFetchService();

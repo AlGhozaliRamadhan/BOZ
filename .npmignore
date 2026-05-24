@@ -1,0 +1,21 @@
+# Development & Source Files
+src/
+tests/
+scripts/test-marked.ts
+docs/
+.github/
+
+# Configuration Files
+tsconfig.json
+.editorconfig
+.gitignore
+
+# Output & Data
+data/
+*.tgz
+*.zip
+*.tar.gz
+
+# OS and temp
+.DS_Store
+Thumbs.db

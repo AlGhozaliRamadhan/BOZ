@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IndicatorsService } from '../src/services/indicators.service.js';
+import { IndicatorsService } from '../src/services/market/indicators.service.js';
 import type { Candle } from '../src/types/types.js';
 
 const buildCandles = (count: number): Candle[] => {
