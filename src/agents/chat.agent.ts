@@ -38,6 +38,10 @@ interface LedgerEntry {
 
 export class InteractiveChatAgent extends BaseAgent {
   private sentimentService = new SentimentService();
+  // ─── Session-level data cache ─────────────────────────────────────────────
+  // Stores confirmed facts from tool calls across turns so the AI can answer
+  // follow-up questions WITHOUT re-running expensive tool calls.
+  private sessionCache: Map<string, string> = new Map();
 
   constructor() { super(); }
 
@@ -364,17 +368,37 @@ export class InteractiveChatAgent extends BaseAgent {
     const prefs = memory.preferences.length ? `\nUSER PREFERENCES:\n${memory.preferences.map(p => '  - ' + p).join('\n')}` : '';
     const facts = memory.facts.length ? `\nUSER FACTS:\n${memory.facts.map(f => '  - ' + f).join('\n')}` : '';
 
+    // Build session cache block — injected into system prompt so AI knows
+    // what data was already fetched this session and can skip re-fetching.
+    const cacheEntries = Array.from(this.sessionCache.entries());
+    const cacheBlock = cacheEntries.length > 0
+      ? `\nSESSION DATA CACHE (already fetched this session — DO NOT re-fetch these unless user explicitly asks for a refresh):\n${cacheEntries.map(([k, v]) => `  [${k}] ${v}`).join('\n')}`
+      : '';
+
     return [
       'You are BOZ, an elite AI market assistant and quantitative analyst. You are also a conversational AI.',
       'You think like a hedge fund analyst — skeptical, data-driven, always asking "is this enough?"',
       prefs,
       facts,
+      cacheBlock,
       '',
       'CONVERSATIONAL AI RULES:',
+      '  - SESSION CACHE: Before calling ANY tool, check the SESSION DATA CACHE above.',
+      '    If the data you need (price, sentiment, scan results, news) is already there, USE IT directly.',
+      '    Do NOT re-fetch data that is already in the cache just because the user asked a follow-up.',
+      '    Example: user asked "which stock should I buy?" → you scanned IDX → cache has scan results.',
+      '    Next question "when should I buy?" → answer from cache, NO new tool calls needed.',
+      '    Only re-fetch if the user explicitly says "refresh", "update", or "check again".',
+      '  ─────────────────────────────────────────────────────────────────────',
+      '',
       '  - You have FULL AUTONOMY to decide whether you need to use tools or not. Use your intelligence to read the user\'s implicit needs.',
-      '  - If they are just greeting you, asking a generic question, or asking a follow-up that can be answered using the recent conversation history, DO NOT blindly call tools. Just answer them naturally.',
-      '  - If you genuinely need live data, news, or a fresh scan to answer their question accurately, then call the tools.',
+      '  - If they are just greeting you, asking a generic question, or asking a follow-up that can be answered using the recent conversation history OR the SESSION DATA CACHE above, DO NOT call tools. Just answer them naturally.',
+      '  - If you genuinely need live data, news, or a fresh scan to answer their question accurately AND it is not already in the SESSION DATA CACHE, then call the tools.',
       '  - Do not be rigidly linear. Be an intelligent, context-aware conversational partner.',
+      '  - ANTI-LOOP RULE: If you just ran tools 1 turn ago and the user asks a follow-up about the SAME topic,',
+      '    it is almost always WRONG to call tools again. Answer from memory and cache instead.',
+      '  - COST AWARENESS: Every tool call takes 10-30 seconds. Be frugal. Use the cache.',
+
       '',
       'TOOLS:',
       '  fetch_price(symbol_or_name)       — live price for any asset',
@@ -400,6 +424,7 @@ export class InteractiveChatAgent extends BaseAgent {
       '  3. Build a picture iteratively. Each tool call should add NEW information.',
       '     If two consecutive calls give the same type of empty result, pivot to a different angle.',
       '  4. You may call 6-10 tools per query if needed. More data = better analysis.',
+      '  4b. BUT: if data is already in the SESSION CACHE, skip the tool call. Cache = free. Tool = 30s wait.',
       '  5. Maintain a global market focus. Do not restrict analysis solely to a specific region unless requested.',
       '  6. FOLLOW-UP QUESTIONS: If the user asks a follow-up question about the analysis you JUST provided (e.g., "so which one should I buy?"), DO NOT call tools again. Answer directly using the recent conversation context.',
       '',
@@ -1163,6 +1188,18 @@ export class InteractiveChatAgent extends BaseAgent {
         this.printResponse(finalAnalysis);
         
         messages.push({ role: 'assistant', content: finalAnalysis });
+
+        // ─── Populate session cache from this turn's ledger ────────────────────────────────
+        // So next user question can be answered without re-running tools.
+        for (const entry of ledger) {
+          if (entry.quality === 'confirmed') {
+            // Key by tool+args so we can overwrite stale entries for the same ticker/query
+            const cacheKey = entry.tool + ':' + entry.fact.split(':')[0].trim().toLowerCase().replace(/\s+/g, '_');
+            this.sessionCache.set(cacheKey, entry.fact);
+          }
+        }
+        // Refresh the system message so next turn sees the updated cache
+        messages[0] = { role: 'system', content: this.buildSystemPrompt() };
       } else if (aiMessage.content) {
         // Fallback: no tool calls at all — just print the AI reply
         console.log('');
