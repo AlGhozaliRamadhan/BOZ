@@ -1,7 +1,7 @@
-import { config } from '../config/config.js';
-import { GITHUB_TOKEN_URL } from '../config/github.config.js';
-import { NVIDIA_API_KEY_URL } from '../config/nvidia.config.js';
-import { log, clr } from '../utils/logger.js';
+import { config } from '../../config/config.js';
+import { GITHUB_TOKEN_URL } from '../../config/github.config.js';
+import { NVIDIA_API_KEY_URL } from '../../config/nvidia.config.js';
+import { log, clr } from '../../utils/logger.js';
 import { LLMAdapter } from './llm.adapter.js';
 import { formatSchemaErrors, validateAiPrediction } from './llm.schemas.js';
 

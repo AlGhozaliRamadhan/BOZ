@@ -1,5 +1,5 @@
 import { SMA, EMA, RSI, MACD, BollingerBands, ATR, OBV } from 'technicalindicators';
-import { Candle } from '../types/types.js';
+import { Candle } from '../../types/types.js';
 
 export class IndicatorsService {
   calculateAll(candles: Candle[]): Candle[] {

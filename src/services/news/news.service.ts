@@ -1,6 +1,6 @@
 import YahooFinance from 'yahoo-finance2';
 const yahooFinance = new YahooFinance();
-import { log } from '../utils/logger.js';
+import { log } from '../../utils/logger.js';
 import { newsFetchService } from './news.fetch.service.js';
 
 export class NewsService {

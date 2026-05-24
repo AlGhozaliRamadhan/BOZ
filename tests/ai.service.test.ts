@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AIService } from '../src/services/ai.service.js';
+import { AIService } from '../src/services/ai/ai.service.js';
 
 const parse = (content: string) => (new AIService() as any).parseResponse(content);
 

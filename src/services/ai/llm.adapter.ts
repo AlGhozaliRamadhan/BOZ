@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import axios from 'axios';
-import { config } from '../config/config.js';
-import type { LLMMessage, RawToolCall } from '../types/llm.types.js';
+import { config } from '../../config/config.js';
+import type { LLMMessage, RawToolCall } from '../../types/llm.types.js';
 import type { ValidateFunction } from 'ajv';
 import { formatSchemaErrors } from './llm.schemas.js';
 
@@ -85,6 +85,77 @@ export class LLMAdapter {
     );
     const content = res.data.choices?.[0]?.message?.content ?? '';
     return LLMAdapter.stripThinking(content);
+  }
+
+  async *callTextStream(options: {
+    messages: LLMMessage[];
+    temperature?: number;
+    maxTokens?: number;
+    model?: string;
+    responseFormat?: 'json';
+    nvidiaMode?: NvidiaMode;
+  }): AsyncGenerator<string, void, unknown> {
+    const provider = config.aiProvider ?? 'github';
+    const temperature = options.temperature ?? 0.4;
+    const maxTokens = options.maxTokens ?? 1500;
+    const model = options.model;
+
+    if (provider === 'nvidia') {
+      if (!config.nvidia.apiKey) throw new Error('No NVIDIA API key configured');
+      const client = new OpenAI({ apiKey: config.nvidia.apiKey, baseURL: config.nvidia.baseURL });
+      const modelName = model ?? config.nvidia.model;
+      const params: Record<string, any> = {
+        model: modelName,
+        messages: options.messages as any,
+        temperature,
+        max_tokens: maxTokens,
+        stream: true,
+      };
+      if (options.responseFormat === 'json') {
+        params.response_format = { type: 'json_object' };
+      }
+      if (options.nvidiaMode === 'analysis') {
+        const isDeepSeek = modelName.startsWith('deepseek-ai/');
+        if (isDeepSeek) {
+          params.extra_body = { chat_template_kwargs: { thinking: false } };
+        } else {
+          params.reasoning_budget = 16384;
+          params.chat_template_kwargs = { enable_thinking: true };
+        }
+      }
+      const stream = await client.chat.completions.create(params as any);
+      for await (const chunk of stream as any) {
+        const delta = chunk.choices?.[0]?.delta?.content;
+        if (delta) yield delta;
+      }
+      return;
+    }
+
+    if (provider === 'offline') {
+      // Offline fallback to non-streaming if actual streaming is complex
+      const fullResponse = await this.callText(options);
+      yield fullResponse;
+      return;
+    }
+
+    // GitHub Provider fallback to standard OpenAI client since it's compatible
+    if (!config.github.token) throw new Error('No GitHub token configured');
+    const client = new OpenAI({ apiKey: config.github.token, baseURL: config.github.endpoint });
+    const params: Record<string, any> = {
+      model: model ?? config.github.model,
+      messages: options.messages as any,
+      temperature,
+      max_tokens: maxTokens,
+      stream: true,
+    };
+    if (options.responseFormat === 'json') {
+      params.response_format = { type: 'json_object' };
+    }
+    const stream = await client.chat.completions.create(params as any);
+    for await (const chunk of stream as any) {
+      const delta = chunk.choices?.[0]?.delta?.content;
+      if (delta) yield delta;
+    }
   }
 
   async callWithTools(options: {

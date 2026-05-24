@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 // We import the instance and the type
-import { sessionLogService, SessionEntry } from '../src/services/session.log.service.js';
+import { sessionLogService, SessionEntry } from '../src/services/core/session.log.service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOG_PATH  = path.join(__dirname, '../data/session.log.json');

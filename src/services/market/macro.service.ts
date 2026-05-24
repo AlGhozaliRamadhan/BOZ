@@ -1,7 +1,7 @@
 import { YahooService } from './yahoo.service.js';
-import { MacroContext } from '../types/types.js';
-import { log } from '../utils/logger.js';
-import { config } from '../config/config.js';
+import { MacroContext } from '../../types/types.js';
+import { log } from '../../utils/logger.js';
+import { config } from '../../config/config.js';
 
 function standardizeTnxYield(val: number): number {
   if (val < 0.2) return val * 100; // decimal format (e.g. 0.0425 -> 4.25%)

@@ -51,3 +51,12 @@ temp/
 tmp/
 .temp/
 .tmp/
+
+# Archives and Tarballs
+*.tgz
+*.tar.gz
+*.zip
+
+# Local Developer Caches
+.eslintcache
+*.log

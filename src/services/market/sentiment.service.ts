@@ -1,8 +1,8 @@
 import axios from 'axios';
 import https from 'https';
-import { log, clr } from '../utils/logger.js';
-import { config } from '../config/config.js';
-import { buildSocialSearchQuery, resolveStockTwitsSymbol } from '../shared/market-constants.js';
+import { log, clr } from '../../utils/logger.js';
+import { config } from '../../config/config.js';
+import { buildSocialSearchQuery, resolveStockTwitsSymbol } from '../../shared/market-constants.js';
 
 // axios TLS agent for CNN / StockTwits / alternative.me (standard servers, no JA3 issues)
 const tlsAgent = new https.Agent({

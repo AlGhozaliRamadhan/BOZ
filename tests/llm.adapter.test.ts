@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LLMAdapter } from '../src/services/llm.adapter.js';
+import { LLMAdapter } from '../src/services/ai/llm.adapter.js';
 
 describe('LLMAdapter.extractJson', () => {
   it('strips code fences', () => {

@@ -17,7 +17,7 @@
 //   • null-guard on assistantMsg.content before printThought
 
 import { log, clr } from '../utils/logger.js';
-import { LLMAdapter } from '../services/llm.adapter.js';
+import { LLMAdapter } from '../services/ai/llm.adapter.js';
 import type { LLMMessage, RawToolCall } from '../types/llm.types.js';
 
 // ─── Shared message / tool-call types ────────────────────────────────────────
@@ -276,6 +276,19 @@ export abstract class BaseAgent {
     maxTokens   = 1500,
   ): Promise<string> {
     return this.llm.callText({
+      messages,
+      temperature,
+      maxTokens,
+    });
+  }
+
+  /** Plain text AI call streamed — no tools, yields chunks. */
+  protected callAITextStream(
+    messages:   AgentMessage[],
+    temperature = 0.5,
+    maxTokens   = 1500,
+  ): AsyncGenerator<string, void, unknown> {
+    return this.llm.callTextStream({
       messages,
       temperature,
       maxTokens,

@@ -1,10 +1,10 @@
 import axios from 'axios';
 import { log, clr } from '../utils/logger.js';
-import { yahooFinance } from '../services/yahoo.service.js';
-import { newsFetchService, AllNewsData } from '../services/news.fetch.service.js';
+import { yahooFinance } from '../services/market/yahoo.service.js';
+import { newsFetchService, AllNewsData } from '../services/news/news.fetch.service.js';
 import { resolveSymbol, LATE_KEYWORDS } from '../shared/market-constants.js';
 import { BaseAgent, ParsedToolCall } from './base.agent.js';
-import { sessionLogService } from '../services/session.log.service.js';
+import { sessionLogService } from '../services/core/session.log.service.js';
 
 
 interface AgentOpportunity {
