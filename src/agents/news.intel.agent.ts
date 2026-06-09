@@ -41,6 +41,7 @@ interface AgentState {
   recommendedActions: string[];
   finished: boolean;
   previousSessionContext: string;     // retrospective from last session
+  auditClaimsCompleted: boolean;      // tracks whether audit_claims was called this session
 }
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
@@ -317,6 +318,7 @@ export class NewsIntelAgent extends BaseAgent {
       recommendedActions: [],
       finished: false,
       previousSessionContext: '',
+      auditClaimsCompleted: false,
     };
 
     const { iterations, elapsed } = await this.runLoop(
@@ -383,7 +385,13 @@ export class NewsIntelAgent extends BaseAgent {
         case 'emit_opportunities':      result = this.toolEmitOpportunities(call.arguments, state); break;
         case 'request_deeper_analysis': result = this.toolRequestDeeperAnalysis(call.arguments, state); break;
         case 'audit_claims':            result = this.toolAuditClaims(call.arguments, state); break;
-        case 'finish':                  result = 'Analysis session marked as complete.'; break;
+        case 'finish':
+          if (!state.auditClaimsCompleted) {
+            result = '[BLOCKED] You MUST call audit_claims before calling finish.';
+          } else {
+            result = 'Analysis session marked as complete.';
+          }
+          break;
         default:                        result = `Unknown tool: ${call.name}`;
       }
     } catch (err: any) {
@@ -755,7 +763,7 @@ Fading momentum + falling news velocity = signal exhaustion. Accelerating moment
         continue;
       }
 
-      const hasFetchPrice = sources.some(s => s.toLowerCase().startsWith('fetch_price'));
+      const hasFetchPrice = sources.some(s => s.toLowerCase() === 'fetch_price');
       const hasMomentum  = sources.some(s => s.toLowerCase().startsWith('fetch_price_momentum'));
       const hasPriceCached = state.fetchedAssets.has(asset) || state.priceCache.has(asset);
       const hasMomentumCached = state.momentumCache.has(asset);
@@ -862,6 +870,7 @@ Fading momentum + falling news velocity = signal exhaustion. Accelerating moment
     lines.push(corrections > 0
       ? `[AUDIT] ${corrections} correction(s) applied. Review and call finish when ready.`
       : '[AUDIT] All opportunities passed. You may now call finish.');
+    state.auditClaimsCompleted = true;
     return lines.join('\n');
   }
 

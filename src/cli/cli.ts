@@ -848,18 +848,24 @@ export class CLI {
     const name = rawCmd.replace(/^\//, '');
     const cmd  = this.commands.find((cmd) => cmd.name === name);
 
-    if (cmd) {
-      await cmd.handler(args);
-    } else {
+    try {
+      if (cmd) {
+        await cmd.handler(args);
+      } else {
+        process.stdout.write(
+          `  Unknown command: ${c.wrap(c.red, rawCmd)}.` +
+          ` Type ${c.wrap(c.white, '/help')} for available commands.\n\n`,
+        );
+      }
+    } catch (err) {
       process.stdout.write(
-        `  Unknown command: ${c.wrap(c.red, rawCmd)}.` +
-        ` Type ${c.wrap(c.white, '/help')} for available commands.\n\n`,
+        `  ${c.wrap(c.red, 'Error:')} ${err instanceof Error ? err.message : String(err)}\n\n`,
       );
+    } finally {
+      this.enterRawMode();
+      this.renderer.renderPrompt('', '');
+      this.isHandling = false;
     }
-
-    this.enterRawMode();
-    this.renderer.renderPrompt('', '');
-    this.isHandling = false;
   }
 
   // ─── Keypress ─────────────────────────────────────────────────────────────
