@@ -1,6 +1,6 @@
 {
   "name": "boz",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "description": "Open-source AI market analyzer that combines real-time data, technical indicators, macro context, news, and sentiment into structured insights.",
   "main": "dist/main.js",
   "bin": {

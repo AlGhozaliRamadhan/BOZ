@@ -216,7 +216,7 @@ export abstract class BaseAgent {
    * Retries on HTTP 429 (rate-limit) and 5xx (server errors).
    * Throws only after all attempts are exhausted.
    */
-  private async callAIWithRetry(
+  protected async callAIWithRetry(
     messages:   AgentMessage[],
     tools:      object[],
     temperature = 0.12,   // low = deterministic tool calls, less creative gap-filling

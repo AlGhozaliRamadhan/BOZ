@@ -871,6 +871,11 @@ export class InteractiveChatAgent extends BaseAgent {
   // After each tool observation, asks the AI: "what did you learn and what next?"
   // This runs as a lightweight text call (no tools), so it's fast (~1-2s).
 
+  /**
+   * Generates a lightweight system-labelled status string for a completed tool step.
+   * These are intentionally labelled as system-generated so users do not mistake
+   * them for the assistant's own reasoning.
+   */
   private async generateStepThought(
     userQuery:    string,
     toolName:     string,
@@ -1064,16 +1069,25 @@ export class InteractiveChatAgent extends BaseAgent {
       console.log('\n  ' + V.c('BOZ') + V.d(':') + ' ');
       
       const thinkSpinnerStop = this.printSpinner(null, 'thinking...');
-      let aiMessage = await this.llm.callWithTools({
+      let aiMessage = await this.callAIWithRetry(
         messages,
-        tools:       this.getToolDefinitions(),
-        temperature: 0.7,
-      });
+        this.getToolDefinitions(),
+        0.7,
+        4096,
+      );
       thinkSpinnerStop();
       
       messages.push(aiMessage);
 
+      let toolRounds = 0;
+      const MAX_TOOL_ROUNDS = 20;
+
       while (aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
+        toolRounds++;
+        if (toolRounds > MAX_TOOL_ROUNDS) {
+          console.log(`\n  ${this.V.r('[AGENT] Tool round limit reached. Stopping further tool calls.')}`);
+          break;
+        }
         const isTTY = process.stdout.isTTY ?? true;
         const numTasks = aiMessage.tool_calls.length;
         
@@ -1155,11 +1169,12 @@ export class InteractiveChatAgent extends BaseAgent {
           });
         }
 
-        aiMessage = await this.llm.callWithTools({
+        aiMessage = await this.callAIWithRetry(
           messages,
-          tools:       this.getToolDefinitions(),
-          temperature: 0.7,
-        });
+          this.getToolDefinitions(),
+          0.7,
+          4096,
+        );
         messages.push(aiMessage);
       }
 

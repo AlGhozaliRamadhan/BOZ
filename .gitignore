@@ -60,3 +60,7 @@ tmp/
 # Local Developer Caches
 .eslintcache
 *.log
+
+# Project documentation (local only, not for distribution)
+CLAUDE.md
+docs/improvements.md

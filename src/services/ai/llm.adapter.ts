@@ -284,16 +284,39 @@ export class LLMAdapter {
       warnings.push('Stripped markdown code fences from response');
     }
 
-    const firstBrace = text.indexOf('{');
-    const lastBrace = text.lastIndexOf('}');
-    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) return null;
-
-    const jsonText = text.slice(firstBrace, lastBrace + 1);
-    if (firstBrace !== 0 || lastBrace !== text.length - 1) {
-      warnings.push('Trimmed non-JSON text around response');
+    // Try the whole string first
+    try {
+      JSON.parse(text);
+      return { jsonText: text, warnings };
+    } catch {
+      // Not valid as-is, continue
     }
 
-    return { jsonText, warnings };
+    // Progressive extraction: find matching {} using bracket counting
+    let depth = 0;
+    let start = -1;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === '{') {
+        if (depth === 0) start = i;
+        depth++;
+      } else if (text[i] === '}') {
+        depth--;
+        if (depth === 0 && start !== -1) {
+          const candidate = text.slice(start, i + 1);
+          try {
+            JSON.parse(candidate);
+            if (start !== 0 || i !== text.length - 1) {
+              warnings.push('Trimmed non-JSON text around response');
+            }
+            return { jsonText: candidate, warnings };
+          } catch {
+            // continue searching for another valid pair
+          }
+        }
+      }
+    }
+
+    return null;
   }
 
   private static parseOfflineToolResponse(raw: string): LLMMessage {
@@ -334,8 +357,14 @@ export class LLMAdapter {
 
   private static stripThinking(text: string): string {
     if (!text) return '';
-    if (text.includes('</think>')) {
-      return text.split('</think>').pop()!.trim();
+    // Prefer </thinking> (models like DeepSeek, QwQ) with fallback to </think>
+    const thinkingEnd = text.indexOf('</thinking>');
+    if (thinkingEnd !== -1) {
+      return text.slice(thinkingEnd + '</thinking>'.length).trim();
+    }
+    const thinkEnd = text.indexOf('</think>');
+    if (thinkEnd !== -1) {
+      return text.slice(thinkEnd + '</think>'.length).trim();
     }
     return text.trim();
   }
