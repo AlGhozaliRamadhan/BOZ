@@ -62,5 +62,8 @@
     "@vitest/coverage-v8": "^4.1.5",
     "postcss": "^8.5.15",
     "vitest": "^4.1.5"
+  },
+  "overrides": {
+    "postcss": "^8.5.15"
   }
 }
