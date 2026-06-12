@@ -1,0 +1,97 @@
+/* ═══════════════════════════════════════════════════════════════════════════════
+   BOZ — Design System
+   Premium dark-mode fintech theme · Glassmorphism · Cyan-Violet accents
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* === DESIGN TOKENS ========================================================= */
+:root {
+  /* ── Backgrounds ─────────────────────────────────────────────────────────── */
+  --bg-primary:       #ffffff;
+  --bg-secondary:     #f8f9fa;
+  --bg-tertiary:      #f1f3f5;
+  --bg-elevated:      #ffffff;
+
+  /* ── Glass Surfaces ──────────────────────────────────────────────────────── */
+  --surface-glass:        #ffffff;
+  --surface-glass-hover:  #fafafa;
+  --surface-glass-active: #f0f0f0;
+  --border-glass:         #e5e7eb;
+  --border-glass-hover:   #d1d5db;
+  --border-glass-accent:  #111827;
+
+  /* ── Accent Colors ──────────────────────────────────────────────────────── */
+  --accent-cyan:    #111827;
+  --accent-violet:  #374151;
+  --accent-blue:    #111827;
+  --accent-gradient: #111827;
+  --accent-glow:    none;
+
+  /* ── Status Colors ──────────────────────────────────────────────────────── */
+  --success:  #059669;
+  --danger:   #dc2626;
+  --warning:  #d97706;
+  --info:     #2563eb;
+  --bull:     #059669;
+  --bear:     #dc2626;
+  --neutral:  #6b7280;
+
+  /* ── Text ────────────────────────────────────────────────────────────────── */
+  --text-primary:   #111827;
+  --text-secondary: #4b5563;
+  --text-muted:     #9ca3af;
+  --text-accent:    #000000;
+  --text-inverse:   #ffffff;
+
+  /* ── Typography ──────────────────────────────────────────────────────────── */
+  --font-sans: var(--font-outfit), 'Outfit', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  --text-xs:  0.75rem;
+  --text-sm:  0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg:  1.125rem;
+  --text-xl:  1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 2rem;
+  --text-4xl: 2.5rem;
+  --text-5xl: 3.5rem;
+
+  /* ── Spacing ─────────────────────────────────────────────────────────────── */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  /* ── Border Radius ───────────────────────────────────────────────────────── */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ─────────────────────────────────────────────────────────────── */
+  --shadow-sm:  0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md:  0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg:  0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-glow-cyan:   0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-glow-violet: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-glow-bull:   0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-glow-bear:   0 2px 8px rgba(0, 0, 0, 0.1);
+
+  /* ── Layout ──────────────────────────────────────────────────────────────── */
+  --sidebar-width:     260px;
+  --sidebar-collapsed: 72px;
+  --topbar-height:     64px;
+
+  /* ── Transitions ─────────────────────────────────────────────────────────── */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast: 150ms;
+  --duration-base: 250ms;
+  --duration-slow: 400ms;
+}

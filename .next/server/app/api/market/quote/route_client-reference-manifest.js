@@ -1,0 +1,1 @@
+globalThis.__RSC_MANIFEST=(globalThis.__RSC_MANIFEST||{});globalThis.__RSC_MANIFEST["/api/market/quote/route"]={"moduleLoading":{"prefix":"/_next/"},"ssrModuleMapping":{},"edgeSSRModuleMapping":{},"clientModules":{},"entryCSSFiles":{"C:\\Pribadi\\project\\BOZ\\src\\app\\api\\market\\quote\\route":[]},"rscModuleMapping":{},"edgeRscModuleMapping":{}};

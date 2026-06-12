@@ -1,0 +1,45 @@
+/* === ANIMATIONS ============================================================ */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.5; }
+}
+
+@keyframes glow {
+  0%, 100% { border-color: var(--border-glass); }
+  50%      { border-color: var(--border-glass); }
+}
+
+@keyframes gradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-fadeIn    { animation: fadeIn var(--duration-base) var(--ease-out); }
+.animate-slideUp   { animation: slideUp var(--duration-base) var(--ease-out); }
+.animate-pulse     { animation: pulse 2s ease-in-out infinite; }
+.animate-glow      { animation: glow 2s ease-in-out infinite; }

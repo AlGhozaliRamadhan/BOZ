@@ -1,0 +1,1 @@
+globalThis.__RSC_MANIFEST=(globalThis.__RSC_MANIFEST||{});globalThis.__RSC_MANIFEST["/api/news-intel/route"]={"moduleLoading":{"prefix":"/_next/"},"ssrModuleMapping":{},"edgeSSRModuleMapping":{},"clientModules":{},"entryCSSFiles":{"C:\\Pribadi\\project\\BOZ\\src\\app\\api\\news-intel\\route":[]},"rscModuleMapping":{},"edgeRscModuleMapping":{}};

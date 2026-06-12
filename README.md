@@ -20,16 +20,16 @@
   <a href="https://github.com/AlGhozaliRamadhan">
     <img src="https://img.shields.io/badge/Author-AGR-111111?style=flat"/>
   </a>
-  <img src="https://img.shields.io/badge/version-1.6.2-brightgreen?style=flat"/>
+  <img src="https://img.shields.io/badge/version-2.0.0-brightgreen?style=flat"/>
 </p>
 
 ---
 
 ## What is BOZ?
 
-**BOZ (Behavioral Outlook Zone)** is an open-source, terminal-native AI market analysis engine. It fuses real-time price data, technical indicators, multi-timeframe confluence, macro context, news, and crowd sentiment into structured, actionable intelligence complete with entry, target, stop, and risk/reward.
+**BOZ (Behavioral Outlook Zone) v2** is an open-source, full-stack AI market analysis dashboard. It fuses real-time price data, technical indicators, multi-timeframe confluence, macro context, news, and crowd sentiment into structured, actionable intelligence complete with entry, target, stop, and risk/reward.
 
-Four analysis modes are available, selected interactively at runtime:
+Four core modules are available directly from the sleek web interface:
 
 | Mode | Horizon | Focus |
 |---|---|---|
@@ -38,7 +38,7 @@ Four analysis modes are available, selected interactively at runtime:
 | **News Intel Analyzer** | Cross-asset | Multi-source news aggregation, cross-asset opportunity detection |
 | **Interactive Chat Agent** | Adaptive | Autonomous conversational agent with persistent memory, concurrent tool execution, and sub-agent delegation. |
 
-Three AI providers are supported, selectable interactively at startup or switched mid-session:
+Three AI providers are supported, configurable via the Settings page or `.env`:
 
 | Provider | Backend | Notes |
 |---|---|---|
@@ -138,16 +138,18 @@ flowchart TD
 
 ---
 
-## Install
+## Install & Run
+
+The easiest way to run BOZ v2 is via **Docker**:
 
 ```bash
 git clone https://github.com/AlGhozaliRamadhan/boz.git
 cd boz
-npm install
-npm run dev
-```
 
-At startup, select your AI provider and model. Then type `/run` to begin.
+# Start the application detached via Docker Compose
+docker-compose up -d --build
+```
+Once started, the BOZ dashboard will be available at [http://localhost:3000](http://localhost:3000).
 
 > **Recommendation:** Use **NVIDIA NIM** for the News Intel Agent. GitHub Models has aggressive rate limits that can interrupt multi-step agentic sessions. NVIDIA NIM handles the longer context window and sustained tool-calling loop without throttling.
 
@@ -183,42 +185,21 @@ FRED_API_KEY=your_key_here
 
 **Provider notes:**
 - Defaults to `github` if `AI_PROVIDER` is not set
-- If `AI_PROVIDER` is set in `.env`, the startup wizard skips the interactive picker and applies it directly
-- Missing `GITHUB_TOKEN` triggers an interactive setup flow that opens the GitHub token page in your browser and saves the token to `.env`
-- Missing `NVIDIA_API_KEY` triggers the same flow pointing to build.nvidia.com
-- Offline URL can be entered interactively at startup or via `/model offline <url>` — it is session-only and never written to `.env`
+- The active AI provider can also be switched seamlessly from the **Settings** page in the dashboard.
+
+
 
 ---
 
-## CLI Reference
+## Scripts (Local Development)
 
 | Command | Description |
 |---|---|
-| `/run` | Pick analysis mode and execute |
-| `/model` | Show current provider, model, and endpoint |
-| `/model github` | Switch to GitHub Models |
-| `/model github --pick` | Select GitHub model interactively |
-| `/model nvidia` | Switch to NVIDIA NIM and pick model interactively |
-| `/model offline <url>` | Switch to Ollama-compatible endpoint (session only) |
-| `/status` | Show current provider, model, and endpoint |
-| `/version` | Show Boz version |
-| `/help` | List all commands |
-| `/exit` | Exit Boz |
-
-Tab autocompletes all commands. Left/right arrows navigate the mode picker on `/run`. Up/down arrows navigate model pickers.
-
----
-
-## Scripts
-
-| Command | Description |
-|---|---|
-| `npm run dev` | Run in development mode (tsx, no compile step) |
-| `npm run build` | Compile TypeScript to `dist/` and run `npm link` |
-| `npm run start` | Run compiled output from `dist/` |
+| `npm run dev` | Start the Next.js dev server with hot-reloading |
+| `npm run build` | Build the optimized standalone Next.js production app |
+| `npm run start` | Start the Next.js production server |
 | `npm test` | Run test suite (Vitest) |
 | `npm run coverage` | Run tests with coverage report |
-| `npm run ping` | Run the provider ping utility |
 
 ---
 

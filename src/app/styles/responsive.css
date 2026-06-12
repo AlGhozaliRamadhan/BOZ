@@ -1,0 +1,25 @@
+/* === RESPONSIVE ============================================================ */
+@media (max-width: 1200px) {
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 768px) {
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.mobile-open { transform: translateX(0); }
+  .app-main { margin-left: 0; }
+  .app-main.sidebar-collapsed { margin-left: 0; }
+  .topbar { left: 0; }
+  .topbar.sidebar-collapsed { left: 0; }
+  .app-content { padding: var(--space-4); padding-top: calc(var(--topbar-height) + var(--space-4)); }
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+  .trade-levels { grid-template-columns: 1fr; }
+  .topbar-search { width: 180px; }
+  .chat-bubble { max-width: 90%; }
+}
+
+@media (max-width: 480px) {
+  .topbar-search { display: none; }
+  .price-value { font-size: var(--text-3xl); }
+  .verdict-direction { font-size: var(--text-3xl); }
+  .verdict-confidence { font-size: var(--text-3xl); }
+}

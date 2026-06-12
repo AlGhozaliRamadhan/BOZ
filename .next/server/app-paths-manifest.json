@@ -1,0 +1,23 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/_global-error/page": "app/_global-error/page.js",
+  "/api/analyze/intraday/route": "app/api/analyze/intraday/route.js",
+  "/api/analyze/longterm/route": "app/api/analyze/longterm/route.js",
+  "/api/chat/route": "app/api/chat/route.js",
+  "/api/idx/scan/route": "app/api/idx/scan/route.js",
+  "/api/market/candles/route": "app/api/market/candles/route.js",
+  "/api/market/chart-patterns/route": "app/api/market/chart-patterns/route.js",
+  "/api/market/indicators/route": "app/api/market/indicators/route.js",
+  "/api/market/macro/route": "app/api/market/macro/route.js",
+  "/api/market/quote/route": "app/api/market/quote/route.js",
+  "/api/market/sentiment/route": "app/api/market/sentiment/route.js",
+  "/api/news-intel/route": "app/api/news-intel/route.js",
+  "/api/settings/route": "app/api/settings/route.js",
+  "/analyze/intraday/page": "app/analyze/intraday/page.js",
+  "/analyze/longterm/page": "app/analyze/longterm/page.js",
+  "/chat/page": "app/chat/page.js",
+  "/idx-scanner/page": "app/idx-scanner/page.js",
+  "/news-intel/page": "app/news-intel/page.js",
+  "/page": "app/page.js",
+  "/settings/page": "app/settings/page.js"
+}

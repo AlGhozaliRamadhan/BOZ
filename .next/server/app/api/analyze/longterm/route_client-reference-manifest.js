@@ -1,0 +1,1 @@
+globalThis.__RSC_MANIFEST=(globalThis.__RSC_MANIFEST||{});globalThis.__RSC_MANIFEST["/api/analyze/longterm/route"]={"moduleLoading":{"prefix":"/_next/"},"ssrModuleMapping":{},"edgeSSRModuleMapping":{},"clientModules":{},"entryCSSFiles":{"C:\\Pribadi\\project\\BOZ\\src\\app\\api\\analyze\\longterm\\route":[]},"rscModuleMapping":{},"edgeRscModuleMapping":{}};

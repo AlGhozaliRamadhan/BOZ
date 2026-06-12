@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  boz-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: boz-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    # Optional: If you need to mount a .env file directly
+    # env_file:
+    #   - .env
