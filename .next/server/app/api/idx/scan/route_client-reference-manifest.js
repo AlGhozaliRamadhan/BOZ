@@ -1,0 +1,1 @@
+globalThis.__RSC_MANIFEST=(globalThis.__RSC_MANIFEST||{});globalThis.__RSC_MANIFEST["/api/idx/scan/route"]={"moduleLoading":{"prefix":"/_next/"},"ssrModuleMapping":{},"edgeSSRModuleMapping":{},"clientModules":{},"entryCSSFiles":{"C:\\Pribadi\\project\\BOZ\\src\\app\\api\\idx\\scan\\route":[]},"rscModuleMapping":{},"edgeRscModuleMapping":{}};

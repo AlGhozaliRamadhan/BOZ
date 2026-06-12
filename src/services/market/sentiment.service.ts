@@ -1,4 +1,5 @@
 import axios from 'axios';
+import Parser from 'rss-parser';
 import https from 'https';
 import { log, clr } from '../../utils/logger.js';
 import { config } from '../../config/config.js';
@@ -194,29 +195,41 @@ export class SentimentService {
     // Uses native fetch() (Node's undici TLS stack) instead of axios.
     // Cloudflare (which protects reddit.com) rejects Node's OpenSSL JA3 fingerprint
     // with SSL alert 40. Undici has a different TLS fingerprint that passes the check.
-    try {
+    const now = Date.now();
+    const cacheKey = config.ticker;
+    if ((global as any).__redditCache && (global as any).__redditCache[cacheKey] && now - (global as any).__redditCache[cacheKey].timestamp < 300000) {
+      const cached = (global as any).__redditCache[cacheKey];
+      crowd.social_buzz.push({ source: 'Reddit', mentions: cached.mentions, top_posts: cached.top_posts });
+      log.crowd('reddit', clr.dim(`${cached.mentions} mentions (cached)`));
+    } else {
+      try {
       const query    = encodeURIComponent(buildSocialSearchQuery(config.ticker));
-      const searchUrl = `https://www.reddit.com/search.json?q=${query}&sort=new&limit=10&t=day`;
+      const searchUrl = `https://www.reddit.com/search.rss?q=${query}&sort=new&limit=10&t=month`;
 
       const res = await this.fetchWithRetry(searchUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept': 'application/json',
+          'Accept': 'application/rss+xml, application/xml, text/xml, */*',
         },
         signal: AbortSignal.timeout(10_000),
       });
 
       if (res.ok) {
-        const data    = await res.json() as any;
-        const posts   = (data?.data?.children ?? []) as any[];
-        const titles  = posts
-          .map((p: any) => p?.data?.title as string)
-          .filter((t): t is string => typeof t === 'string')
+        const xml = await res.text();
+        const parser = new Parser();
+        const feed = await parser.parseString(xml);
+        const posts = feed.items || [];
+        const titles = posts
+          .map(p => p.title as string)
+          .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
           .slice(0, 5);
 
         if (posts.length > 0) {
           crowd.social_buzz.push({ source: 'Reddit', mentions: posts.length, top_posts: titles });
           log.crowd('reddit', clr.dim(`${posts.length} mentions (last 10)`));
+          
+          if (!(global as any).__redditCache) (global as any).__redditCache = {};
+          (global as any).__redditCache[cacheKey] = { timestamp: now, mentions: posts.length, top_posts: titles };
         } else {
           log.crowd('reddit', clr.dim('no recent posts found'));
         }
@@ -226,8 +239,9 @@ export class SentimentService {
         }
       }
     } catch (err) {
-      if (process.env.DEBUG_CROWD) {
-        log.warn('crowd', `Reddit ${config.ticker} error: ${(err as Error).message}`);
+        if (process.env.DEBUG_CROWD) {
+          log.warn('crowd', `Reddit ${config.ticker} error: ${(err as Error).message}`);
+        }
       }
     }
 

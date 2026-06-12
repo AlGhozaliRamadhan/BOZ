@@ -1,0 +1,37 @@
+/* === RESET & BASE ========================================================== */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  line-height: 1.6;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+a { color: var(--accent-cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+img { max-width: 100%; height: auto; }
+
+/* === SCROLLBAR ============================================================= */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.3); }

@@ -76,6 +76,16 @@ export const config = {
   setAIProvider(provider: AIProvider) {
     applyProvider(provider);
   },
+  setAIModel(model: string) {
+    if (activeState.aiProvider === 'offline') {
+      offlineConfig.model = model;
+    } else if (activeState.aiProvider === 'nvidia') {
+      nvidiaConfig.model = model;
+    } else {
+      githubConfig.model = model;
+    }
+    activeState.aiModel = model;
+  },
   setRiskMode(mode: RiskMode) {
     activeState.riskMode = mode;
   },

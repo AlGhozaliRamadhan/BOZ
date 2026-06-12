@@ -1,0 +1,23 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/_global-error/page": "/_global-error",
+  "/api/analyze/intraday/route": "/api/analyze/intraday",
+  "/api/analyze/longterm/route": "/api/analyze/longterm",
+  "/api/chat/route": "/api/chat",
+  "/api/idx/scan/route": "/api/idx/scan",
+  "/api/market/candles/route": "/api/market/candles",
+  "/api/market/chart-patterns/route": "/api/market/chart-patterns",
+  "/api/market/indicators/route": "/api/market/indicators",
+  "/api/market/macro/route": "/api/market/macro",
+  "/api/market/quote/route": "/api/market/quote",
+  "/api/market/sentiment/route": "/api/market/sentiment",
+  "/api/news-intel/route": "/api/news-intel",
+  "/api/settings/route": "/api/settings",
+  "/analyze/intraday/page": "/analyze/intraday",
+  "/analyze/longterm/page": "/analyze/longterm",
+  "/chat/page": "/chat",
+  "/idx-scanner/page": "/idx-scanner",
+  "/news-intel/page": "/news-intel",
+  "/page": "/",
+  "/settings/page": "/settings"
+}

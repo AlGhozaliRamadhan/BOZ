@@ -8,7 +8,7 @@ import { NewsIntelAnalyzer } from '../analyzers/news.intel.analyzer.js';
 import { NewsIntelAgent } from '../agents/news.intel.agent.js';
 import { InteractiveChatAgent } from '../agents/chat.agent.js';
 import { config, type AIProvider } from '../config/config.js';
-import { githubConfig, GITHUB_TOKEN_URL } from '../config/github.config.js';
+import { githubConfig, GITHUB_TOKEN_URL, GITHUB_MODELS } from '../config/github.config.js';
 import { nvidiaConfig, NVIDIA_MODELS, NVIDIA_API_KEY_URL } from '../config/nvidia.config.js';
 import { resolveSymbol } from '../shared/market-constants.js';
 import { yahooFinance } from '../services/market/yahoo.service.js';
@@ -48,17 +48,6 @@ const c = {
   wrap: (color: string, text: string) => `${color}${text}\x1b[0m`,
 } as const;
 
-// ─── GitHub Models Registry ───────────────────────────────────────────────────
-
-const GITHUB_MODELS: { id: string; label: string }[] = [
-  { id: 'openai/gpt-4o',                      label: 'GPT-4o              (OpenAI, recommended)' },
-  { id: 'openai/gpt-4o-mini',                 label: 'GPT-4o mini         (OpenAI, fast & generous quota)' },
-  { id: 'openai/gpt-5',                        label: 'GPT-5               (OpenAI, most capable)' },
-  { id: 'deepseek/DeepSeek-R1-0528',           label: 'DeepSeek R1-0528    (reasoning model)' },
-  { id: 'deepseek/DeepSeek-V3-0324',           label: 'DeepSeek V3-0324    (fast, balanced)' },
-  { id: 'meta/Llama-4-Scout-17B-16E-Instruct', label: 'Llama 4 Scout 17B  (Meta, free tier)' },
-  { id: 'microsoft/Phi-4',                     label: 'Phi-4               (Microsoft, lightweight)' },
-];
 
 function renderHPicker(options: string[], selected: number): void {
   const parts = options.map((opt, i) =>
@@ -483,6 +472,10 @@ async function runStartupWizard(): Promise<void> {
     const modelIdx = await vPick(GITHUB_MODELS.map((m) => m.label), defaultIdx);
     githubConfig.model = GITHUB_MODELS[modelIdx].id;
     config.setAIProvider('github');
+    process.env.AI_PROVIDER = 'github';
+    upsertEnvVar('AI_PROVIDER', 'github');
+    process.env.GITHUB_AI_MODEL = githubConfig.model;
+    upsertEnvVar('GITHUB_AI_MODEL', githubConfig.model);
 
     process.stdout.write(`\n  model  ${c.wrap(c.green, GITHUB_MODELS[modelIdx].id)}\n\n`);
 
@@ -496,7 +489,11 @@ async function runStartupWizard(): Promise<void> {
     restoreRawMode();
     const resolvedUrl = url || 'http://localhost:11434';
     config.setOfflineEndpoint(resolvedUrl);
+    process.env.OFFLINE_AI_URL = resolvedUrl;
+    upsertEnvVar('OFFLINE_AI_URL', resolvedUrl);
     config.setAIProvider('offline');
+    process.env.AI_PROVIDER = 'offline';
+    upsertEnvVar('AI_PROVIDER', 'offline');
 
     process.stdout.write(`\n  endpoint  ${c.wrap(c.green, resolvedUrl)}\n\n`);
 
@@ -518,6 +515,10 @@ async function runStartupWizard(): Promise<void> {
     const modelIdx = await vPick(NVIDIA_MODELS.map((m) => m.label), defaultIdx);
     nvidiaConfig.model = NVIDIA_MODELS[modelIdx].id;
     config.setAIProvider('nvidia');
+    process.env.AI_PROVIDER = 'nvidia';
+    upsertEnvVar('AI_PROVIDER', 'nvidia');
+    process.env.NVIDIA_AI_MODEL = nvidiaConfig.model;
+    upsertEnvVar('NVIDIA_AI_MODEL', nvidiaConfig.model);
 
     process.stdout.write(`\n  model  ${c.wrap(c.green, NVIDIA_MODELS[modelIdx].id)}\n\n`);
   }
@@ -682,6 +683,8 @@ export class CLI {
               return;
             }
             config.setOfflineEndpoint(url);
+            process.env.OFFLINE_AI_URL = url;
+            upsertEnvVar('OFFLINE_AI_URL', url);
 
           } else if (provider === 'github') {
             if (args[1] === '--pick') {
@@ -691,6 +694,8 @@ export class CLI {
               );
               const idx = await vPick(GITHUB_MODELS.map((m) => m.label));
               githubConfig.model = GITHUB_MODELS[idx].id;
+              process.env.GITHUB_AI_MODEL = githubConfig.model;
+              upsertEnvVar('GITHUB_AI_MODEL', githubConfig.model);
               process.stdout.write(`\n  model  ${c.wrap(c.green, GITHUB_MODELS[idx].id)}\n\n`);
             }
 
@@ -706,6 +711,8 @@ export class CLI {
               );
               const idx = await vPick(NVIDIA_MODELS.map((m) => m.label));
               nvidiaConfig.model = NVIDIA_MODELS[idx].id;
+              process.env.NVIDIA_AI_MODEL = nvidiaConfig.model;
+              upsertEnvVar('NVIDIA_AI_MODEL', nvidiaConfig.model);
               process.stdout.write(`\n  model  ${c.wrap(c.green, NVIDIA_MODELS[idx].id)}\n\n`);
             }
           } else {
@@ -717,6 +724,8 @@ export class CLI {
           }
 
           config.setAIProvider(provider);
+          process.env.AI_PROVIDER = provider;
+          upsertEnvVar('AI_PROVIDER', provider);
           process.stdout.write('\n');
           this.printModelStatus();
         },

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import Parser from 'rss-parser';
 import { log, clr } from '../utils/logger.js';
 import { yahooFinance } from '../services/market/yahoo.service.js';
 import { newsFetchService, AllNewsData } from '../services/news/news.fetch.service.js';
@@ -892,13 +893,21 @@ Fading momentum + falling news velocity = signal exhaustion. Accelerating moment
     for (const sub of subs) {
       try {
         const res = await axios.get(
-          `https://www.reddit.com/r/${sub}/hot.json?limit=15`,
+          `https://www.reddit.com/r/${sub}/hot.rss?limit=15`,
           { headers: this.headers, timeout: 6000 },
         );
-        const posts: any[] = (res.data?.data?.children ?? []).map((c: any) => c.data);
+        const parser = new Parser();
+        const feed = await parser.parseString(res.data);
+        const posts = (feed.items ?? []).map(item => ({
+          title: item.title || '',
+          created_utc: new Date(item.pubDate || Date.now()).getTime() / 1000,
+          ups: 0,
+          num_comments: 0
+        }));
+        
         const relevant = posts.filter(p =>
           p.title.toLowerCase().includes(topic) ||
-          topic === 'crypto' || topic === 'macro',
+          topic === 'crypto' || topic === 'macro'
         ).slice(0, 5);
 
         if (relevant.length === 0) { lines.push(`  r/${sub}: no relevant posts`); continue; }

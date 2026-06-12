@@ -1,0 +1,171 @@
+{
+  "version": 3,
+  "pages404": true,
+  "appType": "app",
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "priority": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [],
+  "onMatchHeaders": [],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [],
+    "fallback": []
+  },
+  "dynamicRoutes": [],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_global-error",
+      "regex": "^/_global\\-error(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_global\\-error(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/analyze/intraday",
+      "regex": "^/analyze/intraday(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/analyze/intraday(?:/)?$"
+    },
+    {
+      "page": "/analyze/longterm",
+      "regex": "^/analyze/longterm(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/analyze/longterm(?:/)?$"
+    },
+    {
+      "page": "/api/analyze/intraday",
+      "regex": "^/api/analyze/intraday(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/analyze/intraday(?:/)?$"
+    },
+    {
+      "page": "/api/analyze/longterm",
+      "regex": "^/api/analyze/longterm(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/analyze/longterm(?:/)?$"
+    },
+    {
+      "page": "/api/chat",
+      "regex": "^/api/chat(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/chat(?:/)?$"
+    },
+    {
+      "page": "/api/idx/scan",
+      "regex": "^/api/idx/scan(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/idx/scan(?:/)?$"
+    },
+    {
+      "page": "/api/market/candles",
+      "regex": "^/api/market/candles(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/market/candles(?:/)?$"
+    },
+    {
+      "page": "/api/market/chart-patterns",
+      "regex": "^/api/market/chart\\-patterns(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/market/chart\\-patterns(?:/)?$"
+    },
+    {
+      "page": "/api/market/indicators",
+      "regex": "^/api/market/indicators(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/market/indicators(?:/)?$"
+    },
+    {
+      "page": "/api/market/macro",
+      "regex": "^/api/market/macro(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/market/macro(?:/)?$"
+    },
+    {
+      "page": "/api/market/quote",
+      "regex": "^/api/market/quote(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/market/quote(?:/)?$"
+    },
+    {
+      "page": "/api/market/sentiment",
+      "regex": "^/api/market/sentiment(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/market/sentiment(?:/)?$"
+    },
+    {
+      "page": "/api/news-intel",
+      "regex": "^/api/news\\-intel(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/news\\-intel(?:/)?$"
+    },
+    {
+      "page": "/api/settings",
+      "regex": "^/api/settings(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/settings(?:/)?$"
+    },
+    {
+      "page": "/chat",
+      "regex": "^/chat(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/chat(?:/)?$"
+    },
+    {
+      "page": "/idx-scanner",
+      "regex": "^/idx\\-scanner(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/idx\\-scanner(?:/)?$"
+    },
+    {
+      "page": "/news-intel",
+      "regex": "^/news\\-intel(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/news\\-intel(?:/)?$"
+    },
+    {
+      "page": "/settings",
+      "regex": "^/settings(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/settings(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "rsc",
+    "varyHeader": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+    "prefetchHeader": "next-router-prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSegmentHeader": "next-router-segment-prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments",
+    "clientParamParsing": false,
+    "dynamicRSCPrerender": false
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}
