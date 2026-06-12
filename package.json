@@ -45,7 +45,7 @@
     "dotenv": "^17.4.2",
     "marked": "^15.0.12",
     "marked-terminal": "^7.3.0",
-    "next": "^16.2.7",
+    "next": "^16.2.9",
     "openai": "^6.35.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
