@@ -43,7 +43,7 @@
     "ajv": "^8.17.1",
     "axios": "^1.17.0",
     "dotenv": "^17.4.2",
-    "marked": "^15.0.12",
+    "marked": "^18.0.5",
     "marked-terminal": "^7.3.0",
     "next": "^16.2.9",
     "openai": "^6.35.0",
@@ -64,6 +64,9 @@
     "vitest": "^4.1.8"
   },
   "overrides": {
-    "postcss": "^8.5.15"
+    "postcss": "^8.5.15",
+    "marked-terminal": {
+      "marked": "$marked"
+    }
   }
 }
