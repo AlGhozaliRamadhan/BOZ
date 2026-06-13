@@ -33,18 +33,36 @@ export default function Sidebar() {
   const [chatSessions, setChatSessions] = useState<{id: string, title: string}[]>([]);
   const pathname = usePathname();
 
+  const sanitizeSessionId = (id: unknown): string | null => {
+    if (typeof id !== 'string') return null;
+    return /^[A-Za-z0-9_-]+$/.test(id) ? id : null;
+  };
+
   useEffect(() => {
     const loadSessions = () => {
       try {
         const stored = localStorage.getItem('boz_chat_sessions');
         if (stored) {
-          let sessions = JSON.parse(stored);
-          sessions.sort((a: any, b: any) => b.updatedAt - a.updatedAt);
-          setChatSessions(sessions);
+          const parsed = JSON.parse(stored);
+          if (!Array.isArray(parsed)) {
+            setChatSessions([]);
+            return;
+          }
+          const sessions = parsed
+            .map((s: any) => {
+              const safeId = sanitizeSessionId(s?.id);
+              if (!safeId || typeof s?.title !== 'string') return null;
+              return { id: safeId, title: s.title, updatedAt: Number(s?.updatedAt) || 0 };
+            })
+            .filter((s): s is { id: string; title: string; updatedAt: number } => s !== null);
+          sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+          setChatSessions(sessions.map(({ id, title }) => ({ id, title })));
         } else {
           setChatSessions([]);
         }
-      } catch (e) {}
+      } catch (e) {
+        setChatSessions([]);
+      }
     };
     loadSessions();
     window.addEventListener('boz_chat_updated', loadSessions);
@@ -75,15 +93,18 @@ export default function Sidebar() {
             {item.href === '/chat' && isActive('/chat') && chatSessions.length > 0 && !collapsed && (
               <div style={{ paddingLeft: '40px', marginTop: '4px', marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '180px', overflowY: 'auto' }}>
                 <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>Recent Chats</div>
-                {chatSessions.slice(0, 5).map(session => (
-                  <Link 
-                    key={session.id} 
-                    href={`/chat/${session.id}`}
-                    style={{ fontSize: '12px', color: pathname === `/chat/${session.id}` ? 'var(--text-primary)' : 'var(--text-muted)', textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '4px 0' }}
-                  >
-                    {session.title}
-                  </Link>
-                ))}
+                {chatSessions.slice(0, 5).map(session => {
+                  const chatHref = `/chat/${session.id}`;
+                  return (
+                    <Link 
+                      key={session.id} 
+                      href={chatHref}
+                      style={{ fontSize: '12px', color: pathname === chatHref ? 'var(--text-primary)' : 'var(--text-muted)', textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '4px 0' }}
+                    >
+                      {session.title}
+                    </Link>
+                  );
+                })}
               </div>
             )}
           </div>

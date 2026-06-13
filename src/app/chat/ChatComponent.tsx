@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { marked } from 'marked';
+import DOMPurify from 'isomorphic-dompurify';
 import { IntradayCard, LongtermCard, NewsIntelCard } from './AnalysisCards';
 
 export interface ChatMessage {
@@ -21,9 +22,10 @@ export interface ChatSession {
 
 function formatContent(content: string): string {
   try {
-    return marked.parse(content, { breaks: true, async: false }) as string;
+    const rawHtml = marked.parse(content, { breaks: true, async: false }) as string;
+    return DOMPurify.sanitize(rawHtml);
   } catch (e) {
-    return content;
+    return DOMPurify.sanitize(content);
   }
 }
 
@@ -346,7 +348,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
               if (currentEvent === 'token') {
                 // Since SSE often encodes newlines in JSON or escapes them, we must handle it.
                 // In our implementation, if data is string, it's sent as `data: text` directly.
-                let token = dataStr;
+                let token: any = dataStr;
                 try { token = JSON.parse(dataStr); } catch {} // just in case it was JSON-stringified
                 
                 // If the engine emits real newlines, SSE requires data: on each line or \n encoding.
