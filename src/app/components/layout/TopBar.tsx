@@ -50,18 +50,7 @@ export default function TopBar() {
         }
       `}</style>
       <header className="topbar">
-      <div className="topbar-search">
-        <svg className="topbar-search-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5" />
-          <line x1="11" y1="11" x2="14" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-        <input
-          type="text"
-          className="topbar-search-input"
-          placeholder="Search assets, analysis..."
-          aria-label="Search"
-        />
-      </div>
+
 
       <div className="topbar-actions">
         <div ref={dropdownRef} style={{ position: 'relative' }}>
