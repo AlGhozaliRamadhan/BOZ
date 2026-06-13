@@ -123,7 +123,7 @@ export default function Sidebar() {
           <span className="sidebar-link-label">Settings</span>
         </Link>
         <div style={{ display: 'flex', justifyContent: collapsed ? 'center' : 'space-between', alignItems: 'center', width: '100%' }}>
-          {!collapsed && <span className="sidebar-version" style={{ fontSize: '10px' }}>v2.1.0</span>}
+          {!collapsed && <span className="sidebar-version" style={{ fontSize: '10px' }}>v2.1.1</span>}
           <button
             className="sidebar-collapse-btn"
             onClick={() => setCollapsed(!collapsed)}
