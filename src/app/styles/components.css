@@ -509,8 +509,8 @@
 
 .chat-bubble.assistant {
   align-self: flex-start;
-  background: var(--surface-glass);
-  border: 1px solid var(--border-glass);
+  background: transparent;
+  border: none;
   color: var(--text-primary);
 }
 
@@ -802,4 +802,27 @@
 .empty-state-text {
   font-size: var(--text-sm);
   max-width: 400px;
+}
+
+/* Markdown inside Chat Bubbles */
+.chat-bubble.assistant p {
+  margin-bottom: var(--space-4);
+}
+.chat-bubble.assistant p:last-child {
+  margin-bottom: 0;
+}
+.chat-bubble.assistant ul, .chat-bubble.assistant ol {
+  margin-bottom: var(--space-4);
+  padding-left: var(--space-5);
+}
+.chat-bubble.assistant li {
+  margin-bottom: var(--space-2);
+}
+.chat-bubble.assistant h1, .chat-bubble.assistant h2, .chat-bubble.assistant h3, .chat-bubble.assistant h4 {
+  margin-top: var(--space-5);
+  margin-bottom: var(--space-3);
+  font-weight: 600;
+}
+.chat-bubble.assistant h1:first-child, .chat-bubble.assistant h2:first-child, .chat-bubble.assistant h3:first-child, .chat-bubble.assistant h4:first-child {
+  margin-top: 0;
 }

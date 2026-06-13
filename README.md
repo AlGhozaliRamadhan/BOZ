@@ -20,23 +20,23 @@
   <a href="https://github.com/AlGhozaliRamadhan">
     <img src="https://img.shields.io/badge/Author-AGR-111111?style=flat"/>
   </a>
-  <img src="https://img.shields.io/badge/version-2.0.0-brightgreen?style=flat"/>
+  <img src="https://img.shields.io/badge/version-2.1.0-brightgreen?style=flat"/>
 </p>
 
 ---
 
 ## What is BOZ?
 
-**BOZ (Behavioral Outlook Zone) v2** is an open-source, full-stack AI market analysis dashboard. It fuses real-time price data, technical indicators, multi-timeframe confluence, macro context, news, and crowd sentiment into structured, actionable intelligence complete with entry, target, stop, and risk/reward.
+**BOZ (Behavioral Outlook Zone) v2.1** is an open-source, full-stack AI market analysis dashboard. It fuses real-time price data, technical indicators, multi-timeframe confluence, macro context, news, and crowd sentiment into structured, actionable intelligence complete with entry, target, stop, and risk/reward.
 
-Four core modules are available directly from the sleek web interface:
+Analysis is now fully consolidated into a sleek, unified text-based Omni-Agent Chat interface. The UI relies entirely on natural conversational prompts and slash commands:
 
-| Mode | Horizon | Focus |
-|---|---|---|
-| **Market Intraday** | 2–6 hours | MTF confluence, momentum, volatility (searchable ticker/asset) |
-| **Market Long-term** | 3–12 months | SMA structure, 52-week context, trend integrity (searchable ticker/asset) |
-| **News Intel Analyzer** | Cross-asset | Multi-source news aggregation, cross-asset opportunity detection |
-| **Interactive Chat Agent** | Adaptive | Autonomous conversational agent with persistent memory, concurrent tool execution, and sub-agent delegation. |
+| Feature | Description |
+|---|---|
+| **Unified Omni-Agent** | The core borderless interface for BOZ. All analysis runs through a single immersive chat terminal without clunky cards. |
+| **Intraday Commands** | Use `/intraday [ticker]` for 2-6 hour momentum, volatility, and MTF confluence analysis returned in crisp markdown. |
+| **Long-term Commands** | Use `/longterm [ticker]` for 3-12 month SMA structure and 52-week context. |
+| **News Intel** | Use `/newsintel` for cross-asset multi-source news aggregation and crowd sentiment scoring. |
 
 Three AI providers are supported, configurable via the Settings page or `.env`:
 
