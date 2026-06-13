@@ -80,6 +80,12 @@ describe('SentimentService', () => {
     expect(urls.some(url => url.includes('/streams/symbol/BTC.X.json'))).toBe(true);
     expect(urls.some(url => url.includes('BTC-USD'))).toBe(false);
     expect(fetchUrls.some(url => url.includes('q=BTC%20OR%20Bitcoin%20OR%20%24BTC'))).toBe(true);
-    expect(fetchUrls.some(url => url.includes('old.reddit.com'))).toBe(false);
+    expect(fetchUrls.some(url => {
+      try {
+        return new URL(url).hostname === 'old.reddit.com';
+      } catch {
+        return false;
+      }
+    })).toBe(false);
   });
 });
