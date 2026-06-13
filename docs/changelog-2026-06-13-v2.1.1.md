@@ -1,6 +1,6 @@
-# Changelog: BOZ v2.1.0 (2026-06-13)
+# Changelog: BOZ v2.1.1 (2026-06-13)
 
-Welcome to **Behavioral Outlook Zone v2.1.0**! This release significantly redesigns the user experience by centralizing the analysis modules into a single, unified Omni-Agent Chat interface.
+Welcome to **Behavioral Outlook Zone v2.1.1**! This release significantly redesigns the user experience by centralizing the analysis modules into a single, unified Omni-Agent Chat interface, and resolves critical XSS and substring sanitization vulnerabilities.
 
 ## 🚀 Major Features
 
