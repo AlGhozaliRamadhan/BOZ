@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -17,21 +17,6 @@ const navItems: NavItem[] = [
     icon: <i className="fa-solid fa-house" style={{ fontSize: '18px' }}></i>,
   },
   {
-    label: 'Intraday Analysis',
-    href: '/analyze/intraday',
-    icon: <i className="fa-solid fa-chart-line" style={{ fontSize: '18px' }}></i>,
-  },
-  {
-    label: 'Long-term Analysis',
-    href: '/analyze/longterm',
-    icon: <i className="fa-solid fa-chart-pie" style={{ fontSize: '18px' }}></i>,
-  },
-  {
-    label: 'News Intel',
-    href: '/news-intel',
-    icon: <i className="fa-regular fa-newspaper" style={{ fontSize: '18px' }}></i>,
-  },
-  {
     label: 'Chat Agent',
     href: '/chat',
     icon: <i className="fa-solid fa-comment-dots" style={{ fontSize: '18px' }}></i>,
@@ -45,7 +30,44 @@ const navItems: NavItem[] = [
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const [chatSessions, setChatSessions] = useState<{id: string, title: string}[]>([]);
   const pathname = usePathname();
+
+  const sanitizeSessionId = (id: unknown): string | null => {
+    if (typeof id !== 'string') return null;
+    return /^[A-Za-z0-9_-]+$/.test(id) ? id : null;
+  };
+
+  useEffect(() => {
+    const loadSessions = () => {
+      try {
+        const stored = localStorage.getItem('boz_chat_sessions');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (!Array.isArray(parsed)) {
+            setChatSessions([]);
+            return;
+          }
+          const sessions = parsed
+            .map((s: any) => {
+              const safeId = sanitizeSessionId(s?.id);
+              if (!safeId || typeof s?.title !== 'string') return null;
+              return { id: safeId, title: s.title, updatedAt: Number(s?.updatedAt) || 0 };
+            })
+            .filter((s): s is { id: string; title: string; updatedAt: number } => s !== null);
+          sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+          setChatSessions(sessions.map(({ id, title }) => ({ id, title })));
+        } else {
+          setChatSessions([]);
+        }
+      } catch (e) {
+        setChatSessions([]);
+      }
+    };
+    loadSessions();
+    window.addEventListener('boz_chat_updated', loadSessions);
+    return () => window.removeEventListener('boz_chat_updated', loadSessions);
+  }, []);
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -60,14 +82,32 @@ export default function Sidebar() {
 
       <nav className="sidebar-nav">
         {navItems.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`sidebar-link${isActive(item.href) ? ' active' : ''}`}
-          >
-            <span className="sidebar-link-icon">{item.icon}</span>
-            <span className="sidebar-link-label">{item.label}</span>
-          </Link>
+          <div key={item.href}>
+            <Link
+              href={item.href}
+              className={`sidebar-link${isActive(item.href) ? ' active' : ''}`}
+            >
+              <span className="sidebar-link-icon">{item.icon}</span>
+              <span className="sidebar-link-label">{item.label}</span>
+            </Link>
+            {item.href === '/chat' && isActive('/chat') && chatSessions.length > 0 && !collapsed && (
+              <div style={{ paddingLeft: '40px', marginTop: '4px', marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '180px', overflowY: 'auto' }}>
+                <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>Recent Chats</div>
+                {chatSessions.slice(0, 5).map(session => {
+                  const chatHref = `/chat/${session.id}`;
+                  return (
+                    <Link 
+                      key={session.id} 
+                      href={chatHref}
+                      style={{ fontSize: '12px', color: pathname === chatHref ? 'var(--text-primary)' : 'var(--text-muted)', textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '4px 0' }}
+                    >
+                      {session.title}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         ))}
       </nav>
 
@@ -83,7 +123,7 @@ export default function Sidebar() {
           <span className="sidebar-link-label">Settings</span>
         </Link>
         <div style={{ display: 'flex', justifyContent: collapsed ? 'center' : 'space-between', alignItems: 'center', width: '100%' }}>
-          {!collapsed && <span className="sidebar-version" style={{ fontSize: '10px' }}>v2.0.0</span>}
+          {!collapsed && <span className="sidebar-version" style={{ fontSize: '10px' }}>v2.1.0</span>}
           <button
             className="sidebar-collapse-btn"
             onClick={() => setCollapsed(!collapsed)}

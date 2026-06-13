@@ -86,7 +86,8 @@ function buildSystemPrompt(): string {
     `ACCURACY CHECK (do before answering):\n` +
     `  - Use only evidence from the provided data; do not invent metrics or news.\n` +
     `  - If a key data point is missing, say so and lower confidence.\n` +
-    `  - Ensure prediction, confidence, and levels align with cited signals.\n\n` +
+    `  - Ensure prediction, confidence, and levels align with cited signals.\n` +
+    `  - IMPORTANT: Rarely use emojis in your response. Keep text highly professional.\n\n` +
     JSON_OUTPUT_RULES
   );
 }
