@@ -10,10 +10,10 @@ export const aiPredictionSchema = {
     status: { type: 'string', enum: ['ok', 'uncertain', 'error'] },
     prediction: { type: 'string', enum: ['UP', 'DOWN', 'UNKNOWN'] },
     confidence: { type: 'number', minimum: 0, maximum: 100 },
-    strategy: { type: 'string' },
+    strategy: { type: ['string', 'null'] },
     target_price: { type: ['number', 'null'] },
     stop_loss: { type: ['number', 'null'] },
-    reasons: { type: 'array', items: { type: 'string' }, maxItems: 5 },
+    reasons: { type: 'array', items: { type: 'string' } },
     reason: { type: 'string' },
   },
   oneOf: [
