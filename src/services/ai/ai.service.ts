@@ -351,7 +351,14 @@ export class AIService {
         }
       }
 
-      // 5. If status is error/uncertain but reason is missing, pull from reasons[] or strategy.
+      // 5. Coerce `reason` to string if it exists but is not a string
+      if (p.reason !== undefined && typeof p.reason !== 'string') {
+        if (Array.isArray(p.reason)) p.reason = p.reason.map(r => String(r)).join('; ');
+        else if (p.reason === null) delete p.reason;
+        else p.reason = String(p.reason);
+      }
+
+      // 6. If status is error/uncertain but reason is missing, pull from reasons[] or strategy.
       if ((p.status === 'error' || p.status === 'uncertain') && !p.reason) {
         const fallbackReason =
           (Array.isArray(p.reasons) && (p.reasons as string[]).length > 0)
