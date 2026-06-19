@@ -47,7 +47,7 @@
     "marked": "^18.0.5",
     "marked-terminal": "^7.3.0",
     "next": "^16.2.9",
-    "openai": "^6.42.0",
+    "openai": "^6.44.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "rss-parser": "^3.13.0",
@@ -62,7 +62,7 @@
     "@types/react": "19.2.17",
     "@vitest/coverage-v8": "^4.1.5",
     "postcss": "^8.5.15",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.9"
   },
   "overrides": {
     "postcss": "^8.5.15",
