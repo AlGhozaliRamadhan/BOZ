@@ -42,15 +42,20 @@ describe('SentimentService', () => {
 
   it('normalizes Yahoo crypto symbols for StockTwits and Reddit', async () => {
     mockState.get.mockImplementation(async (url: string) => {
+      let host = '';
+      try { host = new URL(url).hostname; } catch { /* ignore */ }
+      const hostnameIs = (h: string) => host === h;
+      const hostnameEndsWith = (h: string) => host === h || host.endsWith(`.${h}`);
+
       if (url.includes('production.dataviz.cnn.io')) throw new Error('cnn unavailable');
-      if (url.includes('api.alternative.me')) {
+      if (hostnameIs('api.alternative.me')) {
         return {
           data: {
             data: [{ value: '50', value_classification: 'Neutral' }],
           },
         };
       }
-      if (url.includes('api.stocktwits.com')) {
+      if (hostnameEndsWith('api.stocktwits.com')) {
         return {
           data: {
             messages: [
@@ -60,7 +65,7 @@ describe('SentimentService', () => {
           },
         };
       }
-      if (url.includes('reddit.com')) {
+      if (host === 'old.reddit.com' || host === 'www.reddit.com' || host === 'reddit.com') {
         return { data: { data: { children: [] } } };
       }
       throw new Error(`Unexpected URL: ${url}`);
