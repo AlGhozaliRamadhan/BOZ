@@ -43,6 +43,10 @@ export async function GET() {
       githubToken:    config.github.token || '',
       availableModels: config.aiProvider === 'nvidia' ? NVIDIA_MODELS : 
                        config.aiProvider === 'github' ? GITHUB_MODELS : [],
+      allModels: [
+        ...GITHUB_MODELS.map(m => ({ ...m, provider: 'github' })),
+        ...NVIDIA_MODELS.map(m => ({ ...m, provider: 'nvidia' })),
+      ],
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -125,6 +129,10 @@ export async function PUT(request: NextRequest) {
       githubToken:    config.github.token || '',
       availableModels: config.aiProvider === 'nvidia' ? NVIDIA_MODELS : 
                        config.aiProvider === 'github' ? GITHUB_MODELS : [],
+      allModels: [
+        ...GITHUB_MODELS.map(m => ({ ...m, provider: 'github' })),
+        ...NVIDIA_MODELS.map(m => ({ ...m, provider: 'nvidia' })),
+      ],
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
