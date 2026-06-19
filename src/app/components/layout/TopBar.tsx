@@ -82,7 +82,7 @@ export default function TopBar() {
 
   const baseModels = [...(config?.allModels || [])];
   
-  let filteredModels = [];
+  let filteredModels: any[] = [];
   
   if (searchQuery.trim().length > 1) {
     // 1. Find local matches
