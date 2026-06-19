@@ -238,6 +238,80 @@ export default function SettingsPage() {
       )}
 
       <div className="flex-col gap-6">
+        
+        {/* Active AI Configuration */}
+        <div style={{ paddingTop: 'var(--space-2)' }}>
+          <div style={{ marginBottom: 'var(--space-6)' }}>
+            <span style={{ fontSize: 'var(--text-base)', fontWeight: 600, borderBottom: '1px solid var(--border-glass)', paddingBottom: 'var(--space-2)', display: 'block', width: '100%', color: 'var(--text-primary)' }}>
+              Active AI Configuration
+            </span>
+          </div>
+
+          <div className="grid-2 gap-8" style={{ marginBottom: 'var(--space-8)' }}>
+            {/* Provider Selection */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>AI Provider</span>
+              <p className="page-subtitle" style={{ margin: 0, minHeight: '40px' }}>Select the platform that will power the AI analysis.</p>
+              <select 
+                className="input" 
+                value={config?.provider || ''} 
+                onChange={(e) => selectProvider(e.target.value)}
+                disabled={saving}
+                style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-glass)', marginTop: 'auto' }}
+              >
+                {PROVIDERS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+
+            {/* Model Selection */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>AI Model</span>
+              <p className="page-subtitle" style={{ margin: 0, minHeight: '40px' }}>Choose the specific model to use for inference.</p>
+              
+              {config?.provider === 'offline' ? (
+                <div className="input-group" style={{ marginTop: 'auto' }}>
+                  <input
+                    type="text"
+                    id="offline-model-input"
+                    className="input"
+                    placeholder="e.g. llama3"
+                    defaultValue={config?.model || ''}
+                    onBlur={(e) => {
+                      if (e.target.value && e.target.value !== config?.model) {
+                        selectModel(e.target.value);
+                      }
+                    }}
+                    disabled={saving}
+                    style={{ background: 'transparent', border: '1px solid var(--border-glass)' }}
+                  />
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={() => {
+                      const input = document.getElementById('offline-model-input') as HTMLInputElement;
+                      if (input && input.value && input.value !== config?.model) {
+                        selectModel(input.value);
+                      }
+                    }}
+                    disabled={saving}
+                  >
+                    Save
+                  </button>
+                </div>
+              ) : (
+                <select 
+                  className="input" 
+                  value={config?.model || ''} 
+                  onChange={(e) => selectModel(e.target.value)}
+                  disabled={saving}
+                  style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-glass)', marginTop: 'auto' }}
+                >
+                  {config?.availableModels?.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                </select>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Unified Integration Panel - Flat Layout */}
         <div style={{ paddingTop: 'var(--space-2)' }}>
           <div style={{ marginBottom: 'var(--space-6)' }}>
