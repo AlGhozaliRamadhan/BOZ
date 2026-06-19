@@ -731,6 +731,52 @@ export class CLI {
         },
       },
       {
+        name: 'changemodel',
+        description: 'Change the AI model for the current provider',
+        handler: async (args) => {
+          const provider = config.aiProvider;
+
+          if (provider === 'offline') {
+            let newModel = args.join(' ').trim();
+            if (!newModel) {
+              process.stdout.write('\n');
+              newModel = await askQuestion(`  Enter Ollama model name (current: ${config.aiModel}): `);
+              restoreRawMode();
+            }
+            if (!newModel) {
+              process.stdout.write(`\n  ${c.wrap(c.red, 'Model name required.')}\n\n`);
+              return;
+            }
+            config.setAIModel(newModel);
+            process.env.OFFLINE_AI_MODEL = newModel;
+            upsertEnvVar('OFFLINE_AI_MODEL', newModel);
+            process.stdout.write(`\n  Model set to: ${c.wrap(c.green, config.aiModel)}\n\n`);
+          } else if (provider === 'github') {
+            process.stdout.write(
+              `\n  ${c.wrap(c.ghost, 'Model')}  ` +
+              `${c.wrap(c.ghost, 'up / down to select, Enter to confirm')}\n\n`,
+            );
+            const idx = await vPick(GITHUB_MODELS.map((m) => m.label));
+            const newModel = GITHUB_MODELS[idx].id;
+            config.setAIModel(newModel);
+            process.env.GITHUB_AI_MODEL = newModel;
+            upsertEnvVar('GITHUB_AI_MODEL', newModel);
+            process.stdout.write(`\n  Model set to: ${c.wrap(c.green, config.aiModel)}\n\n`);
+          } else if (provider === 'nvidia') {
+            process.stdout.write(
+              `\n  ${c.wrap(c.ghost, 'Model')}  ` +
+              `${c.wrap(c.ghost, 'up / down to select, Enter to confirm')}\n\n`,
+            );
+            const idx = await vPick(NVIDIA_MODELS.map((m) => m.label));
+            const newModel = NVIDIA_MODELS[idx].id;
+            config.setAIModel(newModel);
+            process.env.NVIDIA_AI_MODEL = newModel;
+            upsertEnvVar('NVIDIA_AI_MODEL', newModel);
+            process.stdout.write(`\n  Model set to: ${c.wrap(c.green, config.aiModel)}\n\n`);
+          }
+        },
+      },
+      {
         name: 'status',
         description: 'Show current provider and model',
         handler: async () => {
