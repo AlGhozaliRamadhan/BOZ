@@ -53,7 +53,7 @@
     "rss-parser": "^3.13.0",
     "technicalindicators": "^3.1.0",
     "tsx": "^4.22.5",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "yahoo-finance2": "^3.15.4"
   },
   "devDependencies": {
