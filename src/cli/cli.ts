@@ -58,7 +58,7 @@ function renderHPicker(options: string[], selected: number): void {
   process.stdout.write(`\r\x1b[K  ${parts.join('     ')}`);
 }
 
-function hPick(options: string[], defaultIdx = 0): Promise<number> {
+export function hPick(options: string[], defaultIdx = 0): Promise<number> {
   return new Promise((resolve) => {
     let sel = defaultIdx;
     if (process.stdin.isTTY) { process.stdin.setRawMode(true); process.stdin.resume(); }
