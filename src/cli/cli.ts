@@ -13,6 +13,7 @@ import { nvidiaConfig, NVIDIA_MODELS, NVIDIA_API_KEY_URL } from '../config/nvidi
 import { resolveSymbol } from '../shared/market-constants.js';
 import { yahooFinance } from '../services/market/yahoo.service.js';
 import { getBuildVersion } from '../utils/version.js';
+import { configEnvPath } from '../utils/env-dir.js';
 
 // ─── Version ──────────────────────────────────────────────────────────────────
 
@@ -327,7 +328,7 @@ function sanitizeEnvValue(value: string): string {
 
 function upsertEnvVar(key: string, value: string): void {
   const safe     = sanitizeEnvValue(value);
-  const envPath  = path.resolve(process.cwd(), '.env');
+  const envPath = configEnvPath();
   let   contents = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
   const lineRe   = new RegExp('^' + key + '=.*$', 'm');
   const line     = `${key}=${safe}`;
