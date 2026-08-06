@@ -138,18 +138,25 @@ flowchart TD
 
 ---
 
-## Install & Run
+## Install
 
-The easiest way to run BOZ v2 is via **Docker**:
+Global install (requires Node 18+):
 
 ```bash
-git clone https://github.com/AlGhozaliRamadhan/boz.git
-cd boz
-
-# Start the application detached via Docker Compose
-docker-compose up -d --build
+npm install -g boz
 ```
-Once started, the BOZ dashboard will be available at [http://localhost:3000](http://localhost:3000).
+
+Then run from anywhere:
+
+```bash
+boz                 # choose Terminal or Web UI
+boz terminal        # open the terminal CLI
+boz web             # start the dashboard and open the browser
+boz web --port 3001 # use a different port
+boz --version
+```
+
+Settings and API keys are stored per-user in `~/.boz/.env`.
 
 > **Recommendation:** Use **NVIDIA NIM** for the News Intel Agent. GitHub Models has aggressive rate limits that can interrupt multi-step agentic sessions. NVIDIA NIM handles the longer context window and sustained tool-calling loop without throttling.
 
