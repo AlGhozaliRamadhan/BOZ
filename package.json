@@ -20,7 +20,7 @@
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build --webpack",
-    "build:web": "next build",
+    "build:web": "next build --webpack",
     "start": "next start",
     "lint": "next lint",
     "dev:cli": "tsx src/main.ts",
@@ -75,7 +75,7 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "tsx": "^4.23.0",
-    "typescript": "^7.0.2",
+    "typescript": "^5.9.3",
     "vitest": "^4.1.9"
   },
   "overrides": {
