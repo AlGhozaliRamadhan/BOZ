@@ -19,3 +19,7 @@ data/
 # OS and temp
 .DS_Store
 Thumbs.db
+
+# allow dist/ and .env.build to ship
+!dist/
+!dist/.env.build
