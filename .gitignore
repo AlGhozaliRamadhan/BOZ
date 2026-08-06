@@ -67,3 +67,5 @@ tmp/
 # Project documentation (local only, not for distribution)
 CLAUDE.md
 docs/improvements.md
+
+.worktrees/
