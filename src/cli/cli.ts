@@ -301,7 +301,7 @@ function printTokenHelp(): void {
   process.stdout.write(`  ${c.wrap(c.dim,    '   GITHUB_TOKEN=ghp_your_token_here')}\n\n`);
 }
 
-function openBrowser(url: string): void {
+export function openBrowser(url: string): void {
   try {
     const cmd =
       process.platform === 'win32'  ? `start "" "${url}"` :
