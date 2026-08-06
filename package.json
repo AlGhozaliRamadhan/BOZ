@@ -13,7 +13,7 @@
     "lint": "next lint",
     "dev:cli": "tsx src/main.ts",
     "ping": "node dist/utils/ping.js",
-    "build:cli": "tsc && node scripts/install-global.js",
+    "build:cli": "tsc -p tsconfig.cli.json && node scripts/build-env.js",
     "start:cli": "node dist/main.js",
     "test": "vitest run",
     "test:watch": "vitest",
