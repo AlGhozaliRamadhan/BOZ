@@ -2,57 +2,91 @@ import { spawn } from 'child_process';
 import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import http from 'http';
-import { openBrowser } from './cli.js';
 
 const MODULE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
+const DEFAULT_READY_TIMEOUT_MS = 8000;
+
+export interface WebServerHandle {
+  url: string;
+  port: number;
+  /** Resolves when the server returns 2xx on `/`, rejects on timeout or child error. */
+  ready: Promise<void>;
+  /** Stops the child process. Idempotent. */
+  stop: () => void;
+}
+
 function waitForServer(port: number, timeoutMs: number): Promise<void> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolveP, rejectP) => {
     const deadline = Date.now() + timeoutMs;
     const attempt = () => {
       const req = http.get({ host: '127.0.0.1', port, path: '/' }, (res) => {
         res.resume();
-        resolve();
+        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+          resolveP();
+        } else if (Date.now() > deadline) {
+          rejectP(new Error(`Server returned ${res.statusCode} on port ${port}`));
+        } else {
+          setTimeout(attempt, 200);
+        }
       });
       req.on('error', () => {
-        if (Date.now() > deadline) reject(new Error(`Server did not start on port ${port} within ${timeoutMs}ms`));
-        else setTimeout(attempt, 200);
+        if (Date.now() > deadline) {
+          rejectP(new Error(`Server did not start on port ${port} within ${timeoutMs}ms`));
+        } else {
+          setTimeout(attempt, 200);
+        }
       });
     };
     attempt();
   });
 }
 
-export async function startWebServer(port: number): Promise<void> {
+export function startWebServer(
+  port: number,
+  opts: { readyTimeoutMs?: number } = {},
+): WebServerHandle {
   const serverPath = join(MODULE_ROOT, '.next', 'standalone', 'server.js');
+  const readyTimeoutMs = opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
+  const url = `http://127.0.0.1:${port}`;
+
   const child = spawn('node', [serverPath], {
     env: { ...process.env, PORT: String(port), HOSTNAME: '127.0.0.1' },
     stdio: ['ignore', 'inherit', 'inherit'],
   });
 
-  child.on('error', (err) => {
-    console.error(`Failed to start web server: ${err.message}`);
-    process.exit(1);
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    if (!child.killed) child.kill('SIGTERM');
+  };
+
+  const ready = new Promise<void>((resolveP, rejectP) => {
+    let settled = false;
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
+
+    child.on('error', (err) => {
+      settle(() => rejectP(new Error(`web server failed to start: ${err.message}`)));
+    });
+
+    child.on('exit', (code, signal) => {
+      if (settled) return;
+      if (code === 0) {
+        settle(() => rejectP(new Error(`web server exited before becoming ready (code 0, signal ${signal})`)));
+      } else {
+        settle(() => rejectP(new Error(`web server exited with code ${code} signal ${signal} before becoming ready`)));
+      }
+    });
+
+    waitForServer(port, readyTimeoutMs)
+      .then(() => settle(resolveP))
+      .catch((err) => settle(() => rejectP(err)));
   });
 
-  try {
-    await waitForServer(port, 15000);
-  } catch (err) {
-    child.kill();
-    console.error(`Web server did not start: ${(err as Error).message}`);
-    process.exit(1);
-  }
-
-  const url = `http://127.0.0.1:${port}`;
-  console.log(`BOZ dashboard running at ${url}`);
-  openBrowser(url);
-
-  process.on('SIGINT', () => {
-    child.kill('SIGINT');
-    process.exit(0);
-  });
-  process.on('SIGTERM', () => {
-    child.kill('SIGTERM');
-    process.exit(0);
-  });
+  return { url, port, ready, stop };
 }
