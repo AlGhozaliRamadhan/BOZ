@@ -51,6 +51,9 @@ async function main(): Promise<void> {
   }
   const chosen = await pickMode();
   if (chosen === 'web') {
+    // Spawn the web server in the background and run the CLI in parallel.
+    // The CLI prompt returns immediately so the user can type commands
+    // while the server warms.
     const { startWebServer } = await import('./cli/start-web.js');
     const { openBrowser } = await import('./cli/cli.js');
     const web = startWebServer(DEFAULT_WEB_PORT);
@@ -66,13 +69,17 @@ async function main(): Promise<void> {
         web.stop();
       });
 
+    // When the CLI exits, kill the web child too.
     process.on('SIGINT', () => { web.stop(); process.exit(0); });
     process.on('SIGTERM', () => { web.stop(); process.exit(0); });
-  } else {
-    const { CLI } = await import('./cli/cli.js');
-    const cli = new CLI();
-    await cli.run();
   }
+
+  // The CLI REPL runs whether the picker returned 'web' or 'terminal' —
+  // it is the interactive surface, and the web server (if started) warms
+  // in the background.
+  const { CLI } = await import('./cli/cli.js');
+  const cli = new CLI();
+  await cli.run();
 }
 
 main().catch((err) => {
