@@ -32,7 +32,10 @@ async function main(): Promise<void> {
   }
   if (mode === 'web') {
     const { startWebServer } = await import('./cli/start-web.js');
-    await startWebServer(result.port);
+    const { openBrowser } = await import('./cli/cli.js');
+    const web = startWebServer(result.port);
+    await web.ready;
+    openBrowser(web.url);
     return;
   }
   if (mode === 'terminal') {
@@ -49,7 +52,22 @@ async function main(): Promise<void> {
   const chosen = await pickMode();
   if (chosen === 'web') {
     const { startWebServer } = await import('./cli/start-web.js');
-    await startWebServer(DEFAULT_WEB_PORT);
+    const { openBrowser } = await import('./cli/cli.js');
+    const web = startWebServer(DEFAULT_WEB_PORT);
+    process.stdout.write(`  ↻ starting web server…\n`);
+    void web.ready
+      .then(() => {
+        process.stdout.write(`\r\x1b[K  ✓ web ready at ${web.url} — opening browser…\n`);
+        openBrowser(web.url);
+      })
+      .catch((err) => {
+        process.stdout.write(`\r\x1b[K  ✗ web server did not start: ${err instanceof Error ? err.message : String(err)}\n`);
+        process.stdout.write(`     CLI mode is still available — type /help to continue.\n`);
+        web.stop();
+      });
+
+    process.on('SIGINT', () => { web.stop(); process.exit(0); });
+    process.on('SIGTERM', () => { web.stop(); process.exit(0); });
   } else {
     const { CLI } = await import('./cli/cli.js');
     const cli = new CLI();
