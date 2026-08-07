@@ -9,7 +9,9 @@ const MODULE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 // `src/cli/start-web.ts` spawns `node <standalone>/server.js`.
 const NEXT_CLI = join(MODULE_ROOT, 'node_modules', 'next', 'dist', 'bin', 'next');
 
-const DEFAULT_READY_TIMEOUT_MS = 8000;
+// Long (60s) because `next dev` cold-compiles the first request (~24s), unlike
+// the prebuilt standalone server in `start-web.ts`.
+const DEFAULT_READY_TIMEOUT_MS = 60000;
 
 export interface WebServerHandle {
   url: string;

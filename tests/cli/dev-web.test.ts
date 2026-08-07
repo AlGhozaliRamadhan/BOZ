@@ -19,10 +19,10 @@ describeIfNext('startWebServer (dev)', () => {
   });
 
   it('returns a WebServerHandle and resolves ready', async () => {
-    handle = startWebServer(PORT, { readyTimeoutMs: 15000 });
+    handle = startWebServer(PORT);
     expect(handle.url).toBe(`http://127.0.0.1:${PORT}`);
     expect(handle.port).toBe(PORT);
     expect(typeof handle.stop).toBe('function');
     await expect(handle.ready).resolves.toBeUndefined();
-  }, 20000);
+  }, 90000);
 });
