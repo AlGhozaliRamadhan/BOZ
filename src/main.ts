@@ -15,6 +15,10 @@ if (fs.existsSync(buildEnvPath)) dotenv.config({ path: buildEnvPath, override: f
 
 ensureConfigDir();
 
+// Dev mode: BOZ_DEV is set by `npm run dev`, which runs this file via tsx.
+// In dev we use `next dev` (live HMR) instead of the compiled standalone server.
+const IS_DEV = process.env.BOZ_DEV === '1';
+
 const { resolveMode, pickMode, printUsage, DEFAULT_WEB_PORT } = await import('./cli/mode.js');
 
 async function main(): Promise<void> {
@@ -31,9 +35,11 @@ async function main(): Promise<void> {
     process.exit(0);
   }
   if (mode === 'web') {
-    const { startWebServer } = await import('./cli/start-web.js');
+    const webMod = IS_DEV
+      ? await import('./cli/dev-web.js')
+      : await import('./cli/start-web.js');
     const { openBrowser } = await import('./cli/cli.js');
-    const web = startWebServer(result.port);
+    const web = webMod.startWebServer(result.port);
     await web.ready;
     openBrowser(web.url);
     return;
@@ -54,9 +60,11 @@ async function main(): Promise<void> {
     // Spawn the web server in the background and run the CLI in parallel.
     // The CLI prompt returns immediately so the user can type commands
     // while the server warms.
-    const { startWebServer } = await import('./cli/start-web.js');
+    const webMod = IS_DEV
+      ? await import('./cli/dev-web.js')
+      : await import('./cli/start-web.js');
     const { openBrowser } = await import('./cli/cli.js');
-    const web = startWebServer(DEFAULT_WEB_PORT);
+    const web = webMod.startWebServer(DEFAULT_WEB_PORT);
     process.stdout.write(`  ↻ starting web server…\n`);
     void web.ready
       .then(() => {
