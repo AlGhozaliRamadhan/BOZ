@@ -33,10 +33,10 @@ export async function run({ moduleRoot }) {
 }
 
 // CLI wrapper: run when invoked directly (`node scripts/copy-static.js`).
-// Resolve moduleRoot as the repo root, two levels up from this script.
+// Resolve moduleRoot as the repo root, one level up from this script.
 const isCli = process.argv[1] && resolve(process.argv[1]) === __filename;
 if (isCli) {
-  const moduleRoot = resolve(__dirname, '..', '..');
+  const moduleRoot = resolve(__dirname, '..');
   try {
     const { copied, skipped } = await run({ moduleRoot });
     for (const dest of copied) {
