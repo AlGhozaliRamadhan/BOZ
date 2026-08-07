@@ -18,6 +18,7 @@
     "node": ">=18"
   },
   "scripts": {
+    "postinstall": "node scripts/copy-static.js",
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "build:web": "next build --webpack",
