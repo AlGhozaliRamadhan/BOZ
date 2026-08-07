@@ -11,6 +11,7 @@
     ".next/standalone/",
     ".next/static/",
     "public/",
+    "scripts/",
     ".env.build",
     "README.md"
   ],
