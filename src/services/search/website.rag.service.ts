@@ -24,12 +24,12 @@ export class WebsiteRagService {
       }
 
       // 2. Clean HTML
-      // Remove scripts and styles before purify to avoid extracting their text
-      let cleaned = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ' ');
-      cleaned = cleaned.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ' ');
-      
-      // Use DOMPurify to strip remaining tags (ALLOWED_TAGS: [] means strip all)
-      cleaned = DOMPurify.sanitize(cleaned, { ALLOWED_TAGS: [] });
+      // Use DOMPurify to sanitize untrusted HTML instead of regex-based tag filtering.
+      // ALLOWED_TAGS: [] strips all tags; FORBID_TAGS ensures script/style are removed.
+      let cleaned = DOMPurify.sanitize(html, {
+        ALLOWED_TAGS: [],
+        FORBID_TAGS: ['script', 'style'],
+      });
       
       // Normalize whitespace
       cleaned = cleaned.replace(/\s+/g, ' ').trim();
