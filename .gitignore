@@ -49,11 +49,17 @@ coverage/
 # OS and temporary files
 .DS_Store
 Thumbs.db
-data/
+/data/
 temp/
 tmp/
 .temp/
 .tmp/
+
+# Playwright MCP snapshots
+.playwright-mcp/
+
+# Runtime data caches
+src/data/
 
 # Archives and Tarballs
 *.tgz

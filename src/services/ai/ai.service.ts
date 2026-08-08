@@ -29,10 +29,12 @@ export type AIResult =
       target_price?: number;
       stop_loss?:    number;
       reasons?:      string[];
+      thought?:      string;
+      thoughts?:     string[];
       raw_response?: string;
     }
-  | { status: 'error';     reason: string }
-  | { status: 'uncertain'; reason: string };
+  | { status: 'error';     reason: string; thought?: string; thoughts?: string[]; raw_response?: string }
+  | { status: 'uncertain'; reason: string; thought?: string; thoughts?: string[]; raw_response?: string };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -61,8 +63,8 @@ const JSON_OUTPUT_RULES = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const uncertain = (reason: string): AIResult => ({ status: 'uncertain', reason });
-const errResult = (reason: string): AIResult => ({ status: 'error',     reason });
+const uncertain = (reason: string, raw?: string): AIResult => ({ status: 'uncertain', reason, thought: reason, thoughts: [reason], raw_response: raw });
+const errResult = (reason: string, raw?: string): AIResult => ({ status: 'error',     reason, thought: reason, thoughts: [reason], raw_response: raw });
 
 /** The system-level analysis preamble injected for all providers */
 function buildSystemPrompt(): string {
@@ -382,12 +384,38 @@ export class AIService {
   }
 
   private normalizeResult(payload: AIPredictionPayload, raw: string): AIResult {
+    // Extract raw thinking tag if present
+    let thoughtText = '';
+    const thinkingMatch = raw.match(/<think(?:ing)?>(.*?)<\/think(?:ing)?>/s);
+    if (thinkingMatch) {
+      thoughtText = thinkingMatch[1].trim();
+    }
+
     if (payload.status !== 'ok') {
-      return { status: payload.status, reason: payload.reason ?? 'Model returned no reason' };
+      const reason = payload.reason ?? 'Model returned no reason';
+      return {
+        status: payload.status,
+        reason,
+        thought: thoughtText || reason,
+        thoughts: thoughtText ? [thoughtText] : [reason],
+        raw_response: raw,
+      };
     }
 
     const confidence = Math.max(0, Math.min(100, Math.round(payload.confidence ?? 50)));
     const reasons = payload.reasons?.filter(r => r.trim().length > 0).slice(0, 5);
+
+    if (!thoughtText) {
+      if (reasons && reasons.length > 0) {
+        thoughtText = reasons.join('\n');
+      } else if (payload.strategy) {
+        thoughtText = payload.strategy;
+      }
+    }
+
+    const thoughtsList = reasons && reasons.length > 0
+      ? reasons
+      : thoughtText ? [thoughtText] : undefined;
 
     return {
       status: 'ok',
@@ -397,6 +425,8 @@ export class AIService {
       target_price: payload.target_price ?? undefined,
       stop_loss: payload.stop_loss ?? undefined,
       reasons: reasons && reasons.length > 0 ? reasons : undefined,
+      thought: thoughtText || undefined,
+      thoughts: thoughtsList,
       raw_response: raw,
     };
   }
@@ -404,6 +434,6 @@ export class AIService {
   public parseResponse(content: string): AIResult {
     const parsed = this.validateResponse(content);
     if (parsed.ok) return parsed.result;
-    return uncertain(`Invalid JSON response: ${parsed.error}`);
+    return uncertain(`Invalid JSON response: ${parsed.error}`, content);
   }
 }

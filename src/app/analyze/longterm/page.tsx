@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { ThoughtAccordion } from '@/app/components/ui/ThoughtAccordion';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -268,14 +269,15 @@ export default function LongtermAnalysisPage() {
             </div>
           </div>
 
-          {isOk && verdict.reasons?.length > 0 && (
-            <div className="glass-card">
-              <div className="card-header"><span className="card-title">AI Reasoning</span></div>
-              <ul className="reason-list">
-                {verdict.reasons.map((r: string, i: number) => (
-                  <li key={i} className="reason-item">{r}</li>
-                ))}
-              </ul>
+          {/* AI Fundamental Reasoning & Thought Process Accordion */}
+          {(verdict?.thought || verdict?.thoughts || (verdict?.reasons && verdict.reasons.length > 0)) && (
+            <div style={{ marginTop: 'var(--space-4)' }}>
+              <ThoughtAccordion
+                thoughts={verdict.thoughts || verdict.reasons || verdict.thought}
+                title="Long-Term AI Fundamental Thesis & Thought Process"
+                defaultOpen={false}
+                accent={isBull ? 'bull' : 'bear'}
+              />
             </div>
           )}
         </div>

@@ -10,8 +10,9 @@ const buildEnvPath = path.join(moduleRoot, '.env.build');
 const userEnvPath = configEnvPath();
 
 // Load env in priority order: per-user ~/.boz/.env, then package template, then process env.
-dotenv.config({ path: userEnvPath, override: false });
-if (fs.existsSync(buildEnvPath)) dotenv.config({ path: buildEnvPath, override: false });
+// quiet: true suppresses dotenv's "injected env" log line.
+dotenv.config({ path: userEnvPath, override: false, quiet: true });
+if (fs.existsSync(buildEnvPath)) dotenv.config({ path: buildEnvPath, override: false, quiet: true });
 
 ensureConfigDir();
 
@@ -40,8 +41,23 @@ async function main(): Promise<void> {
       : await import('./cli/start-web.js');
     const { openBrowser } = await import('./cli/cli.js');
     const web = webMod.startWebServer(result.port);
-    await web.ready;
-    openBrowser(web.url);
+
+    const cleanup = () => {
+      web.stop();
+      process.exit(0);
+    };
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
+    process.on('exit', () => web.stop());
+
+    try {
+      await web.ready;
+      openBrowser(web.url);
+    } catch (err) {
+      console.error('Web server error:', err instanceof Error ? err.message : String(err));
+      web.stop();
+      process.exit(1);
+    }
     return;
   }
   if (mode === 'terminal') {
@@ -57,29 +73,24 @@ async function main(): Promise<void> {
   }
   const chosen = await pickMode();
   if (chosen === 'web') {
-    // Spawn the web server in the background and run the CLI in parallel.
-    // The CLI prompt returns immediately so the user can type commands
-    // while the server warms.
     const webMod = IS_DEV
       ? await import('./cli/dev-web.js')
       : await import('./cli/start-web.js');
     const { openBrowser } = await import('./cli/cli.js');
     const web = webMod.startWebServer(DEFAULT_WEB_PORT);
     process.stdout.write(`  ↻ starting web server…\n`);
-    void web.ready
-      .then(() => {
-        process.stdout.write(`\r\x1b[K  ✓ web ready at ${web.url} — opening browser…\n`);
-        openBrowser(web.url);
-      })
-      .catch((err) => {
-        process.stdout.write(`\r\x1b[K  ✗ web server did not start: ${err instanceof Error ? err.message : String(err)}\n`);
-        process.stdout.write(`     CLI mode is still available — type /help to continue.\n`);
-        web.stop();
-      });
+    try {
+      await web.ready;
+      process.stdout.write(`\r\x1b[K  ✓ web ready at ${web.url} — opening browser…\n`);
+      openBrowser(web.url);
+    } catch (err) {
+      process.stdout.write(`\r\x1b[K  ✗ web server did not start: ${err instanceof Error ? err.message : String(err)}\n`);
+      process.exit(1);
+    }
 
-    // When the CLI exits, kill the web child too.
     process.on('SIGINT', () => { web.stop(); process.exit(0); });
     process.on('SIGTERM', () => { web.stop(); process.exit(0); });
+    return;
   }
 
   // The CLI REPL runs whether the picker returned 'web' or 'terminal' —

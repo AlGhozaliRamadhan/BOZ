@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { ThoughtAccordion } from '@/app/components/ui/ThoughtAccordion';
 
 interface QuoteData {
   ticker: string;
@@ -360,6 +361,18 @@ export default function DashboardPage() {
         {/* Left Area (Main Dashboard) */}
         <div className="flex-col gap-6" style={{ gridColumn: '1 / span 2' }}>
           
+          {/* AI Intelligence & Thought Process */}
+          <ThoughtAccordion
+            thoughts={[
+              `[REGIME ANALYSIS] Market regime is currently ${macro?.regime || 'NEUTRAL'} with VIX at ${macro?.vix?.toFixed(2) || '--'} (${macro?.vixLevel || 'Unknown'} volatility). ${macro?.vix && macro.vix > 25 ? 'Elevated volatility signals caution and hedging.' : 'Subdued volatility favors momentum trend continuation.'}`,
+              `[CROWD DEDUCTION] Fear & Greed Index at ${sentiment?.fearGreedIndex ?? '--'} (${sentiment?.fearGreedLabel ?? 'Neutral'}). StockTwits sentiment is ${sentiment?.stocktwits?.total ? Math.round((sentiment.stocktwits.bullish / sentiment.stocktwits.total) * 100) : 50}% Bullish across ${sentiment?.stocktwits?.total ?? 0} posts. ${sentiment?.overallSignal ? `Overall Signal: ${sentiment.overallSignal}.` : ''}`,
+              `[ASSET OVERVIEW] ${quote?.ticker} is trading at $${quote?.price?.toFixed(2) || '--'} (${(quote?.changePercent ?? 0) >= 0 ? '+' : ''}${quote?.changePercent?.toFixed(2) || '0'}%) with 10Y Yield at ${macro?.tenYearYield?.toFixed(2) || '--'}% and ${macro?.riskSentiment || 'NEUTRAL'} risk sentiment.`,
+            ]}
+            title={`Market AI Reasoning & Intelligence (${quote?.ticker || 'Global'})`}
+            defaultOpen={false}
+            accent="cyan"
+          />
+
           {/* Main Price & Regime Panel */}
           <div className="glass-card accent-glow flush" style={{ overflow: 'hidden' }}>
             <div style={{ padding: 'var(--space-6)', borderBottom: '1px solid var(--border-glass)' }}>

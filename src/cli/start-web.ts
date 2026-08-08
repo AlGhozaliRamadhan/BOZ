@@ -59,7 +59,17 @@ export function startWebServer(
   const stop = () => {
     if (stopped) return;
     stopped = true;
-    if (!child.killed) child.kill('SIGTERM');
+    if (child.pid) {
+      if (process.platform === 'win32') {
+        try {
+          spawn('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' });
+        } catch {
+          if (!child.killed) child.kill();
+        }
+      } else {
+        if (!child.killed) child.kill('SIGTERM');
+      }
+    }
   };
 
   const ready = new Promise<void>((resolveP, rejectP) => {

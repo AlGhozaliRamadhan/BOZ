@@ -5,12 +5,15 @@ import { useRouter } from 'next/navigation';
 import { marked } from 'marked';
 import DOMPurify from 'isomorphic-dompurify';
 import { IntradayCard, LongtermCard, NewsIntelCard } from './AnalysisCards';
+import { ThoughtAccordion } from '../components/ui/ThoughtAccordion';
+import { getEffort, getThinkingEnabled } from '../../shared/chat-options';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   data?: any;
   type?: 'intraday' | 'longterm' | 'newsintel' | 'chat';
+  thoughts?: string[];
 }
 
 export interface ChatSession {
@@ -38,6 +41,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
   const [loadingStep, setLoadingStep] = useState(0);
   const [loadingType, setLoadingType] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState('');
+  const [streamingThoughts, setStreamingThoughts] = useState<string[]>([]);
   const [toolStatuses, setToolStatuses] = useState<Array<{tool: string, status: 'running' | 'done', result?: string}>>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -112,10 +116,11 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     inputRef.current?.focus();
   }, []);
 
-  const sendMessage = async () => {
-    if (!input.trim() || loading) return;
+  const sendMessage = async (override?: string) => {
+    if (loading) return;
+    if (!override && !input.trim()) return;
 
-    const command = input.trim();
+    const command = (override ?? input).trim();
     const userMessage: ChatMessage = { role: 'user', content: command };
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
@@ -129,8 +134,10 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     if (!activeChatId) {
       activeChatId = btoa(Date.now().toString() + Math.random().toString(36).substring(7)).replace(/=/g, '');
       saveSession(activeChatId, updatedMessages);
-      window.history.replaceState(null, '', '/chat/' + activeChatId);
-      // Don't return here, we want to continue processing the message
+      // NOTE: URL is updated to /chat/<id> only AFTER the response finishes
+      // (see finally block). Using history.replaceState here mid-stream would
+      // desync the Next.js router and remount the component, reloading
+      // messages from localStorage and wiping the in-flight reply.
     } else {
       saveSession(activeChatId, updatedMessages);
     }
@@ -214,7 +221,8 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
           });
         }
         
-        finalMessages.push({ role: 'assistant', content: markdown, data, type: 'intraday' });
+        const intradayThoughts = v?.thoughts || v?.reasons || (v?.thought ? [v.thought] : []);
+        finalMessages.push({ role: 'assistant', content: markdown, data, type: 'intraday', thoughts: intradayThoughts });
       } else if (command.toLowerCase().startsWith('/longterm ')) {
         const ticker = command.substring(10).trim();
         
@@ -284,7 +292,8 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
           });
         }
 
-        finalMessages.push({ role: 'assistant', content: markdown, data, type: 'longterm' });
+        const longtermThoughts = v?.thoughts || v?.reasons || (v?.thought ? [v.thought] : []);
+        finalMessages.push({ role: 'assistant', content: markdown, data, type: 'longterm', thoughts: longtermThoughts });
       } else if (command.toLowerCase() === '/newsintel') {
         const res = await fetch('/api/news-intel', {
           method: 'POST',
@@ -310,7 +319,8 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
           markdown += `- **[${h.source}]** ${h.title} *(Sentiment: ${h.sentiment})*\n`;
         });
 
-        finalMessages.push({ role: 'assistant', content: markdown, data, type: 'newsintel' });
+        const newsThoughts = data.thoughts || data.sentiment?.summary?.overall_signals || [];
+        finalMessages.push({ role: 'assistant', content: markdown, data, type: 'newsintel', thoughts: newsThoughts });
       } else {
         const res = await fetch('/api/chat/stream', {
           method: 'POST',
@@ -318,6 +328,8 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
           body: JSON.stringify({
             message: command,
             history: updatedMessages,
+            effort: getEffort(),
+            thinking: getThinkingEnabled(),
           }),
         });
 
@@ -326,6 +338,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
         if (!reader) throw new Error('No readable stream');
 
         let accumulatedContent = '';
+        let accumulatedThoughts: string[] = [];
         const decoder = new TextDecoder();
         let buffer = '';
 
@@ -363,9 +376,13 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                 }
                 setStreamingContent(accumulatedContent);
               } else if (currentEvent === 'tool_start') {
+                // Tool usage lives INSIDE the thoughts accordion as a plain
+                // "tool used:" line — part of the reasoning flow, not a chat card.
                 try {
                   const data = JSON.parse(dataStr);
                   setToolStatuses(prev => [...prev, { tool: data.tool, status: 'running' }]);
+                  accumulatedThoughts.push(`tool used: ${data.tool}`);
+                  setStreamingThoughts([...accumulatedThoughts]);
                 } catch (e) {}
               } else if (currentEvent === 'tool_result') {
                 try {
@@ -380,7 +397,55 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                     }
                     return next;
                   });
+                  // Replace the pending "tool used: X" line with the result
+                  // inline so the accordion reads like a continuous thought flow.
+                  const toolLabel = data.tool;
+                  const resultText = data.fact ? ` — ${data.fact.substring(0, 140)}${data.fact.length > 140 ? '…' : ''}` : '';
+                  const marker = `tool used: ${toolLabel}`;
+                  const idx = accumulatedThoughts.findIndex(t => t.startsWith(marker));
+                  if (idx !== -1) {
+                    accumulatedThoughts[idx] = `${marker}${resultText}`;
+                  } else {
+                    accumulatedThoughts.push(`${marker}${resultText}`);
+                  }
+                  setStreamingThoughts([...accumulatedThoughts]);
                 } catch (e) {}
+              } else if (currentEvent === 'thought_new') {
+                // Fresh reasoning block — push a new entry so the UI shows
+                // it as a separate numbered step (Step 1 / Step 2 / etc.).
+                try {
+                  let data = JSON.parse(dataStr);
+                  if (typeof data !== 'string') {
+                    data = typeof data === 'object' && data.text ? data.text : JSON.stringify(data);
+                  }
+                  accumulatedThoughts.push(data);
+                  setStreamingThoughts([...accumulatedThoughts]);
+                } catch {
+                  accumulatedThoughts.push(dataStr);
+                  setStreamingThoughts([...accumulatedThoughts]);
+                }
+              } else if (currentEvent === 'thought') {
+                try {
+                  let data = JSON.parse(dataStr);
+                  if (typeof data !== 'string') {
+                    data = typeof data === 'object' && data.text ? data.text : JSON.stringify(data);
+                  }
+                  
+                  if (accumulatedThoughts.length === 0) {
+                    accumulatedThoughts = [data];
+                  } else {
+                    // Append to the current active thought string
+                    accumulatedThoughts[accumulatedThoughts.length - 1] += data;
+                  }
+                  setStreamingThoughts([...accumulatedThoughts]);
+                } catch (e) {
+                  if (accumulatedThoughts.length === 0) {
+                    accumulatedThoughts = [dataStr];
+                  } else {
+                    accumulatedThoughts[accumulatedThoughts.length - 1] += dataStr;
+                  }
+                  setStreamingThoughts([...accumulatedThoughts]);
+                }
               } else if (currentEvent === 'error') {
                 throw new Error(JSON.parse(dataStr).message || 'Stream error');
               }
@@ -391,11 +456,13 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
         finalMessages.push({
           role: 'assistant',
           content: accumulatedContent || 'No response received.',
+          thoughts: accumulatedThoughts.length > 0 ? [...accumulatedThoughts] : undefined,
         });
       }
 
       setMessages(finalMessages);
       setStreamingContent('');
+      setStreamingThoughts([]);
       setToolStatuses([]);
       saveSession(activeChatId, finalMessages);
 
@@ -415,6 +482,14 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     } finally {
       setLoading(false);
       inputRef.current?.focus();
+      // Update the URL to /chat/<id> only after the response finishes. Doing
+      // this mid-stream via history.replaceState desynced the Next.js router,
+      // remounting this component and reloading messages from localStorage —
+      // which wiped the in-flight reply. router.replace() after completion
+      // avoids the router desync entirely.
+      if (chatId !== activeChatId) {
+        router.replace('/chat/' + activeChatId);
+      }
     }
   };
 
@@ -438,41 +513,29 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
           {/* Messages */}
           <div className="chat-messages">
             {messages.length === 0 && !loading ? (
-              <div className="empty-state">
-                <div className="empty-state-icon">
-                  <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                  </svg>
+              <div className="empty-state" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: 80, height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px' }}>
+                  <img src="/logo-boz.png" alt="BOZ" style={{ width: 80, height: 80, objectFit: 'contain' }} />
                 </div>
-                <h3 className="empty-state-title">Start a conversation with BOZ</h3>
-                <p className="empty-state-text">
-                  Ask about market analysis, technical indicators, trading strategies, or any financial question.
+                <h2 style={{ fontSize: '28px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>How can I help you today?</h2>
+                <p style={{ fontSize: '15px', color: 'var(--text-muted)', marginBottom: '40px', maxWidth: '400px', textAlign: 'center' }}>
+                  Analyze markets, lookup stocks, or generate trading strategies.
                 </p>
-                <div className="grid-2 gap-3" style={{ marginTop: 'var(--space-4)', maxWidth: '500px' }}>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => { setInput('What is the current market outlook?'); }}
-                  >
-                    Market outlook
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => { setInput('/intraday NVDA'); }}
-                  >
-                    /intraday NVDA
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => { setInput('/newsintel'); }}
-                  >
-                    /newsintel
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => { setInput('/longterm AAPL'); }}
-                  >
-                    /longterm AAPL
-                  </button>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', maxWidth: '560px' }}>
+                  {[
+                    { text: 'What is the current market outlook?', action: 'What is the current market outlook?' },
+                    { text: 'Intraday analysis (NVDA)', action: '/intraday NVDA' },
+                    { text: 'News Intel', action: '/newsintel' },
+                    { text: 'Longterm outlook (AAPL)', action: '/longterm AAPL' },
+                  ].map((s, i) => (
+                    <button
+                      key={i}
+                      onClick={() => sendMessage(s.action)}
+                      className="suggestion-chip"
+                    >
+                      {s.text}
+                    </button>
+                  ))}
                 </div>
               </div>
             ) : (
@@ -481,15 +544,21 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                   <div key={i} className={`chat-bubble ${msg.role}`}>
                     {msg.role === 'assistant' ? (
                       <div className="flex-row gap-3">
-                        <div style={{ flexShrink: 0, width: 28, height: 28, borderRadius: 'var(--radius-sm)', background: 'var(--accent-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--bg-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                          </svg>
+                        <div style={{ flexShrink: 0, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <img src="/logo-boz.png" alt="BOZ" style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: '12px' }} />
                         </div>
-                        <div style={{ width: '100%' }}>
+                        <div style={{ width: '100%', paddingTop: '4px' }}>
                           {msg.type === 'intraday' && <IntradayCard data={msg.data} />}
                           {msg.type === 'longterm' && <LongtermCard data={msg.data} />}
                           {msg.type === 'newsintel' && <NewsIntelCard data={msg.data} />}
+                          {/* Analysis cards already render their own CoT — skip duplicate for those types */}
+                          {msg.thoughts && msg.thoughts.length > 0 && msg.type !== 'intraday' && msg.type !== 'longterm' && msg.type !== 'newsintel' && (
+                            <ThoughtAccordion
+                              thoughts={msg.thoughts}
+                              title="AI Thinking Process"
+                              defaultOpen={false}
+                            />
+                          )}
                           <div dangerouslySetInnerHTML={{ __html: formatContent(msg.content) }} />
                         </div>
                       </div>
@@ -499,43 +568,35 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                   </div>
                 ))}
 
-                {/* Loading indicator */}
+                {/* Loading indicator — streaming assistant response */}
                 {loading && (
-                  <div style={{ display: 'flex', flexDirection: 'row', gap: '12px', alignItems: 'flex-start', padding: '12px 0' }}>
-                    <div style={{ flexShrink: 0, width: 28, height: 28, borderRadius: 'var(--radius-sm)', background: 'var(--accent-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '4px' }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--bg-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                      </svg>
-                    </div>
-                    <div style={{ width: '100%' }}>
-                      {toolStatuses.length > 0 && (
-                        <div className="flex-col gap-2 mb-3 mt-1" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                          {toolStatuses.map((ts, idx) => (
-                            <div key={idx} className="flex-row items-center gap-2">
-                              {ts.status === 'running' ? (
-                                <span className="spinner spinner-sm"></span>
-                              ) : (
-                                <span>✅</span>
-                              )}
-                              <span>Using tool: <strong style={{ color: 'var(--text-primary)' }}>{ts.tool}</strong></span>
-                              {ts.result && <span style={{ opacity: 0.8 }}>— {ts.result.substring(0, 80)}{ts.result.length > 80 ? '...' : ''}</span>}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      
-                      {streamingContent ? (
-                        <div dangerouslySetInnerHTML={{ __html: formatContent(streamingContent) }} />
-                      ) : (
-                        <div className="flex-row gap-2 items-center" style={{ height: '28px' }}>
-                          {!toolStatuses.length && <span className="spinner spinner-sm"></span>}
-                          <span className="page-subtitle animate-fadeIn" key={loadingStep} style={{ margin: 0, transition: 'all 0.3s ease' }}>
-                            {(loadingType?.startsWith('/intraday') || loadingType?.startsWith('/longterm'))
-                              ? loadingMessages[loadingStep]
-                              : toolStatuses.length ? 'Analyzing data...' : 'Thinking...'}
-                          </span>
-                        </div>
-                      )}
+                  <div className={`chat-bubble assistant`}>
+                    <div className="flex-row gap-3">
+                      <div style={{ flexShrink: 0, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <img src="/logo-boz.png" alt="BOZ" style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: '12px' }} />
+                      </div>
+                      <div style={{ width: '100%', paddingTop: '4px' }}>
+                        {streamingThoughts.length > 0 && (
+                          <ThoughtAccordion
+                            thoughts={streamingThoughts}
+                            isStreaming={true}
+                            defaultOpen={true}
+                            title="Live AI Thinking Process"
+                          />
+                        )}
+                        {streamingContent ? (
+                          <div dangerouslySetInnerHTML={{ __html: formatContent(streamingContent) }} />
+                        ) : streamingThoughts.length > 0 ? null : (
+                          <div className="flex-row gap-2 items-center" style={{ height: '28px' }}>
+                            {!toolStatuses.length && <span className="spinner spinner-sm"></span>}
+                            <span className="page-subtitle animate-fadeIn" key={loadingStep} style={{ margin: 0, transition: 'all 0.3s ease' }}>
+                              {(loadingType?.startsWith('/intraday') || loadingType?.startsWith('/longterm'))
+                                ? loadingMessages[loadingStep]
+                                : toolStatuses.length ? 'Analyzing data...' : 'Thinking...'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -547,28 +608,64 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
           {/* Input Area */}
           <div className="chat-input-area">
+            {input.startsWith('/') && !input.includes(' ') && input !== '/newsintel' && (
+              <div style={{
+                position: 'absolute',
+                bottom: 'calc(100% - 1px)',
+                left: '32px',
+                width: '300px',
+                background: 'rgba(18, 18, 18, 0.95)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderBottom: 'none',
+                borderRadius: '16px 16px 0 0',
+                padding: '8px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px',
+                boxShadow: '0 -10px 40px -10px rgba(0,0,0,0.8)',
+                zIndex: 10,
+              }}>
+                <div style={{ padding: '8px 12px 4px 12px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Slash Commands</div>
+                
+                {[
+                  { cmd: '/intraday ', title: '/intraday [ticker]', desc: 'Live intraday analysis & key levels' },
+                  { cmd: '/longterm ', title: '/longterm [ticker]', desc: 'Fundamental analysis & long-term outlook' },
+                  { cmd: '/newsintel', title: '/newsintel', desc: 'Scan latest market headlines' }
+                ].filter(c => c.cmd.startsWith(input) || c.title.startsWith(input)).map(item => (
+                  <button 
+                    key={item.cmd}
+                    onClick={() => { setInput(item.cmd); inputRef.current?.focus(); }}
+                    style={{ display: 'flex', flexDirection: 'column', padding: '10px 12px', background: 'transparent', border: 'none', borderRadius: '10px', color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left', transition: 'background 0.2s' }}
+                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                    onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <div style={{ fontSize: '13px', fontWeight: 600 }}>{item.title}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{item.desc}</div>
+                  </button>
+                ))}
+              </div>
+            )}
             <input
               ref={inputRef}
               type="text"
               className="input"
-              placeholder="Ask BOZ anything about markets..."
+              placeholder="Ask anything..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={loading}
             />
             <button
-              className="btn btn-primary"
-              onClick={sendMessage}
+              className="chat-input-btn"
+              onClick={() => sendMessage()}
               disabled={loading || !input.trim()}
             >
               {loading ? (
-                <span className="spinner spinner-sm"></span>
+                <i className="fa-solid fa-stop" style={{ fontSize: '14px' }}></i>
               ) : (
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="22" y1="2" x2="11" y2="13" />
-                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                </svg>
+                <i className="fa-solid fa-arrow-up" style={{ fontSize: '16px' }}></i>
               )}
             </button>
           </div>

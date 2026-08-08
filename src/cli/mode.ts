@@ -1,4 +1,4 @@
-import { hPick } from './cli.js';
+import { vPick } from './cli.js';
 import { getBuildVersion } from '../utils/version.js';
 
 export const DEFAULT_WEB_PORT = 21526;
@@ -43,9 +43,47 @@ export function resolveMode(
   }
 }
 
+// ─── Startup banner ───────────────────────────────────────────────────────────
+
+const ANSI = {
+  reset: '\x1b[0m',
+  dim:   '\x1b[2m',
+  ghost: '\x1b[90m',
+  white: '\x1b[97m',
+  cyan:  '\x1b[36m',
+} as const;
+
+const wrap = (color: string, text: string) => `${color}${text}${ANSI.reset}`;
+
+const BOZ_LOGO = [
+  '  ██              ██',
+  '  ████          ████',
+  '██████████████████████',
+  '█████  ███████  ██████',
+  '█████████   ██████████',
+  '██████████████████████',
+  ' ███   ███   ███   ██',
+];
+
+function printMascot(): void {
+  process.stdout.write('\n');
+  for (const row of BOZ_LOGO) {
+    process.stdout.write(`   ${wrap(ANSI.cyan, row)}\n`);
+  }
+  process.stdout.write('\n');
+  process.stdout.write(
+    `   ${wrap(ANSI.white, 'BOZ')}` +
+    `  ${wrap(ANSI.ghost, '· Behavioral Outlook Zone')}` +
+    `  ${wrap(ANSI.dim, 'v' + getBuildVersion())}\n\n`,
+  );
+}
+
 export async function pickMode(): Promise<'terminal' | 'web'> {
-  process.stdout.write('\n  Mode:  ');
-  const idx = await hPick(['Terminal', 'Web UI']);
+  printMascot();
+  process.stdout.write(
+    `   ${wrap(ANSI.ghost, 'How would you like to use BOZ?')}\n\n`,
+  );
+  const idx = await vPick(['Terminal', 'Web UI'], 0, '   ');
   process.stdout.write('\n');
   return idx === 0 ? 'terminal' : 'web';
 }

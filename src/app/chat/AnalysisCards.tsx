@@ -1,15 +1,26 @@
 import React from 'react';
+import { ThoughtAccordion } from '../components/ui/ThoughtAccordion';
 
 const fmt = (v: number | null | undefined, d = 2) => v != null ? v.toFixed(d) : '—';
 
 export function IntradayCard({ data }: { data: any }) {
   if (!data) return null;
-  const { verdict, marketData: md, macro, sentiment: sent, chartPatterns: cp, tradeLevels: tl } = data;
+  const { verdict, marketData: md, macro, sentiment: sent, chartPatterns: cp, tradeLevels: tl, thoughts } = data;
   const isOk = verdict?.status === 'ok';
   const isBull = verdict?.prediction === 'UP';
+  const cardThoughts = thoughts || verdict?.thoughts || verdict?.reasons || (verdict?.thought ? [verdict.thought] : []);
 
   return (
     <div className="flex-col gap-6" style={{ marginBottom: '16px' }}>
+      {/* AI Thought Process Accordion */}
+      {cardThoughts && cardThoughts.length > 0 && (
+        <ThoughtAccordion
+          thoughts={cardThoughts}
+          title="Intraday AI Reasoning Process"
+          defaultOpen={false}
+          accent={isBull ? 'bull' : 'bear'}
+        />
+      )}
 
 
       {/* Technical + Macro Row */}
@@ -175,13 +186,26 @@ export function IntradayCard({ data }: { data: any }) {
 
 export function LongtermCard({ data }: { data: any }) {
   if (!data) return null;
-  const { marketData: md, macro, sentiment: sent, chartPatterns: cp } = data;
+  const { verdict, marketData: md, macro, sentiment: sent, chartPatterns: cp, thoughts } = data;
+  const isOk = verdict?.status === 'ok';
+  const isBull = verdict?.prediction === 'UP';
+  const cardThoughts = thoughts || verdict?.thoughts || verdict?.reasons || (verdict?.thought ? [verdict.thought] : []);
 
   const fmt = (v: number | null | undefined, decimals = 2) =>
     v != null ? v.toFixed(decimals) : '—';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', marginTop: 'var(--space-2)' }}>
+      {/* Long-term AI Thought Process Accordion */}
+      {cardThoughts && cardThoughts.length > 0 && (
+        <ThoughtAccordion
+          thoughts={cardThoughts}
+          title="Long-Term Fundamental Thesis & Reasoning"
+          defaultOpen={false}
+          accent={isBull ? 'bull' : 'bear'}
+        />
+      )}
+
       {md?.fiftyTwoWeekHigh && (
         <div className="glass-card compact" style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)' }}>
           <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-3)' }}>52-Week Context</div>
@@ -292,11 +316,25 @@ export function LongtermCard({ data }: { data: any }) {
 
 export function NewsIntelCard({ data }: { data: any }) {
   if (!data) return null;
-  const { sentiment: sent } = data;
+  const { sentiment: sent, thoughts, summary } = data;
+  const intelThoughts = thoughts || sent?.summary?.overall_signals || (summary?.thoughts ? summary.thoughts : []);
 
   return (
     <div className="glass-card" style={{ padding: '16px', marginBottom: '16px', fontSize: '14px', borderRadius: 'var(--radius-lg)', background: 'var(--surface-glass)', border: '1px solid var(--border-glass)' }}>
       <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 600 }}>News Intelligence</h3>
+      
+      {/* News Intel AI Thought Process Accordion */}
+      {intelThoughts && intelThoughts.length > 0 && (
+        <div style={{ marginBottom: '14px' }}>
+          <ThoughtAccordion
+            thoughts={intelThoughts}
+            title="News Intel AI Synthesis & Macro Deductions"
+            defaultOpen={false}
+            accent="violet"
+          />
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
         {sent && (
           <div style={{ padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
