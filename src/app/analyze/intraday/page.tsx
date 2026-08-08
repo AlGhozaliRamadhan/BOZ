@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { ThoughtAccordion } from '@/app/components/ui/ThoughtAccordion';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -377,24 +378,15 @@ export default function IntradayAnalysisPage() {
             </div>
           </div>
 
-          {/* AI Reasoning */}
-          {isOk && verdict.reasons?.length > 0 && (
-            <div className="glass-card">
-              <div className="card-header">
-                <span className="card-title">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                    <line x1="12" y1="17" x2="12.01" y2="17" />
-                  </svg>
-                  {' '}AI Reasoning
-                </span>
-              </div>
-              <ul className="reason-list">
-                {verdict.reasons.map((r: string, i: number) => (
-                  <li key={i} className="reason-item">{r}</li>
-                ))}
-              </ul>
+          {/* AI Reasoning & Deep Thinking Accordion */}
+          {(verdict?.thought || verdict?.thoughts || (verdict?.reasons && verdict.reasons.length > 0)) && (
+            <div style={{ marginTop: 'var(--space-4)' }}>
+              <ThoughtAccordion
+                thoughts={verdict.thoughts || verdict.reasons || verdict.thought}
+                title="Intraday AI Deep Reasoning Process"
+                defaultOpen={false}
+                accent={isBull ? 'bull' : 'bear'}
+              />
             </div>
           )}
         </div>

@@ -90,7 +90,7 @@ function renderVPicker(options: string[], selected: number, indent: string): voi
   });
 }
 
-function vPick(options: string[], defaultIdx = 0, indent = '    '): Promise<number> {
+export function vPick(options: string[], defaultIdx = 0, indent = '    '): Promise<number> {
   return new Promise((resolve) => {
     let sel = defaultIdx;
     if (process.stdin.isTTY) { process.stdin.setRawMode(true); process.stdin.resume(); }

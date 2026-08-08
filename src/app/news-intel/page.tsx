@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { ThoughtAccordion } from '@/app/components/ui/ThoughtAccordion';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -112,6 +113,16 @@ export default function NewsIntelPage() {
 
       {result && !loading && (
         <div className="flex-col gap-6 animate-slideUp">
+
+          {/* News Intel AI Synthesis & Thought Process */}
+          {(result.thoughts || result.thought || (sent?.summary?.overall_signals && sent.summary.overall_signals.length > 0)) && (
+            <ThoughtAccordion
+              thoughts={result.thoughts || result.thought || sent?.summary?.overall_signals}
+              title="News Intelligence AI Synthesis & Macro Deductions"
+              defaultOpen={false}
+              accent="violet"
+            />
+          )}
 
           {/* Sentiment Overview */}
           <div className="glass-card accent-glow">

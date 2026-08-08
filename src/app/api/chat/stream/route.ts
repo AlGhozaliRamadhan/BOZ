@@ -1,8 +1,16 @@
 import { NextRequest } from 'next/server';
 import { WebChatEngine } from '../chat.engine';
+import type { ThoughtEffort } from '@/shared/thought-prompts';
+
+const VALID_EFFORTS: ThoughtEffort[] = ['Low', 'Medium', 'High', 'Extra', 'Max'];
 
 export async function POST(request: NextRequest) {
-  let body: { message?: string; history?: Array<{ role: 'user' | 'assistant'; content: string }> };
+  let body: {
+    message?: string;
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+    effort?: string;
+    thinking?: boolean;
+  };
   try {
     body = await request.json();
   } catch {
@@ -14,6 +22,12 @@ export async function POST(request: NextRequest) {
     return new Response('Message is required', { status: 400 });
   }
 
+  const effort: ThoughtEffort =
+    body.effort && VALID_EFFORTS.includes(body.effort as ThoughtEffort)
+      ? (body.effort as ThoughtEffort)
+      : 'Max';
+  const thinking = body.thinking !== false; // default true
+
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -21,10 +35,13 @@ export async function POST(request: NextRequest) {
       const engine = new WebChatEngine();
 
       try {
-        for await (const event of engine.run({ message, history: body.history })) {
-          const payload = typeof event.data === 'string'
-            ? event.data
-            : JSON.stringify(event.data);
+        for await (const event of engine.run({
+          message,
+          history: body.history,
+          effort,
+          thinking,
+        })) {
+          const payload = JSON.stringify(event.data);
           const sseMessage = `event: ${event.type}\ndata: ${payload}\n\n`;
           controller.enqueue(encoder.encode(sseMessage));
         }

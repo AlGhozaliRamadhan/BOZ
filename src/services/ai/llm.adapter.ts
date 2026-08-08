@@ -11,11 +11,26 @@ export type JsonCallResult<T> =
   | { type: 'schema_error'; raw: string; errors: string[] };
 
 export type NvidiaMode = 'default' | 'analysis';
+export type ReasoningEffort = 'low' | 'medium' | 'high';
+
+const REASONING_BUDGETS: Record<ReasoningEffort, number> = {
+  low: 4096,
+  medium: 8192,
+  high: 16384,
+};
 
 const DEFAULT_TIMEOUT_MS = 90_000;
 
 export class LLMAdapter {
   constructor(private readonly timeoutMs = DEFAULT_TIMEOUT_MS) {}
+
+  private buildMessages(
+    base: LLMMessage[],
+    assistantPrefill?: string,
+  ): LLMMessage[] {
+    if (!assistantPrefill) return base;
+    return [...base, { role: 'assistant', content: assistantPrefill }];
+  }
 
   async callText(options: {
     messages: LLMMessage[];
@@ -24,11 +39,14 @@ export class LLMAdapter {
     model?: string;
     responseFormat?: 'json';
     nvidiaMode?: NvidiaMode;
+    reasoningEffort?: ReasoningEffort;
+    assistantPrefill?: string;
   }): Promise<string> {
     const provider = config.aiProvider ?? 'github';
     const temperature = options.temperature ?? 0.4;
     const maxTokens = options.maxTokens ?? 1500;
     const model = options.model;
+    const messages = this.buildMessages(options.messages, options.assistantPrefill);
 
     if (provider === 'nvidia') {
       if (!config.nvidia.apiKey) throw new Error('No NVIDIA API key configured');
@@ -36,19 +54,19 @@ export class LLMAdapter {
       const modelName = model ?? config.nvidia.model;
       const params: Record<string, any> = {
         model: modelName,
-        messages: options.messages as any,
+        messages: messages as any,
         temperature,
         max_tokens: maxTokens,
       };
       if (options.responseFormat === 'json') {
         params.response_format = { type: 'json_object' };
       }
-      if (options.nvidiaMode === 'analysis') {
-        const isDeepSeek = modelName.startsWith('deepseek-ai/');
-        if (isDeepSeek) {
-          params.extra_body = { chat_template_kwargs: { thinking: false } };
+      const isReasoning = modelName.includes('nemotron') || modelName.includes('deepseek') || modelName.includes('qwen') || modelName.includes('qwq');
+      if (isReasoning || options.nvidiaMode === 'analysis' || options.reasoningEffort) {
+        if (modelName.startsWith('deepseek-ai/')) {
+          params.extra_body = { chat_template_kwargs: { thinking: true } };
         } else {
-          params.reasoning_budget = 16384;
+          params.reasoning_budget = options.reasoningEffort ? REASONING_BUDGETS[options.reasoningEffort] : 16384;
           params.chat_template_kwargs = { enable_thinking: true };
         }
       }
@@ -62,7 +80,7 @@ export class LLMAdapter {
         `${config.aiEndpoint.replace(/\/$/, '')}/api/chat`,
         {
           model: model ?? config.aiModel,
-          messages: options.messages,
+          messages,
           stream: false,
         },
         { timeout: this.timeoutMs },
@@ -72,15 +90,19 @@ export class LLMAdapter {
     }
 
     if (!config.github.token) throw new Error('No GitHub token configured');
+    const githubBody: Record<string, any> = {
+      model: model ?? config.github.model,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+      ...(options.responseFormat === 'json' ? { response_format: { type: 'json_object' } } : {}),
+    };
+    if (options.reasoningEffort) {
+      githubBody.reasoning_effort = options.reasoningEffort;
+    }
     const res = await axios.post(
       `${config.github.endpoint}/chat/completions`,
-      {
-        model: model ?? config.github.model,
-        messages: options.messages,
-        temperature,
-        max_tokens: maxTokens,
-        ...(options.responseFormat === 'json' ? { response_format: { type: 'json_object' } } : {}),
-      },
+      githubBody,
       { headers: { Authorization: `Bearer ${config.github.token}` }, timeout: this.timeoutMs },
     );
     const content = res.data.choices?.[0]?.message?.content ?? '';
@@ -94,11 +116,14 @@ export class LLMAdapter {
     model?: string;
     responseFormat?: 'json';
     nvidiaMode?: NvidiaMode;
+    reasoningEffort?: ReasoningEffort;
+    assistantPrefill?: string;
   }): AsyncGenerator<string, void, unknown> {
     const provider = config.aiProvider ?? 'github';
     const temperature = options.temperature ?? 0.4;
     const maxTokens = options.maxTokens ?? 1500;
     const model = options.model;
+    const messages = this.buildMessages(options.messages, options.assistantPrefill);
 
     if (provider === 'nvidia') {
       if (!config.nvidia.apiKey) throw new Error('No NVIDIA API key configured');
@@ -106,7 +131,7 @@ export class LLMAdapter {
       const modelName = model ?? config.nvidia.model;
       const params: Record<string, any> = {
         model: modelName,
-        messages: options.messages as any,
+        messages: messages as any,
         temperature,
         max_tokens: maxTokens,
         stream: true,
@@ -114,19 +139,24 @@ export class LLMAdapter {
       if (options.responseFormat === 'json') {
         params.response_format = { type: 'json_object' };
       }
-      if (options.nvidiaMode === 'analysis') {
-        const isDeepSeek = modelName.startsWith('deepseek-ai/');
-        if (isDeepSeek) {
-          params.extra_body = { chat_template_kwargs: { thinking: false } };
+      const isReasoning = modelName.includes('nemotron') || modelName.includes('deepseek') || modelName.includes('qwen') || modelName.includes('qwq');
+      if (isReasoning || options.nvidiaMode === 'analysis' || options.reasoningEffort) {
+        if (modelName.startsWith('deepseek-ai/')) {
+          params.extra_body = { chat_template_kwargs: { thinking: true } };
         } else {
-          params.reasoning_budget = 16384;
+          params.reasoning_budget = options.reasoningEffort ? REASONING_BUDGETS[options.reasoningEffort] : 16384;
           params.chat_template_kwargs = { enable_thinking: true };
         }
       }
       const stream = await client.chat.completions.create(params as any);
       for await (const chunk of stream as any) {
-        const delta = chunk.choices?.[0]?.delta?.content;
-        if (delta) yield delta;
+        const delta = chunk.choices?.[0]?.delta;
+        if (delta?.reasoning_content) {
+          yield `<think>${delta.reasoning_content}</think>`;
+        }
+        if (delta?.content) {
+          yield delta.content;
+        }
       }
       return;
     }
@@ -141,9 +171,10 @@ export class LLMAdapter {
     // GitHub Provider fallback to standard OpenAI client since it's compatible
     if (!config.github.token) throw new Error('No GitHub token configured');
     const client = new OpenAI({ apiKey: config.github.token, baseURL: config.github.endpoint });
+    const modelName = model ?? config.github.model;
     const params: Record<string, any> = {
-      model: model ?? config.github.model,
-      messages: options.messages as any,
+      model: modelName,
+      messages: messages as any,
       temperature,
       max_tokens: maxTokens,
       stream: true,
@@ -151,10 +182,18 @@ export class LLMAdapter {
     if (options.responseFormat === 'json') {
       params.response_format = { type: 'json_object' };
     }
+    if (options.reasoningEffort) {
+      params.reasoning_effort = options.reasoningEffort;
+    }
     const stream = await client.chat.completions.create(params as any);
     for await (const chunk of stream as any) {
-      const delta = chunk.choices?.[0]?.delta?.content;
-      if (delta) yield delta;
+      const delta = chunk.choices?.[0]?.delta;
+      if (delta?.reasoning_content) {
+        yield `<think>${delta.reasoning_content}</think>`;
+      }
+      if (delta?.content) {
+        yield delta.content;
+      }
     }
   }
 
@@ -164,41 +203,54 @@ export class LLMAdapter {
     temperature?: number;
     maxTokens?: number;
     model?: string;
+    reasoningEffort?: ReasoningEffort;
+    assistantPrefill?: string;
   }): Promise<LLMMessage> {
     const provider = config.aiProvider ?? 'github';
     const temperature = options.temperature ?? 0.3;
     const maxTokens = options.maxTokens ?? 4096;
     const model = options.model;
+    const messages = this.buildMessages(options.messages, options.assistantPrefill);
 
     if (provider === 'nvidia') {
       if (!config.nvidia.apiKey) throw new Error('No NVIDIA API key configured');
       const client = new OpenAI({ apiKey: config.nvidia.apiKey, baseURL: config.nvidia.baseURL });
-      const res = await client.chat.completions.create({
-        model: model ?? config.nvidia.model,
-        messages: options.messages as any,
+      const modelName = model ?? config.nvidia.model;
+      const params: Record<string, any> = {
+        model: modelName,
+        messages: messages as any,
         tools: options.tools as any,
         tool_choice: 'auto',
         temperature,
         max_tokens: maxTokens,
-      });
+      };
+      if (options.reasoningEffort) {
+        params.reasoning_budget = REASONING_BUDGETS[options.reasoningEffort];
+        params.chat_template_kwargs = { enable_thinking: true };
+      }
+      const res = await client.chat.completions.create(params as any);
       return LLMAdapter.normalizeOpenAIResponse(res.choices?.[0]?.message ?? {});
     }
 
     if (provider === 'offline') {
-      return this.callOfflineTooling(options.messages, options.tools, model);
+      return this.callOfflineTooling(messages, options.tools, model);
     }
 
     if (!config.github.token) throw new Error('No GitHub token configured');
+    const githubBody: Record<string, any> = {
+      model: model ?? config.github.model,
+      messages,
+      tools: options.tools,
+      tool_choice: 'auto',
+      temperature,
+      max_tokens: maxTokens,
+    };
+    if (options.reasoningEffort) {
+      githubBody.reasoning_effort = options.reasoningEffort;
+    }
     const res = await axios.post(
       `${config.github.endpoint}/chat/completions`,
-      {
-        model: model ?? config.github.model,
-        messages: options.messages,
-        tools: options.tools,
-        tool_choice: 'auto',
-        temperature,
-        max_tokens: maxTokens,
-      },
+      githubBody,
       { headers: { Authorization: `Bearer ${config.github.token}` }, timeout: this.timeoutMs },
     );
     return LLMAdapter.normalizeOpenAIResponse(res.data.choices?.[0]?.message ?? {});
@@ -348,9 +400,58 @@ export class LLMAdapter {
   }
 
   private static normalizeOpenAIResponse(msg: any): LLMMessage {
+    let rawContent = msg.content ?? '';
+
+    // Strip the assistant prefill echo if the model repeated it at the start
+    // of its response (e.g. "<think>\nThinking Process:\n1. " or just
+    // "Thinking Process:\n1. ").
+    rawContent = rawContent.replace(/^<think>\s*\n?\s*Thinking Process:\s*\n?\s*1\.\s*/i, '');
+    rawContent = rawContent.replace(/^Thinking Process:\s*\n?\s*1\.\s*/i, '');
+
+    let content = LLMAdapter.stripThinking(rawContent) || null;
+
+    // Native reasoning models (Nemotron, DeepSeek, QwQ on NVIDIA) return
+    // their reasoning in a separate `reasoning_content` field. Capture it so
+    // the engine can surface it as a thought block even when no <think>
+    // tags are present in `content`.
+    const nativeReasoning = (msg.reasoning_content ?? msg.reasoning ?? '').toString().trim();
+
+    let thought: string | null = null;
+    if (nativeReasoning) {
+      thought = nativeReasoning;
+    } else {
+      const thinkingMatch = rawContent.match(/<think(?:ing)?>(.*?)<\/think(?:ing)?>/s);
+      if (thinkingMatch) {
+        thought = thinkingMatch[1].trim();
+      } else if (rawContent.length > 0 && rawContent !== (content ?? '')) {
+        const thinkingEnd = rawContent.indexOf('</thinking>');
+        if (thinkingEnd !== -1) {
+            const thinkStart = rawContent.indexOf('<thinking>');
+            thought = rawContent.substring(thinkStart !== -1 ? thinkStart + 10 : 0, thinkingEnd).trim();
+        } else {
+            const thinkEnd = rawContent.indexOf('</think>');
+            if (thinkEnd !== -1) {
+                const thinkStart = rawContent.indexOf('<think>');
+                thought = rawContent.substring(thinkStart !== -1 ? thinkStart + 7 : 0, thinkEnd).trim();
+            }
+        }
+      }
+    }
+
+    const hasTools = msg.tool_calls && msg.tool_calls.length > 0;
+
+    if (!thought && rawContent.trim().length > 0) {
+        if (hasTools) {
+            // Models like Nemotron output reasoning text before tool calls without tags
+            thought = rawContent.trim();
+            content = null; // Since all text was thought, there is no final content
+        }
+    }
+
     return {
       role: 'assistant',
-      content: msg.content ?? null,
+      content,
+      thought,
       tool_calls: msg.tool_calls ?? undefined,
     };
   }
