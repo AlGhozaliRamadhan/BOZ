@@ -13,6 +13,7 @@ import { nvidiaConfig, NVIDIA_MODELS, NVIDIA_API_KEY_URL } from '../config/nvidi
 import { resolveSymbol } from '../shared/market-constants.js';
 import { yahooFinance } from '../services/market/yahoo.service.js';
 import { getBuildVersion } from '../utils/version.js';
+import { configEnvPath } from '../utils/env-dir.js';
 
 // ─── Version ──────────────────────────────────────────────────────────────────
 
@@ -58,7 +59,7 @@ function renderHPicker(options: string[], selected: number): void {
   process.stdout.write(`\r\x1b[K  ${parts.join('     ')}`);
 }
 
-function hPick(options: string[], defaultIdx = 0): Promise<number> {
+export function hPick(options: string[], defaultIdx = 0): Promise<number> {
   return new Promise((resolve) => {
     let sel = defaultIdx;
     if (process.stdin.isTTY) { process.stdin.setRawMode(true); process.stdin.resume(); }
@@ -89,7 +90,7 @@ function renderVPicker(options: string[], selected: number, indent: string): voi
   });
 }
 
-function vPick(options: string[], defaultIdx = 0, indent = '    '): Promise<number> {
+export function vPick(options: string[], defaultIdx = 0, indent = '    '): Promise<number> {
   return new Promise((resolve) => {
     let sel = defaultIdx;
     if (process.stdin.isTTY) { process.stdin.setRawMode(true); process.stdin.resume(); }
@@ -301,7 +302,7 @@ function printTokenHelp(): void {
   process.stdout.write(`  ${c.wrap(c.dim,    '   GITHUB_TOKEN=ghp_your_token_here')}\n\n`);
 }
 
-function openBrowser(url: string): void {
+export function openBrowser(url: string): void {
   try {
     const cmd =
       process.platform === 'win32'  ? `start "" "${url}"` :
@@ -327,7 +328,7 @@ function sanitizeEnvValue(value: string): string {
 
 function upsertEnvVar(key: string, value: string): void {
   const safe     = sanitizeEnvValue(value);
-  const envPath  = path.resolve(process.cwd(), '.env');
+  const envPath = configEnvPath();
   let   contents = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
   const lineRe   = new RegExp('^' + key + '=.*$', 'm');
   const line     = `${key}=${safe}`;

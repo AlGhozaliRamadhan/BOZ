@@ -22,9 +22,10 @@ OUTPUT FORMAT:
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, history } = await parseBody<{
+    const { message, history, model } = await parseBody<{
       message: string;
       history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+      model?: string;
     }>(request);
 
     if (!message?.trim()) return errorResponse('Message is required', 400);
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
       messages,
       temperature: 0.5,
       maxTokens: 2000,
+      model,
     });
 
     return jsonResponse({

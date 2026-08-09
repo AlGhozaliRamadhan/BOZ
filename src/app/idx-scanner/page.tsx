@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { ThoughtAccordion } from '@/app/components/ui/ThoughtAccordion';
 
 interface ScanResult {
   ticker: string;
@@ -23,6 +24,7 @@ export default function IdxScannerPage() {
   const [hasScanned, setHasScanned] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('score');
   const [sortDir, setSortDir] = useState<SortDirection>('desc');
+  const [scanThoughts, setScanThoughts] = useState<string[]>([]);
 
   const handleScan = async () => {
     setLoading(true);
@@ -48,6 +50,17 @@ export default function IdxScannerPage() {
         });
       }
       setResults(allResults);
+
+      const generatedThoughts: string[] = [];
+      if (data.summary) {
+        generatedThoughts.push(`[MARKET BREADTH] Indonesia universe screening complete. Breadth signal: ${data.summary.breadthSignal || 'NEUTRAL'} | Avg momentum score: ${data.summary.avgScore?.toFixed(1) || '--'}/100.`);
+        generatedThoughts.push(`[CANDIDATE DISTRIBUTION] Identified ${data.summary.buyCount ?? data.buys?.length ?? 0} high-conviction BUY setups, ${data.summary.watchCount ?? data.watches?.length ?? 0} WATCH candidates, and ${data.summary.avoidCount ?? data.avoids?.length ?? 0} AVOID stocks out of ${data.universeCount || data.totalScanned || 0} scanned.`);
+      }
+      if (data.buys && data.buys.length > 0) {
+        const topBuys = data.buys.slice(0, 3).map((b: any) => `${b.ticker || b.symbol} (${b.setup || b.pattern || 'Momentum'} - Score: ${b.score || b.total_score})`).join(', ');
+        generatedThoughts.push(`[TOP SETUP RATIONALE] Prime momentum setups: ${topBuys}. Filtered with strict volume confirmation (Volume Ratio > 1.2x) and healthy RSI levels.`);
+      }
+      setScanThoughts(generatedThoughts);
       setHasScanned(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -158,6 +171,17 @@ export default function IdxScannerPage() {
       {/* Results Table */}
       {hasScanned && !loading && !error && (
         <>
+          {scanThoughts.length > 0 && (
+            <div style={{ marginBottom: 'var(--space-4)' }}>
+              <ThoughtAccordion
+                thoughts={scanThoughts}
+                title="IDX Scanner AI Momentum Deductions & Breadth Analysis"
+                defaultOpen={false}
+                accent="cyan"
+              />
+            </div>
+          )}
+
           {sortedResults.length > 0 ? (
             <div className="scanner-table-wrapper animate-slideUp">
               <table className="data-table">

@@ -19,6 +19,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
+    "baseUrl": ".",
     "paths": {
       "@/*": [
         "./src/*"
@@ -34,7 +35,8 @@
     "next-env.d.ts",
     "src/**/*",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    ".next/dev/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

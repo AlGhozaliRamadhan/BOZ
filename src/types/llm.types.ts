@@ -7,6 +7,7 @@ export interface RawToolCall {
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | null;
+  thought?: string | null;
   tool_calls?: RawToolCall[];
   tool_call_id?: string;
   name?: string;

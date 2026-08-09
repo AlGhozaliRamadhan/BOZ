@@ -21,18 +21,6 @@ const activeState = {
   riskMode:   'auto' as RiskMode,
 };
 
-const warnIfMisconfigured = (provider: AIProvider) => {
-  if (provider === 'github' && !githubConfig.token) {
-    console.warn('WARNING: GITHUB_TOKEN not found in environment variables');
-  }
-  if (provider === 'offline' && !offlineConfig.endpoint) {
-    console.warn('WARNING: OFFLINE_AI_URL not found in environment variables');
-  }
-  if (provider === 'nvidia' && !nvidiaConfig.apiKey) {
-    console.warn('WARNING: NVIDIA_API_KEY not found in environment variables');
-  }
-};
-
 const applyProvider = (provider: AIProvider) => {
   activeState.aiProvider = provider;
 
@@ -46,8 +34,6 @@ const applyProvider = (provider: AIProvider) => {
     activeState.aiEndpoint = githubConfig.endpoint;
     activeState.aiModel    = githubConfig.model;
   }
-
-  warnIfMisconfigured(provider);
 };
 
 applyProvider(activeState.aiProvider);

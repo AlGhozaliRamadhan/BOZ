@@ -23,6 +23,7 @@ import { webSearchService } from '../services/search/web.search.service.js';
 import { resolveSymbol, resolveSymbolIDX } from '../shared/market-constants.js';
 import { memoryService } from '../services/memory.service.js';
 import { withRetry } from '../utils/retry.util.js';
+import { getThoughtPrompt } from '../shared/thought-prompts.js';
 // ─── Evidence ledger entry ────────────────────────────────────────────────────
 // Once a fact is added to the ledger it cannot be contradicted.
 // The reasoning agent receives all ledger entries and must cite them.
@@ -375,12 +376,15 @@ export class InteractiveChatAgent extends BaseAgent {
       ? `\nSESSION DATA CACHE (already fetched this session — DO NOT re-fetch these unless user explicitly asks for a refresh):\n${cacheEntries.map(([k, v]) => `  [${k}] ${v}`).join('\n')}`
       : '';
 
+    const thoughtDirective = getThoughtPrompt('Max');
+
     return [
       'You are BOZ, an elite AI market assistant and quantitative analyst. You are also a conversational AI.',
       'You think like a hedge fund analyst — skeptical, data-driven, always asking "is this enough?"',
       prefs,
       facts,
       cacheBlock,
+      thoughtDirective,
       '',
       'CONVERSATIONAL AI RULES:',
       '  - SESSION CACHE: Before calling ANY tool, check the SESSION DATA CACHE above.',
@@ -867,39 +871,6 @@ export class InteractiveChatAgent extends BaseAgent {
 
 
 
-  // ─── Per-step thought generator ────────────────────────────────────────────
-  // After each tool observation, asks the AI: "what did you learn and what next?"
-  // This runs as a lightweight text call (no tools), so it's fast (~1-2s).
-
-  /**
-   * Generates a lightweight system-labelled status string for a completed tool step.
-   * These are intentionally labelled as system-generated so users do not mistake
-   * them for the assistant's own reasoning.
-   */
-  private async generateStepThought(
-    userQuery:    string,
-    toolName:     string,
-    toolArgs:     Record<string, any>,
-    observation:  string,
-    ledger:       LedgerEntry[],
-    stepNumber:   number,
-  ): Promise<string> {
-    const wasEmpty = observation.includes('No news found') || observation.includes('returned no results') || observation.includes('(no data)');
-    
-    if (wasEmpty) {
-      if (toolName === 'fetch_news') return 'No news headlines found. I should pivot to web_search for broader results.';
-      if (toolName === 'fetch_price') return 'Failed to fetch price data. Moving to alternative sources.';
-      return 'That returned nothing useful. I need to try a different approach.';
-    }
-
-    if (toolName === 'fetch_price') return `Got the price for ${toolArgs.symbol_or_name}. Checking for catalysts.`;
-    if (toolName === 'scan_indonesia_momentum') return 'Scan complete. Reviewing the top momentum candidates.';
-    if (toolName === 'fetch_sentiment') return 'Sentiment data captured. This helps gauge crowd psychology.';
-    if (toolName === 'fetch_news') return 'Found relevant news. Adding this to the evidence ledger.';
-    if (toolName === 'web_search') return 'Web search complete. Extracting relevant facts.';
-    
-    return 'Data retrieved successfully. Assessing what to do next.';
-  }
 
   // ─── Evidence ledger builder ───────────────────────────────────────────────
   // Extracts a concise immutable fact from each tool result.
@@ -946,7 +917,25 @@ export class InteractiveChatAgent extends BaseAgent {
     if (toolName === 'web_search') {
       const lines = obs.split('\n').filter(l => l.trim().startsWith('-'));
       if (lines.length > 0) {
-        return { step: 0, tool: toolName, fact: `Web search "${args.query}": ${lines.length} results. Top: ${lines[0].replace(/^-\s*/, '').slice(0, 80)}`, quality: 'confirmed' };
+        // Prefer RAG-extracted source text (deepSearch) over headlines: that is
+        // where the actual figures live, and the ledger must carry them so the
+        // reasoning agent can genuinely verify against them. The deepSearch
+        // output is a series of "## <title>\nSource: <url>\n<content>" sections,
+        // one per fetched page. Collect content across ALL of them — each holds
+        // figures. Falls back to the headline list when no RAG sections.
+        const sections = obs.split(/^##\s+/m).slice(1);
+        const ragText = sections
+          .map(s => {
+            const nl = s.indexOf('\n');
+            const header = nl === -1 ? s.trim() : s.slice(0, nl).trim();
+            const body = nl === -1 ? '' : s.slice(nl).replace(/^[\s\S]*?Source: [^\n]*\n?/, '').replace(/\s+/g, ' ').trim();
+            return body ? `[${header.slice(0, 40)}] ${body}` : '';
+          })
+          .filter(Boolean)
+          .join(' | ')
+          .slice(0, 900);
+        const factBody = ragText || lines[0].replace(/^-\s*/, '').slice(0, 80);
+        return { step: 0, tool: toolName, fact: `Web search "${args.query}": ${lines.length} results. ${factBody}`, quality: 'confirmed' };
       }
       return { step: 0, tool: toolName, fact: `Web search "${args.query}": no results found`, quality: 'empty' };
     }
@@ -1077,6 +1066,10 @@ export class InteractiveChatAgent extends BaseAgent {
       );
       thinkSpinnerStop();
       
+      if (aiMessage.thought) {
+        this.printThoughtBubble(aiMessage.thought);
+      }
+      
       messages.push(aiMessage);
 
       let toolRounds = 0;
@@ -1155,12 +1148,6 @@ export class InteractiveChatAgent extends BaseAgent {
             ledger.push(fact);
           }
 
-          const thought = await this.generateStepThought(
-            userInput.trim(), res.call.name, res.call.arguments, res.obs, ledger, step
-          ).catch(() => 'Data retrieved successfully.');
-          
-          this.printThoughtBubble(thought);
-
           messages.push({
             role:         'tool',
             content:      res.obs,
@@ -1169,12 +1156,19 @@ export class InteractiveChatAgent extends BaseAgent {
           });
         }
 
+        const innerThinkSpinnerStop = this.printSpinner(null, 'thinking...');
         aiMessage = await this.callAIWithRetry(
           messages,
           this.getToolDefinitions(),
           0.7,
           4096,
         );
+        innerThinkSpinnerStop();
+
+        if (aiMessage.thought) {
+          this.printThoughtBubble(aiMessage.thought);
+        }
+
         messages.push(aiMessage);
       }
 
