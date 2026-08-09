@@ -116,6 +116,325 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     inputRef.current?.focus();
   }, []);
 
+  const formatIntradayMarkdown = (ticker: string, data: any): string => {
+    let markdown = `**Intraday Analysis for ${ticker.toUpperCase()}**\n\n`;
+    const v = data.verdict;
+    if (v) {
+      markdown += `**Verdict:** ${v.status === 'ok' ? (v.prediction === 'UP' ? 'Bullish Outlook 🟢' : 'Bearish Outlook 🔴') : 'Uncertain / Hold ⚪'} (${v.confidence || '--'}% Conviction)\n`;
+      markdown += `**Strategy:** ${v.strategy || v.reason || 'N/A'}\n\n`;
+    }
+
+    const tl = data.tradeLevels;
+    if (tl) {
+      markdown += `**Trade Levels:**\n`;
+      markdown += `- **Entry:** ${tl.entryRange || '--'}\n`;
+      markdown += `- **Target:** ${tl.targetRange || '--'}\n`;
+      markdown += `- **Stop Loss:** ${tl.stopLoss || '--'}\n\n`;
+    }
+
+    const md = data.marketData;
+    const macro = data.macro;
+    const sent = data.sentiment;
+
+    if (md || macro || sent) {
+      markdown += `**Technical & Macro Indicators:**\n\n`;
+      if (md) {
+        markdown += `- **Technicals:** RSI: ${md.rsi?.toFixed(1) || '--'} | MACD: ${md.macd?.toFixed(4) || '--'} | ATR: ${md.atr?.toFixed(4) || '--'} | SMA20: $${md.sma_20?.toFixed(2) || '--'} | OBV Trend: ${md.obv_trend ? '🟢 Bullish' : '🔴 Bearish'}\n`;
+      }
+      if (macro) {
+        markdown += `- **Macro:** Regime: ${macro.market_regime || '--'} | Risk: ${macro.risk_sentiment || '--'} | VIX: ${macro.vix_level?.toFixed(2) || '--'}\n`;
+      }
+      if (sent) {
+        markdown += `- **Sentiment:** Fear & Greed: ${sent.fear_greed?.value || '--'} (${sent.fear_greed?.label || '--'}) | StockTwits: ${sent.stocktwits_data?.bull_ratio ? sent.stocktwits_data.bull_ratio.toFixed(0) + '% Bullish' : '--'}\n`;
+      }
+      markdown += `\n`;
+    }
+
+    if (v && v.reasons && v.reasons.length > 0) {
+      markdown += `**AI Reasoning:**\n`;
+      v.reasons.forEach((r: string) => {
+        markdown += `- ${r}\n`;
+      });
+    }
+
+    return markdown;
+  };
+
+  const formatLongtermMarkdown = (ticker: string, data: any): string => {
+    let markdown = `**Long-term Outlook for ${ticker.toUpperCase()}**\n\n`;
+    const v = data.verdict;
+    if (v) {
+      markdown += `**Verdict:** ${v.status === 'ok' ? (v.prediction === 'UP' ? 'Bullish Outlook 🟢' : 'Bearish Outlook 🔴') : 'Uncertain / Hold ⚪'} (${v.confidence || '--'}% Conviction)\n`;
+      markdown += `**Strategy:** ${v.strategy || v.reason || 'N/A'}\n\n`;
+    }
+
+    const tl = data.tradeLevels;
+    if (tl) {
+      markdown += `**Trade Levels:**\n`;
+      markdown += `- **Entry:** ${tl.entryRange || '--'}\n`;
+      markdown += `- **Target:** ${tl.targetRange || '--'}\n`;
+      markdown += `- **Stop Loss:** ${tl.stopLoss || '--'}\n\n`;
+    }
+
+    const md = data.marketData;
+    if (md && md.fiftyTwoWeekHigh) {
+      markdown += `**52-Week Context:**\n`;
+      markdown += `- **High:** $${md.fiftyTwoWeekHigh?.toFixed(2)} (${md.from52wHigh?.toFixed(1)}%) | **Low:** $${md.fiftyTwoWeekLow?.toFixed(2)} (+${md.from52wLow?.toFixed(1)}%)\n\n`;
+    }
+
+    const macro = data.macro;
+    if (macro) {
+      markdown += `**Macro Context:**\n`;
+      markdown += `- **Regime:** ${macro.market_regime || '--'} | **10Y Yield:** ${macro.tnx_yield ? macro.tnx_yield + '%' : '--'} | **SPY Corr:** ${macro.sp500_correlation || '--'}\n\n`;
+    }
+    if (v && v.reasons && v.reasons.length > 0) {
+      markdown += `**AI Reasoning:**\n`;
+      v.reasons.forEach((r: string) => {
+        markdown += `- ${r}\n`;
+      });
+    }
+
+    return markdown;
+  };
+
+  const formatNewsIntelMarkdown = (data: any): string => {
+    let markdown = `**Latest Market News Intelligence**\n\n`;
+    const sent = data.sentiment;
+    if (sent) {
+      markdown += `**Market Sentiment Overview:**\n`;
+      markdown += `- **Fear & Greed:** ${sent.fear_greed?.value || '--'} (${sent.fear_greed?.label || 'N/A'})\n`;
+      if (sent.stocktwits_data?.bull_ratio) markdown += `- **StockTwits Bull %:** ${sent.stocktwits_data.bull_ratio.toFixed(0)}%\n`;
+      markdown += `- **Headlines Analyzed:** ${data.totalHeadlines || 0}\n`;
+      if (sent.summary?.overall_signals) markdown += `- **Signals:** ${sent.summary.overall_signals.join(' | ')}\n\n`;
+    }
+
+    markdown += `**Top Headlines:**\n`;
+    const headlines = data.headlines || [];
+    headlines.slice(0, 5).forEach((h: any) => {
+      markdown += `- **[${h.source}]** ${h.title} *(Sentiment: ${h.sentiment})*\n`;
+    });
+
+    return markdown;
+  };
+
+  const executeIntradayCommand = async (ticker: string, updatedMessages: ChatMessage[]): Promise<ChatMessage> => {
+    // 1. Fetch data
+    const dataRes = await fetch('/api/analyze/intraday/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker: ticker.toUpperCase() }),
+    });
+    if (!dataRes.ok) throw new Error('Intraday data fetch failed');
+    const data = await dataRes.json();
+
+    // Push intermediate message with data immediately
+    const intermediateMessages = [...updatedMessages, { 
+      role: 'assistant', 
+      content: '*Synthesizing AI verdict...*', 
+      data, 
+      type: 'intraday' 
+    } as ChatMessage];
+    setMessages(intermediateMessages);
+
+    // Update loading state for AI reasoning step
+    setLoadingType('/intraday-verdict');
+
+    // 2. Fetch AI Verdict
+    const verdictRes = await fetch('/api/analyze/intraday/verdict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker: ticker.toUpperCase(), ...data }),
+    });
+    if (!verdictRes.ok) throw new Error('Intraday AI verdict failed');
+    const verdictData = await verdictRes.json();
+
+    data.verdict = verdictData.verdict;
+    data.tradeLevels = verdictData.tradeLevels;
+
+    const markdown = formatIntradayMarkdown(ticker, data);
+    const intradayThoughts = data.verdict?.thoughts || data.verdict?.reasons || (data.verdict?.thought ? [data.verdict.thought] : []);
+    return { role: 'assistant', content: markdown, data, type: 'intraday', thoughts: intradayThoughts };
+  };
+
+  const executeLongtermCommand = async (ticker: string, updatedMessages: ChatMessage[]): Promise<ChatMessage> => {
+    // 1. Fetch data
+    const dataRes = await fetch('/api/analyze/longterm/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker: ticker.toUpperCase() }),
+    });
+    if (!dataRes.ok) throw new Error('Longterm data fetch failed');
+    const data = await dataRes.json();
+
+    // Push intermediate message with data immediately
+    const intermediateMessages = [...updatedMessages, { 
+      role: 'assistant', 
+      content: '*Synthesizing AI verdict...*', 
+      data, 
+      type: 'longterm' 
+    } as ChatMessage];
+    setMessages(intermediateMessages);
+
+    // Update loading state for AI reasoning step
+    setLoadingType('/longterm-verdict');
+
+    // 2. Fetch AI Verdict
+    const verdictRes = await fetch('/api/analyze/longterm/verdict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker: ticker.toUpperCase(), ...data }),
+    });
+    if (!verdictRes.ok) throw new Error('Longterm AI verdict failed');
+    const verdictData = await verdictRes.json();
+
+    data.verdict = verdictData.verdict;
+    data.tradeLevels = verdictData.tradeLevels;
+
+    const markdown = formatLongtermMarkdown(ticker, data);
+    const longtermThoughts = data.verdict?.thoughts || data.verdict?.reasons || (data.verdict?.thought ? [data.verdict.thought] : []);
+    return { role: 'assistant', content: markdown, data, type: 'longterm', thoughts: longtermThoughts };
+  };
+
+  const executeNewsIntelCommand = async (): Promise<ChatMessage> => {
+    const res = await fetch('/api/news-intel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) throw new Error('News intel failed');
+    const data = await res.json();
+    
+    const markdown = formatNewsIntelMarkdown(data);
+    const newsThoughts = data.thoughts || data.sentiment?.summary?.overall_signals || [];
+    return { role: 'assistant', content: markdown, data, type: 'newsintel', thoughts: newsThoughts };
+  };
+
+  const executeStreamChat = async (command: string, updatedMessages: ChatMessage[]): Promise<ChatMessage> => {
+    const res = await fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: command,
+        history: updatedMessages,
+        effort: getEffort(),
+        thinking: getThinkingEnabled(),
+      }),
+    });
+
+    if (!res.ok) throw new Error('Failed to start stream');
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error('No readable stream');
+
+    let accumulatedContent = '';
+    let accumulatedThoughts: string[] = [];
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      let currentEvent = '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEvent = line.substring(7).trim();
+        } else if (line.startsWith('data: ')) {
+          const dataStr = line.substring(6).trim();
+          if (!dataStr) continue;
+
+          if (currentEvent === 'token') {
+            let token: any = dataStr;
+            try { token = JSON.parse(dataStr); } catch {}
+            
+            if (typeof token === 'string') {
+              accumulatedContent += token.replace(/\\n/g, '\n');
+            } else if (token && typeof token === 'object' && token.message) {
+              accumulatedContent += token.message;
+            } else {
+              accumulatedContent += String(token);
+            }
+            setStreamingContent(accumulatedContent);
+          } else if (currentEvent === 'tool_start') {
+            try {
+              const data = JSON.parse(dataStr);
+              setToolStatuses(prev => [...prev, { tool: data.tool, status: 'running' }]);
+              accumulatedThoughts.push(`tool used: ${data.tool}`);
+              setStreamingThoughts([...accumulatedThoughts]);
+            } catch (e) {}
+          } else if (currentEvent === 'tool_result') {
+            try {
+              const data = JSON.parse(dataStr);
+              setToolStatuses(prev => {
+                const next = [...prev];
+                const idx = next.findIndex(t => t.tool === data.tool && t.status === 'running');
+                if (idx !== -1) {
+                  next[idx] = { ...next[idx], status: 'done', result: data.fact };
+                } else {
+                  next.push({ tool: data.tool, status: 'done', result: data.fact });
+                }
+                return next;
+              });
+              const toolLabel = data.tool;
+              const resultText = data.fact ? ` — ${data.fact.substring(0, 140)}${data.fact.length > 140 ? '…' : ''}` : '';
+              const marker = `tool used: ${toolLabel}`;
+              const idx = accumulatedThoughts.findIndex(t => t.startsWith(marker));
+              if (idx !== -1) {
+                accumulatedThoughts[idx] = `${marker}${resultText}`;
+              } else {
+                accumulatedThoughts.push(`${marker}${resultText}`);
+              }
+              setStreamingThoughts([...accumulatedThoughts]);
+            } catch (e) {}
+          } else if (currentEvent === 'thought_new') {
+            try {
+              let data = JSON.parse(dataStr);
+              if (typeof data !== 'string') {
+                data = typeof data === 'object' && data.text ? data.text : JSON.stringify(data);
+              }
+              accumulatedThoughts.push(data);
+              setStreamingThoughts([...accumulatedThoughts]);
+            } catch {
+              accumulatedThoughts.push(dataStr);
+              setStreamingThoughts([...accumulatedThoughts]);
+            }
+          } else if (currentEvent === 'thought') {
+            try {
+              let data = JSON.parse(dataStr);
+              if (typeof data !== 'string') {
+                data = typeof data === 'object' && data.text ? data.text : JSON.stringify(data);
+              }
+              
+              if (accumulatedThoughts.length === 0) {
+                accumulatedThoughts = [data];
+              } else {
+                accumulatedThoughts[accumulatedThoughts.length - 1] += data;
+              }
+              setStreamingThoughts([...accumulatedThoughts]);
+            } catch (e) {
+              if (accumulatedThoughts.length === 0) {
+                accumulatedThoughts = [dataStr];
+              } else {
+                accumulatedThoughts[accumulatedThoughts.length - 1] += dataStr;
+              }
+              setStreamingThoughts([...accumulatedThoughts]);
+            }
+          } else if (currentEvent === 'error') {
+            throw new Error(JSON.parse(dataStr).message || 'Stream error');
+          }
+        }
+      }
+    }
+    
+    return {
+      role: 'assistant',
+      content: accumulatedContent || 'No response received.',
+      thoughts: accumulatedThoughts.length > 0 ? [...accumulatedThoughts] : undefined,
+    };
+  };
+
   const sendMessage = async (override?: string) => {
     if (loading) return;
     if (!override && !input.trim()) return;
@@ -134,332 +453,27 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     if (!activeChatId) {
       activeChatId = btoa(Date.now().toString() + Math.random().toString(36).substring(7)).replace(/=/g, '');
       saveSession(activeChatId, updatedMessages);
-      // NOTE: URL is updated to /chat/<id> only AFTER the response finishes
-      // (see finally block). Using history.replaceState here mid-stream would
-      // desync the Next.js router and remount the component, reloading
-      // messages from localStorage and wiping the in-flight reply.
     } else {
       saveSession(activeChatId, updatedMessages);
     }
 
     try {
-      let finalMessages = [...updatedMessages];
-      
-      if (command.toLowerCase().startsWith('/intraday ')) {
+      let reply: ChatMessage;
+      const lower = command.toLowerCase();
+
+      if (lower.startsWith('/intraday ')) {
         const ticker = command.substring(10).trim();
-        
-        // 1. Fetch data
-        const dataRes = await fetch('/api/analyze/intraday/data', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticker: ticker.toUpperCase() }),
-        });
-        if (!dataRes.ok) throw new Error('Intraday data fetch failed');
-        const data = await dataRes.json();
-
-        // Push intermediate message with data immediately
-        const intermediateMessages = [...updatedMessages, { 
-          role: 'assistant', 
-          content: '*Synthesizing AI verdict...*', 
-          data, 
-          type: 'intraday' 
-        } as ChatMessage];
-        setMessages(intermediateMessages);
-
-        // Update loading state for AI reasoning step
-        setLoadingType('/intraday-verdict');
-
-        // 2. Fetch AI Verdict
-        const verdictRes = await fetch('/api/analyze/intraday/verdict', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticker: ticker.toUpperCase(), ...data }),
-        });
-        if (!verdictRes.ok) throw new Error('Intraday AI verdict failed');
-        const verdictData = await verdictRes.json();
-
-        data.verdict = verdictData.verdict;
-        data.tradeLevels = verdictData.tradeLevels;
-        
-        let markdown = `**Intraday Analysis for ${ticker.toUpperCase()}**\n\n`;
-        const v = data.verdict;
-        if (v) {
-          markdown += `**Verdict:** ${v.status === 'ok' ? (v.prediction === 'UP' ? 'Bullish Outlook 🟢' : 'Bearish Outlook 🔴') : 'Uncertain / Hold ⚪'} (${v.confidence || '--'}% Conviction)\n`;
-          markdown += `**Strategy:** ${v.strategy || v.reason || 'N/A'}\n\n`;
-        }
-
-        const tl = data.tradeLevels;
-        if (tl) {
-          markdown += `**Trade Levels:**\n`;
-          markdown += `- **Entry:** ${tl.entryRange || '--'}\n`;
-          markdown += `- **Target:** ${tl.targetRange || '--'}\n`;
-          markdown += `- **Stop Loss:** ${tl.stopLoss || '--'}\n\n`;
-        }
-        
-        const md = data.marketData;
-        const macro = data.macro;
-        const sent = data.sentiment;
-
-        if (md || macro || sent) {
-          markdown += `**Technical & Macro Indicators:**\n\n`;
-          if (md) {
-            markdown += `- **Technicals:** RSI: ${md.rsi?.toFixed(1) || '--'} | MACD: ${md.macd?.toFixed(4) || '--'} | ATR: ${md.atr?.toFixed(4) || '--'} | SMA20: $${md.sma_20?.toFixed(2) || '--'} | OBV Trend: ${md.obv_trend ? '🟢 Bullish' : '🔴 Bearish'}\n`;
-          }
-          if (macro) {
-            markdown += `- **Macro:** Regime: ${macro.market_regime || '--'} | Risk: ${macro.risk_sentiment || '--'} | VIX: ${macro.vix_level?.toFixed(2) || '--'}\n`;
-          }
-          if (sent) {
-            markdown += `- **Sentiment:** Fear & Greed: ${sent.fear_greed?.value || '--'} (${sent.fear_greed?.label || '--'}) | StockTwits: ${sent.stocktwits_data?.bull_ratio ? sent.stocktwits_data.bull_ratio.toFixed(0) + '% Bullish' : '--'}\n`;
-          }
-          markdown += `\n`;
-        }
-        
-        if (v && v.reasons && v.reasons.length > 0) {
-          markdown += `**AI Reasoning:**\n`;
-          v.reasons.forEach((r: string) => {
-            markdown += `- ${r}\n`;
-          });
-        }
-        
-        const intradayThoughts = v?.thoughts || v?.reasons || (v?.thought ? [v.thought] : []);
-        finalMessages.push({ role: 'assistant', content: markdown, data, type: 'intraday', thoughts: intradayThoughts });
-      } else if (command.toLowerCase().startsWith('/longterm ')) {
+        reply = await executeIntradayCommand(ticker, updatedMessages);
+      } else if (lower.startsWith('/longterm ')) {
         const ticker = command.substring(10).trim();
-        
-        // 1. Fetch data
-        const dataRes = await fetch('/api/analyze/longterm/data', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticker: ticker.toUpperCase() }),
-        });
-        if (!dataRes.ok) throw new Error('Longterm data fetch failed');
-        const data = await dataRes.json();
-
-        // Push intermediate message with data immediately
-        const intermediateMessages = [...updatedMessages, { 
-          role: 'assistant', 
-          content: '*Synthesizing AI verdict...*', 
-          data, 
-          type: 'longterm' 
-        } as ChatMessage];
-        setMessages(intermediateMessages);
-
-        // Update loading state for AI reasoning step
-        setLoadingType('/longterm-verdict');
-
-        // 2. Fetch AI Verdict
-        const verdictRes = await fetch('/api/analyze/longterm/verdict', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticker: ticker.toUpperCase(), ...data }),
-        });
-        if (!verdictRes.ok) throw new Error('Longterm AI verdict failed');
-        const verdictData = await verdictRes.json();
-
-        data.verdict = verdictData.verdict;
-        data.tradeLevels = verdictData.tradeLevels;
-        
-        let markdown = `**Long-term Outlook for ${ticker.toUpperCase()}**\n\n`;
-        const v = data.verdict;
-        if (v) {
-          markdown += `**Verdict:** ${v.status === 'ok' ? (v.prediction === 'UP' ? 'Bullish Outlook 🟢' : 'Bearish Outlook 🔴') : 'Uncertain / Hold ⚪'} (${v.confidence || '--'}% Conviction)\n`;
-          markdown += `**Strategy:** ${v.strategy || v.reason || 'N/A'}\n\n`;
-        }
-
-        const tl = data.tradeLevels;
-        if (tl) {
-          markdown += `**Trade Levels:**\n`;
-          markdown += `- **Entry:** ${tl.entryRange || '--'}\n`;
-          markdown += `- **Target:** ${tl.targetRange || '--'}\n`;
-          markdown += `- **Stop Loss:** ${tl.stopLoss || '--'}\n\n`;
-        }
-        
-        const md = data.marketData;
-        if (md && md.fiftyTwoWeekHigh) {
-          markdown += `**52-Week Context:**\n`;
-          markdown += `- **High:** $${md.fiftyTwoWeekHigh?.toFixed(2)} (${md.from52wHigh?.toFixed(1)}%) | **Low:** $${md.fiftyTwoWeekLow?.toFixed(2)} (+${md.from52wLow?.toFixed(1)}%)\n\n`;
-        }
-        
-        const macro = data.macro;
-        if (macro) {
-          markdown += `**Macro Context:**\n`;
-          markdown += `- **Regime:** ${macro.market_regime || '--'} | **10Y Yield:** ${macro.tnx_yield ? macro.tnx_yield + '%' : '--'} | **SPY Corr:** ${macro.sp500_correlation || '--'}\n\n`;
-        }
-        if (v && v.reasons && v.reasons.length > 0) {
-          markdown += `**AI Reasoning:**\n`;
-          v.reasons.forEach((r: string) => {
-            markdown += `- ${r}\n`;
-          });
-        }
-
-        const longtermThoughts = v?.thoughts || v?.reasons || (v?.thought ? [v.thought] : []);
-        finalMessages.push({ role: 'assistant', content: markdown, data, type: 'longterm', thoughts: longtermThoughts });
-      } else if (command.toLowerCase() === '/newsintel') {
-        const res = await fetch('/api/news-intel', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        });
-        if (!res.ok) throw new Error('News intel failed');
-        const data = await res.json();
-        
-        let markdown = `**Latest Market News Intelligence**\n\n`;
-        const sent = data.sentiment;
-        if (sent) {
-          markdown += `**Market Sentiment Overview:**\n`;
-          markdown += `- **Fear & Greed:** ${sent.fear_greed?.value || '--'} (${sent.fear_greed?.label || 'N/A'})\n`;
-          if (sent.stocktwits_data?.bull_ratio) markdown += `- **StockTwits Bull %:** ${sent.stocktwits_data.bull_ratio.toFixed(0)}%\n`;
-          markdown += `- **Headlines Analyzed:** ${data.totalHeadlines || 0}\n`;
-          if (sent.summary?.overall_signals) markdown += `- **Signals:** ${sent.summary.overall_signals.join(' | ')}\n\n`;
-        }
-
-
-        markdown += `**Top Headlines:**\n`;
-        const headlines = data.headlines || [];
-        headlines.slice(0, 5).forEach((h: any) => {
-          markdown += `- **[${h.source}]** ${h.title} *(Sentiment: ${h.sentiment})*\n`;
-        });
-
-        const newsThoughts = data.thoughts || data.sentiment?.summary?.overall_signals || [];
-        finalMessages.push({ role: 'assistant', content: markdown, data, type: 'newsintel', thoughts: newsThoughts });
+        reply = await executeLongtermCommand(ticker, updatedMessages);
+      } else if (lower === '/newsintel') {
+        reply = await executeNewsIntelCommand();
       } else {
-        const res = await fetch('/api/chat/stream', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: command,
-            history: updatedMessages,
-            effort: getEffort(),
-            thinking: getThinkingEnabled(),
-          }),
-        });
-
-        if (!res.ok) throw new Error('Failed to start stream');
-        const reader = res.body?.getReader();
-        if (!reader) throw new Error('No readable stream');
-
-        let accumulatedContent = '';
-        let accumulatedThoughts: string[] = [];
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          let currentEvent = '';
-          for (const line of lines) {
-            if (line.startsWith('event: ')) {
-              currentEvent = line.substring(7).trim();
-            } else if (line.startsWith('data: ')) {
-              const dataStr = line.substring(6).trim();
-              if (!dataStr) continue;
-
-              if (currentEvent === 'token') {
-                // Since SSE often encodes newlines in JSON or escapes them, we must handle it.
-                // In our implementation, if data is string, it's sent as `data: text` directly.
-                let token: any = dataStr;
-                try { token = JSON.parse(dataStr); } catch {} // just in case it was JSON-stringified
-                
-                // If the engine emits real newlines, SSE requires data: on each line or \n encoding.
-                // Our simple SSE token format encodes it as JSON or plain string.
-                if (typeof token === 'string') {
-                  // Reconstruct newlines if it was replaced (e.g. JSON stringify handles \n)
-                  accumulatedContent += token.replace(/\\n/g, '\n');
-                } else if (token && typeof token === 'object' && token.message) {
-                  accumulatedContent += token.message;
-                } else {
-                  accumulatedContent += String(token);
-                }
-                setStreamingContent(accumulatedContent);
-              } else if (currentEvent === 'tool_start') {
-                // Tool usage lives INSIDE the thoughts accordion as a plain
-                // "tool used:" line — part of the reasoning flow, not a chat card.
-                try {
-                  const data = JSON.parse(dataStr);
-                  setToolStatuses(prev => [...prev, { tool: data.tool, status: 'running' }]);
-                  accumulatedThoughts.push(`tool used: ${data.tool}`);
-                  setStreamingThoughts([...accumulatedThoughts]);
-                } catch (e) {}
-              } else if (currentEvent === 'tool_result') {
-                try {
-                  const data = JSON.parse(dataStr);
-                  setToolStatuses(prev => {
-                    const next = [...prev];
-                    const idx = next.findIndex(t => t.tool === data.tool && t.status === 'running');
-                    if (idx !== -1) {
-                      next[idx] = { ...next[idx], status: 'done', result: data.fact };
-                    } else {
-                      next.push({ tool: data.tool, status: 'done', result: data.fact });
-                    }
-                    return next;
-                  });
-                  // Replace the pending "tool used: X" line with the result
-                  // inline so the accordion reads like a continuous thought flow.
-                  const toolLabel = data.tool;
-                  const resultText = data.fact ? ` — ${data.fact.substring(0, 140)}${data.fact.length > 140 ? '…' : ''}` : '';
-                  const marker = `tool used: ${toolLabel}`;
-                  const idx = accumulatedThoughts.findIndex(t => t.startsWith(marker));
-                  if (idx !== -1) {
-                    accumulatedThoughts[idx] = `${marker}${resultText}`;
-                  } else {
-                    accumulatedThoughts.push(`${marker}${resultText}`);
-                  }
-                  setStreamingThoughts([...accumulatedThoughts]);
-                } catch (e) {}
-              } else if (currentEvent === 'thought_new') {
-                // Fresh reasoning block — push a new entry so the UI shows
-                // it as a separate numbered step (Step 1 / Step 2 / etc.).
-                try {
-                  let data = JSON.parse(dataStr);
-                  if (typeof data !== 'string') {
-                    data = typeof data === 'object' && data.text ? data.text : JSON.stringify(data);
-                  }
-                  accumulatedThoughts.push(data);
-                  setStreamingThoughts([...accumulatedThoughts]);
-                } catch {
-                  accumulatedThoughts.push(dataStr);
-                  setStreamingThoughts([...accumulatedThoughts]);
-                }
-              } else if (currentEvent === 'thought') {
-                try {
-                  let data = JSON.parse(dataStr);
-                  if (typeof data !== 'string') {
-                    data = typeof data === 'object' && data.text ? data.text : JSON.stringify(data);
-                  }
-                  
-                  if (accumulatedThoughts.length === 0) {
-                    accumulatedThoughts = [data];
-                  } else {
-                    // Append to the current active thought string
-                    accumulatedThoughts[accumulatedThoughts.length - 1] += data;
-                  }
-                  setStreamingThoughts([...accumulatedThoughts]);
-                } catch (e) {
-                  if (accumulatedThoughts.length === 0) {
-                    accumulatedThoughts = [dataStr];
-                  } else {
-                    accumulatedThoughts[accumulatedThoughts.length - 1] += dataStr;
-                  }
-                  setStreamingThoughts([...accumulatedThoughts]);
-                }
-              } else if (currentEvent === 'error') {
-                throw new Error(JSON.parse(dataStr).message || 'Stream error');
-              }
-            }
-          }
-        }
-        
-        finalMessages.push({
-          role: 'assistant',
-          content: accumulatedContent || 'No response received.',
-          thoughts: accumulatedThoughts.length > 0 ? [...accumulatedThoughts] : undefined,
-        });
+        reply = await executeStreamChat(command, updatedMessages);
       }
 
+      const finalMessages = [...updatedMessages, reply];
       setMessages(finalMessages);
       setStreamingContent('');
       setStreamingThoughts([]);
@@ -482,11 +496,6 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     } finally {
       setLoading(false);
       inputRef.current?.focus();
-      // Update the URL to /chat/<id> only after the response finishes. Doing
-      // this mid-stream via history.replaceState desynced the Next.js router,
-      // remounting this component and reloading messages from localStorage —
-      // which wiped the in-flight reply. router.replace() after completion
-      // avoids the router desync entirely.
       if (chatId !== activeChatId) {
         router.replace('/chat/' + activeChatId);
       }
