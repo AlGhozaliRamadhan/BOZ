@@ -1,29 +1,29 @@
 /* ═══════════════════════════════════════════════════════════════════════════════
    BOZ — Design System
-   Premium dark-mode fintech theme · Glassmorphism · Cyan-Violet accents
+   Professional Dark Mode Theme · Black & White Monochrome
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 /* === DESIGN TOKENS ========================================================= */
 :root {
   /* ── Backgrounds ─────────────────────────────────────────────────────────── */
-  --bg-primary:       #ffffff;
-  --bg-secondary:     #f8f9fa;
-  --bg-tertiary:      #f1f3f5;
-  --bg-elevated:      #ffffff;
+  --bg-primary:       #121212;
+  --bg-secondary:     #1a1a1a;
+  --bg-tertiary:      #242424;
+  --bg-elevated:      #1e1e1e;
 
   /* ── Glass Surfaces ──────────────────────────────────────────────────────── */
-  --surface-glass:        #ffffff;
-  --surface-glass-hover:  #fafafa;
-  --surface-glass-active: #f0f0f0;
-  --border-glass:         #e5e7eb;
-  --border-glass-hover:   #d1d5db;
-  --border-glass-accent:  #111827;
+  --surface-glass:        rgba(20, 20, 20, 0.7);
+  --surface-glass-hover:  rgba(30, 30, 30, 0.8);
+  --surface-glass-active: rgba(40, 40, 40, 0.9);
+  --border-glass:         #333333;
+  --border-glass-hover:   #555555;
+  --border-glass-accent:  #ffffff;
 
   /* ── Accent Colors ──────────────────────────────────────────────────────── */
-  --accent-cyan:    #111827;
-  --accent-violet:  #374151;
-  --accent-blue:    #111827;
-  --accent-gradient: #111827;
+  --accent-cyan:    #ffffff;
+  --accent-violet:  #dddddd;
+  --accent-blue:    #ffffff;
+  --accent-gradient: #ffffff;
   --accent-glow:    none;
 
   /* ── Status Colors ──────────────────────────────────────────────────────── */
@@ -36,25 +36,25 @@
   --neutral:  #6b7280;
 
   /* ── Text ────────────────────────────────────────────────────────────────── */
-  --text-primary:   #111827;
-  --text-secondary: #4b5563;
-  --text-muted:     #9ca3af;
+  --text-primary:   #ffffff;
+  --text-secondary: #a3a3a3;
+  --text-muted:     #737373;
   --text-accent:    #000000;
-  --text-inverse:   #ffffff;
+  --text-inverse:   #000000;
 
   /* ── Typography ──────────────────────────────────────────────────────────── */
   --font-sans: var(--font-outfit), 'Outfit', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
-  --text-xs:  0.75rem;
-  --text-sm:  0.8125rem;
-  --text-base: 0.9375rem;
-  --text-lg:  1.125rem;
-  --text-xl:  1.25rem;
-  --text-2xl: 1.5rem;
-  --text-3xl: 2rem;
-  --text-4xl: 2.5rem;
-  --text-5xl: 3.5rem;
+  --text-xs:  0.6875rem;
+  --text-sm:  0.75rem;
+  --text-base: 0.875rem;
+  --text-lg:  1rem;
+  --text-xl:  1.125rem;
+  --text-2xl: 1.25rem;
+  --text-3xl: 1.5rem;
+  --text-4xl: 2rem;
+  --text-5xl: 2.5rem;
 
   /* ── Spacing ─────────────────────────────────────────────────────────────── */
   --space-1: 0.25rem;
@@ -68,20 +68,20 @@
   --space-12: 3rem;
 
   /* ── Border Radius ───────────────────────────────────────────────────────── */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
   --radius-full: 9999px;
 
   /* ── Shadows ─────────────────────────────────────────────────────────────── */
-  --shadow-sm:  0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md:  0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg:  0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  --shadow-glow-cyan:   0 2px 8px rgba(0, 0, 0, 0.1);
-  --shadow-glow-violet: 0 2px 8px rgba(0, 0, 0, 0.1);
-  --shadow-glow-bull:   0 2px 8px rgba(0, 0, 0, 0.1);
-  --shadow-glow-bear:   0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-sm:  0 1px 2px 0 rgba(255, 255, 255, 0.05);
+  --shadow-md:  0 4px 6px -1px rgba(255, 255, 255, 0.05), 0 2px 4px -1px rgba(255, 255, 255, 0.03);
+  --shadow-lg:  0 10px 15px -3px rgba(255, 255, 255, 0.05), 0 4px 6px -2px rgba(255, 255, 255, 0.03);
+  --shadow-glow-cyan:   0 0 10px rgba(255, 255, 255, 0.1);
+  --shadow-glow-violet: 0 0 10px rgba(255, 255, 255, 0.1);
+  --shadow-glow-bull:   0 0 10px rgba(255, 255, 255, 0.1);
+  --shadow-glow-bear:   0 0 10px rgba(255, 255, 255, 0.1);
 
   /* ── Layout ──────────────────────────────────────────────────────────────── */
   --sidebar-width:     260px;

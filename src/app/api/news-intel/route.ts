@@ -53,6 +53,24 @@ export async function POST(request: NextRequest) {
       forex:          newsData.forex.length,
     } : null;
 
+    // Generate AI intelligence thought deductions from news headlines and crowd sentiment
+    const thoughts: string[] = [];
+    const fg = sentiment?.fear_greed;
+    if (fg) {
+      thoughts.push(`[SENTIMENT DEDUCTION] Fear & Greed Index at ${fg.value} (${fg.label}). ${fg.value > 75 ? 'Extreme Greed warrants contrarian caution against chase buying.' : fg.value < 25 ? 'Extreme Fear presents high-asymmetry accumulation setups.' : 'Neutral sentiment indicates balanced market participation.'}`);
+    }
+    const st = sentiment?.stocktwits_data;
+    if (st && st.bull_ratio !== undefined) {
+      thoughts.push(`[CROWD CONTRARIAN] Retail sentiment is ${st.bull_ratio.toFixed(0)}% bullish across ${st.total_with_sentiment} measured posts. ${st.bull_ratio > 70 ? 'Retail euphoria detected — high probability of liquidity sweep / pullback.' : st.bull_ratio < 30 ? 'Retail panic detected — upside bounce potential elevated.' : 'Healthy retail distribution without euphoric skew.'}`);
+    }
+    if (sentiment?.summary?.overall_signals?.length) {
+      thoughts.push(`[MACRO THEME SIGNALS] Key cross-asset drivers: ${sentiment.summary.overall_signals.join(' · ')}`);
+    }
+    if (headlines.length > 0) {
+      const topCatalysts = headlines.slice(0, 3).map(h => `"${h.title}" (${h.source})`).join('; ');
+      thoughts.push(`[BREAKING CATALYSTS] Lead market movers: ${topCatalysts}`);
+    }
+
     return jsonResponse({
       ticker: config.ticker,
       timestamp: new Date().toISOString(),
@@ -60,6 +78,8 @@ export async function POST(request: NextRequest) {
       categories,
       headlines,
       sentiment,
+      thoughts,
+      thought: thoughts.join('\n\n'),
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';

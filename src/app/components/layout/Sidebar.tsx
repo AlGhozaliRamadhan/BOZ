@@ -69,6 +69,14 @@ export default function Sidebar() {
     return () => window.removeEventListener('boz_chat_updated', loadSessions);
   }, []);
 
+  useEffect(() => {
+    if (collapsed) {
+      document.body.classList.add('sidebar-collapsed');
+    } else {
+      document.body.classList.remove('sidebar-collapsed');
+    }
+  }, [collapsed]);
+
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
     return pathname.startsWith(href);
@@ -76,8 +84,24 @@ export default function Sidebar() {
 
   return (
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
-      <div className="sidebar-logo">
-        <span className="sidebar-logo-text">BOZ</span>
+      <div className="sidebar-logo" style={{ justifyContent: collapsed ? 'center' : 'space-between' }}>
+        <img src="/logo-boz.png" alt="BOZ" />
+        {!collapsed && <span className="sidebar-logo-text">BOZ</span>}
+        <button
+          className="sidebar-collapse-btn"
+          onClick={() => setCollapsed(!collapsed)}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          style={{ padding: '4px' }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            {collapsed ? (
+              <polyline points="6,3 11,8 6,13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            ) : (
+              <polyline points="10,3 5,8 10,13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            )}
+          </svg>
+        </button>
       </div>
 
       <nav className="sidebar-nav">
@@ -111,33 +135,8 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="sidebar-footer" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '16px' }}>
-        <Link
-          href="/settings"
-          className={`sidebar-link${isActive('/settings') ? ' active' : ''}`}
-          style={{ width: '100%', padding: '8px 12px', marginBottom: '8px', justifyContent: collapsed ? 'center' : 'flex-start' }}
-        >
-          <span className="sidebar-link-icon">
-            <i className="fa-solid fa-gear" style={{ fontSize: '18px' }}></i>
-          </span>
-          <span className="sidebar-link-label">Settings</span>
-        </Link>
-        <div style={{ display: 'flex', justifyContent: collapsed ? 'center' : 'space-between', alignItems: 'center', width: '100%' }}>
-          {!collapsed && <span className="sidebar-version" style={{ fontSize: '10px' }}>v2.1.1</span>}
-          <button
-            className="sidebar-collapse-btn"
-            onClick={() => setCollapsed(!collapsed)}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              {collapsed ? (
-                <polyline points="6,3 11,8 6,13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              ) : (
-                <polyline points="10,3 5,8 10,13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              )}
-            </svg>
-          </button>
-        </div>
+      <div className="sidebar-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', opacity: 0.5 }}>
+        <span className="sidebar-version" style={{ fontSize: '10px' }}>{!collapsed ? 'v2.2.0' : 'v2'}</span>
       </div>
     </aside>
   );
