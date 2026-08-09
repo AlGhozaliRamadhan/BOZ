@@ -1110,7 +1110,7 @@
 }
 
 .thought-markdown-text p {
-  margin: 0 0 6px 0;
+  margin: 0 0 6px;
 }
 
 .thought-markdown-text p:last-child {
@@ -1119,7 +1119,7 @@
 
 .thought-markdown-text ul,
 .thought-markdown-text ol {
-  margin: 2px 0 6px 0;
+  margin: 2px 0 6px;
   padding-left: 16px;
 }
 

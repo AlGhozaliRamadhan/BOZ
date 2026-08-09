@@ -42,7 +42,7 @@ describe('env-dir', () => {
   it('resolves to %USERPROFILE%\\.boz on Windows', () => {
     homedirMock.mockReturnValue('C:\\Users\\test');
     const dir = ensureConfigDir();
-    expect(dir.endsWith('\\.boz')).toBe(true);
+    expect(dir).toBe(join('C:\\Users\\test', '.boz'));
   });
 
   it('falls back to process.cwd()/.boz when no home is set', () => {

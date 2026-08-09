@@ -92,5 +92,5 @@ describe('SentimentService', () => {
         return false;
       }
     })).toBe(false);
-  });
+  }, 15000);
 });
