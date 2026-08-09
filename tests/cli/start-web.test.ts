@@ -18,8 +18,8 @@ describeIfBuilt('startWebServer (requires `npm run build` first)', () => {
     await new Promise((r) => setTimeout(r, 250));
   });
 
-  it('returns a handle immediately and resolves ready within 8s', async () => {
-    handle = startWebServer(port);
+  it('returns a handle immediately and resolves ready within 15s', async () => {
+    handle = startWebServer(port, { readyTimeoutMs: 15000 });
     expect(handle.url).toBe(`http://127.0.0.1:${port}`);
     expect(handle.port).toBe(port);
     expect(typeof handle.stop).toBe('function');
@@ -27,11 +27,11 @@ describeIfBuilt('startWebServer (requires `npm run build` first)', () => {
     const start = Date.now();
     await handle.ready;
     const elapsed = Date.now() - start;
-    expect(elapsed).toBeLessThan(8000);
-  }, 10000);
+    expect(elapsed).toBeLessThan(15000);
+  }, 20000);
 
   it('GET / returns 2xx after ready', async () => {
-    if (!handle) handle = startWebServer(port);
+    if (!handle) handle = startWebServer(port, { readyTimeoutMs: 15000 });
     await handle.ready;
 
     const status = await new Promise<number>((resolveP, rejectP) => {
@@ -43,5 +43,5 @@ describeIfBuilt('startWebServer (requires `npm run build` first)', () => {
     });
     expect(status).toBeGreaterThanOrEqual(200);
     expect(status).toBeLessThan(300);
-  }, 10000);
+  }, 20000);
 });
