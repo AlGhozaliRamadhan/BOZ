@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const nextConfig = {
   output: 'standalone',
   turbopack: {
-    root: '.',
+    root: __dirname,
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.json'],
   },
   serverExternalPackages: [
