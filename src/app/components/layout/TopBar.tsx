@@ -16,6 +16,7 @@ import {
 } from '../../../shared/chat-options';
 
 export default function TopBar() {
+  const pathname = usePathname();
   const [config, setConfig] = useState<any>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -56,6 +57,12 @@ export default function TopBar() {
     sync();
     window.addEventListener(CHAT_OPTIONS_EVENT, sync);
     return () => window.removeEventListener(CHAT_OPTIONS_EVENT, sync);
+  }, []);
+
+  useEffect(() => {
+    const handleOpenSettings = () => setSettingsOpen(true);
+    window.addEventListener('boz_open_settings', handleOpenSettings);
+    return () => window.removeEventListener('boz_open_settings', handleOpenSettings);
   }, []);
 
   useEffect(() => {
@@ -320,96 +327,88 @@ export default function TopBar() {
         {/* Left Side placeholder to balance the flex if needed */}
         <div style={{ flex: 1 }}></div>
 
-        {/* Center: AI Search Button + combined effort/Think Longer control */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button className="topbar-center-btn" onClick={() => setModalOpen(true)}>
-            {lastUsedAi ? lastUsedAi : 'Select AI Model'}
-          </button>
-
-          <div style={{ position: 'relative' }}>
-            <button className="topbar-center-btn" onClick={() => setEffortOpen(o => !o)} title="Thinking effort">
-              <span>Effort: {effort}</span>
+        {/* Center: AI controls — only shown on the Chat page */}
+        {pathname === '/chat' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button className="topbar-center-btn" onClick={() => setModalOpen(true)}>
+              {lastUsedAi ? lastUsedAi : 'Select AI Model'}
             </button>
-            {effortOpen && (
-              <>
-                <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setEffortOpen(false)} />
-                <div style={{
-                  position: 'absolute', top: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)', zIndex: 50,
-                  background: 'var(--bg-elevated)', border: '1px solid var(--border-glass)',
-                  borderRadius: 'var(--radius-md)', boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
-                  minWidth: '190px', padding: '6px',
-                }}>
-                  <div style={{ padding: '6px 10px 4px', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)' }}>
-                    Thinking Effort
-                  </div>
-                  {EFFORT_OPTIONS.map(opt => (
+
+            <div style={{ position: 'relative' }}>
+              <button className="topbar-center-btn" onClick={() => setEffortOpen(o => !o)} title="Thinking effort">
+                <span>Effort: {effort}</span>
+              </button>
+              {effortOpen && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setEffortOpen(false)} />
+                  <div style={{
+                    position: 'absolute', top: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)', zIndex: 50,
+                    background: 'var(--bg-elevated)', border: '1px solid var(--border-glass)',
+                    borderRadius: 'var(--radius-md)', boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
+                    minWidth: '190px', padding: '6px',
+                  }}>
+                    <div style={{ padding: '6px 10px 4px', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)' }}>
+                      Thinking Effort
+                    </div>
+                    {EFFORT_OPTIONS.map(opt => (
+                      <button
+                        key={opt}
+                        onClick={() => { setEffort(opt); setEffortOpen(false); }}
+                        className="effort-option"
+                        style={{
+                          display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+                          padding: '8px 12px', borderRadius: 'var(--radius-sm)',
+                          background: opt === effort ? 'var(--surface-glass-active)' : 'transparent',
+                          border: 'none', color: 'var(--text-primary)', fontSize: '13px', cursor: 'pointer',
+                        }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          {opt}
+                          {opt === 'Medium' && (
+                            <span className="effort-info">
+                              <span className="effort-info-icon">ⓘ</span>
+                              <span className="effort-tooltip">Default thinking effort</span>
+                            </span>
+                          )}
+                        </span>
+                        {opt === effort && <i className="fa-solid fa-check" style={{ fontSize: '11px' }} />}
+                      </button>
+                    ))}
+
+                    <div style={{ height: '1px', background: 'var(--border-glass)', margin: '6px 8px' }} />
+
+                    {/* Think Longer left-right switch */}
                     <button
-                      key={opt}
-                      onClick={() => { setEffort(opt); setEffortOpen(false); }}
-                      className="effort-option"
+                      onClick={() => setThinkingEnabled(!thinkingEnabled)}
                       style={{
-                        display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+                        display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between',
                         padding: '8px 12px', borderRadius: 'var(--radius-sm)',
-                        background: opt === effort ? 'var(--surface-glass-active)' : 'transparent',
-                        border: 'none', color: 'var(--text-primary)', fontSize: '13px', cursor: 'pointer',
+                        background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '13px', cursor: 'pointer',
                       }}
                     >
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {opt}
-                        {opt === 'Medium' && (
-                          <span className="effort-info">
-                            <span className="effort-info-icon">ⓘ</span>
-                            <span className="effort-tooltip">Default thinking effort</span>
-                          </span>
-                        )}
-                      </span>
-                      {opt === effort && <i className="fa-solid fa-check" style={{ fontSize: '11px' }} />}
-                    </button>
-                  ))}
-
-                  <div style={{ height: '1px', background: 'var(--border-glass)', margin: '6px 8px' }} />
-
-                  {/* Think Longer left-right switch */}
-                  <button
-                    onClick={() => setThinkingEnabled(!thinkingEnabled)}
-                    style={{
-                      display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '8px 12px', borderRadius: 'var(--radius-sm)',
-                      background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '13px', cursor: 'pointer',
-                    }}
-                  >
-                    <span>Think Longer</span>
-                    {/* switch track */}
-                    <span style={{
-                      position: 'relative', width: '36px', height: '20px', borderRadius: '999px',
-                      background: thinkingEnabled ? 'var(--text-primary)' : 'rgba(255,255,255,0.15)',
-                      transition: 'background 0.2s', flexShrink: 0,
-                    }}>
+                      <span>Think Longer</span>
+                      {/* switch track */}
                       <span style={{
-                        position: 'absolute', top: '2px', left: thinkingEnabled ? '18px' : '2px',
-                        width: '16px', height: '16px', borderRadius: '50%',
-                        background: 'var(--bg-elevated)', transition: 'left 0.2s',
-                      }} />
-                    </span>
-                  </button>
-                </div>
-              </>
-            )}
+                        position: 'relative', width: '36px', height: '20px', borderRadius: '999px',
+                        background: thinkingEnabled ? 'var(--text-primary)' : 'rgba(255,255,255,0.15)',
+                        transition: 'background 0.2s', flexShrink: 0,
+                      }}>
+                        <span style={{
+                          position: 'absolute', top: '2px', left: thinkingEnabled ? '18px' : '2px',
+                          width: '16px', height: '16px', borderRadius: '50%',
+                          background: 'var(--bg-elevated)', transition: 'left 0.2s',
+                        }} />
+                      </span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Right Side: Actions */}
         <div className="topbar-actions" style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '16px' }}>
-          <div className="topbar-badge">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1" />
-              <polyline points="7,4 7,7 9.5,8.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <span>Market Open</span>
-          </div>
-          <button onClick={() => setSettingsOpen(true)} className="topbar-center-btn" style={{ padding: '6px', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', justifyContent: 'center' }} title="Settings">
-            <i className="fa-solid fa-gear" style={{ fontSize: '14px' }}></i>
-          </button>
         </div>
       </header>
 

@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import { Outfit } from 'next/font/google';
 import './globals.css';
 import Sidebar from './components/layout/Sidebar';
-import TopBar from './components/layout/TopBar';
-
+import GlobalSettings from './components/layout/GlobalSettings';
+import MarketTicker from './components/layout/MarketTicker';
 const outfit = Outfit({
   subsets: ['latin'],
   variable: '--font-outfit',
@@ -30,7 +30,8 @@ export default function RootLayout({
         <div className="app-layout">
           <Sidebar />
           <div className="app-main">
-            <TopBar />
+            <GlobalSettings />
+            <MarketTicker />
             <main className="app-content">{children}</main>
           </div>
         </div>

@@ -6,34 +6,51 @@
 /* === DESIGN TOKENS ========================================================= */
 :root {
   /* ── Backgrounds ─────────────────────────────────────────────────────────── */
-  --bg-primary:       #121212;
-  --bg-secondary:     #1a1a1a;
-  --bg-tertiary:      #242424;
-  --bg-elevated:      #1e1e1e;
+  --bg-primary:       #000000;
+  --bg-secondary:     #0a0a0a;
+  --bg-tertiary:      #111111;
+  --bg-elevated:      #1a1a1a;
 
-  /* ── Glass Surfaces ──────────────────────────────────────────────────────── */
-  --surface-glass:        rgba(20, 20, 20, 0.7);
-  --surface-glass-hover:  rgba(30, 30, 30, 0.8);
-  --surface-glass-active: rgba(40, 40, 40, 0.9);
-  --border-glass:         #333333;
-  --border-glass-hover:   #555555;
+  /* ── Glass Surfaces (Removed for Terminal Look) ──────────────────────────── */
+  --surface-glass:        #0d0d0d;
+  --surface-glass-hover:  #1a1a1a;
+  --surface-glass-active: #2a2a2a;
+  --border-glass:         #1f1f1f;
+  --border-glass-hover:   #333333;
   --border-glass-accent:  #ffffff;
 
   /* ── Accent Colors ──────────────────────────────────────────────────────── */
   --accent-cyan:    #ffffff;
-  --accent-violet:  #dddddd;
+  --accent-violet:  #ffffff;
   --accent-blue:    #ffffff;
   --accent-gradient: #ffffff;
   --accent-glow:    none;
 
   /* ── Status Colors ──────────────────────────────────────────────────────── */
-  --success:  #059669;
-  --danger:   #dc2626;
-  --warning:  #d97706;
-  --info:     #2563eb;
-  --bull:     #059669;
-  --bear:     #dc2626;
-  --neutral:  #6b7280;
+  --success:  #00c853;
+  --danger:   #d50000;
+  --warning:  #ffffff;
+  --info:     #ffffff;
+  --bull:     #00c853;
+  --bear:     #d50000;
+  --neutral:  #888888;
+
+  /* ── Terminal Palette (Bloomberg-style) ─────────────────────────────────── */
+  --term-bg:           #000000;
+  --term-bg-elevated:  #0a0a0a;
+  --term-bg-row:       #0d0d0d;
+  --term-bg-row-alt:   #111111;
+  --term-border:       #1f1f1f;
+  --term-border-bold:  #2a2a2a;
+  --term-text:         #ffffff;
+  --term-text-dim:     #8a8a8a;
+  --term-text-mute:    #555555;
+  --term-up:           #00c853;
+  --term-down:         #d50000;
+  --term-amber:        #ffffff;
+  --term-cyan:         #ffffff;
+  --term-magenta:      #ffffff;
+  --term-yellow:       #ffffff;
 
   /* ── Text ────────────────────────────────────────────────────────────────── */
   --text-primary:   #ffffff;
@@ -43,8 +60,8 @@
   --text-inverse:   #000000;
 
   /* ── Typography ──────────────────────────────────────────────────────────── */
-  --font-sans: var(--font-outfit), 'Outfit', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-sans: 'JetBrains Mono', 'Consolas', 'Fira Code', monospace;
+  --font-mono: 'JetBrains Mono', 'Consolas', 'Fira Code', monospace;
 
   --text-xs:  0.6875rem;
   --text-sm:  0.75rem;
@@ -68,25 +85,26 @@
   --space-12: 3rem;
 
   /* ── Border Radius ───────────────────────────────────────────────────────── */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
-  --radius-full: 9999px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-full: 0px;
 
   /* ── Shadows ─────────────────────────────────────────────────────────────── */
-  --shadow-sm:  0 1px 2px 0 rgba(255, 255, 255, 0.05);
-  --shadow-md:  0 4px 6px -1px rgba(255, 255, 255, 0.05), 0 2px 4px -1px rgba(255, 255, 255, 0.03);
-  --shadow-lg:  0 10px 15px -3px rgba(255, 255, 255, 0.05), 0 4px 6px -2px rgba(255, 255, 255, 0.03);
-  --shadow-glow-cyan:   0 0 10px rgba(255, 255, 255, 0.1);
-  --shadow-glow-violet: 0 0 10px rgba(255, 255, 255, 0.1);
-  --shadow-glow-bull:   0 0 10px rgba(255, 255, 255, 0.1);
-  --shadow-glow-bear:   0 0 10px rgba(255, 255, 255, 0.1);
+  --shadow-sm:  none;
+  --shadow-md:  none;
+  --shadow-lg:  none;
+  --shadow-glow-cyan:   none;
+  --shadow-glow-violet: none;
+  --shadow-glow-bull:   none;
+  --shadow-glow-bear:   none;
 
   /* ── Layout ──────────────────────────────────────────────────────────────── */
   --sidebar-width:     260px;
   --sidebar-collapsed: 72px;
   --topbar-height:     64px;
+  --ticker-height:     36px;
 
   /* ── Transitions ─────────────────────────────────────────────────────────── */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);

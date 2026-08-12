@@ -31,6 +31,7 @@ const navItems: NavItem[] = [
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [chatSessions, setChatSessions] = useState<{id: string, title: string}[]>([]);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const pathname = usePathname();
 
   const sanitizeSessionId = (id: unknown): string | null => {
@@ -86,13 +87,12 @@ export default function Sidebar() {
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
       <div className="sidebar-logo" style={{ justifyContent: collapsed ? 'center' : 'space-between' }}>
         <img src="/logo-boz.png" alt="BOZ" />
-        {!collapsed && <span className="sidebar-logo-text">BOZ</span>}
+        {!collapsed && <span className="sidebar-logo-text">BOZ.</span>}
         <button
           className="sidebar-collapse-btn"
           onClick={() => setCollapsed(!collapsed)}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          style={{ padding: '4px' }}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
             {collapsed ? (
@@ -115,15 +115,15 @@ export default function Sidebar() {
               <span className="sidebar-link-label">{item.label}</span>
             </Link>
             {item.href === '/chat' && isActive('/chat') && chatSessions.length > 0 && !collapsed && (
-              <div style={{ paddingLeft: '40px', marginTop: '4px', marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '180px', overflowY: 'auto' }}>
-                <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>Recent Chats</div>
+              <div className="sidebar-recent-chats">
+                <div className="sidebar-group-title">Recent Chats</div>
                 {chatSessions.slice(0, 5).map(session => {
                   const chatHref = `/chat/${session.id}`;
                   return (
                     <Link 
                       key={session.id} 
                       href={chatHref}
-                      style={{ fontSize: '12px', color: pathname === chatHref ? 'var(--text-primary)' : 'var(--text-muted)', textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '4px 0' }}
+                      className={`sidebar-chat-link${pathname === chatHref ? ' active' : ''}`}
                     >
                       {session.title}
                     </Link>
@@ -135,8 +135,97 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="sidebar-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', opacity: 0.5 }}>
-        <span className="sidebar-version" style={{ fontSize: '10px' }}>{!collapsed ? 'v2.2.0' : 'v2'}</span>
+      <div className="sidebar-footer">
+        {isProfileMenuOpen && !collapsed && (
+          <div className="profile-popover">
+            <div className="profile-popover-header">
+              <span className="profile-popover-email">ajaaoja@gmail.com</span>
+            </div>
+            <div className="profile-popover-group">
+              <button 
+                className="profile-popover-item"
+                onClick={() => {
+                  window.dispatchEvent(new Event('boz_open_settings'));
+                  setIsProfileMenuOpen(false);
+                }}
+              >
+                <div className="profile-popover-item-left">
+                  <i className="fa-solid fa-gear"></i>
+                  <span>Settings</span>
+                </div>
+                <div className="profile-popover-item-right">Ctrl+⇧+,</div>
+              </button>
+              <button className="profile-popover-item">
+                <div className="profile-popover-item-left">
+                  <i className="fa-solid fa-globe"></i>
+                  <span>Language</span>
+                </div>
+                <div className="profile-popover-item-right"><i className="fa-solid fa-chevron-right" style={{fontSize: '10px'}}></i></div>
+              </button>
+              <button className="profile-popover-item">
+                <div className="profile-popover-item-left">
+                  <i className="fa-regular fa-circle-question"></i>
+                  <span>Get help</span>
+                </div>
+              </button>
+            </div>
+            <div className="profile-popover-group">
+              <button className="profile-popover-item">
+                <div className="profile-popover-item-left">
+                  <i className="fa-solid fa-arrow-up"></i>
+                  <span>Upgrade plan</span>
+                </div>
+              </button>
+              <button className="profile-popover-item">
+                <div className="profile-popover-item-left">
+                  <i className="fa-solid fa-download"></i>
+                  <span>Get apps and extensions</span>
+                </div>
+              </button>
+              <button className="profile-popover-item">
+                <div className="profile-popover-item-left">
+                  <i className="fa-solid fa-circle-info"></i>
+                  <span>Learn more</span>
+                </div>
+                <div className="profile-popover-item-right"><i className="fa-solid fa-chevron-right" style={{fontSize: '10px'}}></i></div>
+              </button>
+            </div>
+            <div className="profile-popover-group">
+              <button className="profile-popover-item">
+                <div className="profile-popover-item-left">
+                  <i className="fa-solid fa-arrow-right-from-bracket"></i>
+                  <span>Log out</span>
+                </div>
+              </button>
+            </div>
+          </div>
+        )}
+        <div 
+          className="sidebar-profile" 
+          onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+          role="button"
+          tabIndex={0}
+        >
+          <div className="sidebar-profile-avatar" aria-hidden="true">
+            A
+          </div>
+          {!collapsed && (
+            <div className="sidebar-profile-meta">
+              <div className="sidebar-profile-name">aja</div>
+              <div className="sidebar-profile-role">Free plan</div>
+            </div>
+          )}
+          {!collapsed && (
+            <div className="sidebar-profile-actions-wrapper">
+              <div className="sidebar-profile-action" aria-label="Menu">
+                <i className="fa-solid fa-sort" style={{ fontSize: '12px' }}></i>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="sidebar-version-row">
+          <span className="sidebar-version">v2.2.0</span>
+        </div>
       </div>
     </aside>
   );
