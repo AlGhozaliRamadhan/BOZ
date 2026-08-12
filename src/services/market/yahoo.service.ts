@@ -88,14 +88,15 @@ export class YahooService {
   async getHistoricalData(
     symbol: string,
     period1: Date,
-    interval: '1m' | '5m' | '15m' | '1h' | '4h' | '1d' = '1h',
+    interval: '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1wk' = '1h',
     logRealtime: boolean = true,
     options?: HistoricalOptions,
   ): Promise<Candle[]> {
     try {
       const periodStr =
         interval === '1h' ? '5d' :
-        interval === '1d' ? '90d' : '30d';
+        interval === '1d' ? '90d' :
+        interval === '1wk' ? 'max' : '30d';
 
       // NOTE: Yahoo Finance does not support a native 4h interval.
       // When interval '4h' is requested we fetch 1h and resample.
