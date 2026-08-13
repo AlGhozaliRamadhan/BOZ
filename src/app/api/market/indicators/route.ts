@@ -3,7 +3,7 @@ import { jsonResponse, errorResponse, parseBody } from '@/app/lib/api-helpers';
 import { YahooService } from '@/services/market/yahoo.service';
 import { IndicatorsService } from '@/services/market/indicators.service';
 
-type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
+type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1wk' | '1mo';
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,11 +14,13 @@ export async function POST(request: NextRequest) {
     const indicators = new IndicatorsService();
 
     const date = new Date();
-    if (interval === '1d') date.setDate(date.getDate() - 90);
+    if (interval === '1mo') date.setFullYear(date.getFullYear() - 10);
+    else if (interval === '1wk') date.setDate(date.getDate() - 800);
+    else if (interval === '1d') date.setDate(date.getDate() - 420);
     else if (interval === '4h') date.setDate(date.getDate() - 30);
     else date.setDate(date.getDate() - 5);
 
-    let candles = await yahoo.getHistoricalData(ticker, date, interval, false);
+    let candles = await yahoo.getHistoricalData(ticker, date, interval as any, false);
     if (!candles.length) return errorResponse('No market data available', 404);
 
     candles = indicators.calculateAll(candles);

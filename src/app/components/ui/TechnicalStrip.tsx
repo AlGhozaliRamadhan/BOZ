@@ -6,8 +6,7 @@ import { useEffect, useRef, useState } from 'react';
    TECHNICAL BOARD
    Bloomberg-style indicator panel rendered below the TradingView chart.
    Shows "lots" of indicators by default (ALL), filterable by category,
-   and scrolls internally — the page never grows. Timeframe is fixed at 1d:
-   the chart's own TradingView toolbar owns timeframe switching.
+   and responsive across all screen widths.
    Data: POST /api/market/indicators.
    ──────────────────────────────────────────────────────────────────────────── */
 
@@ -47,12 +46,12 @@ interface IndicatorData {
   closes: number[];
 }
 
-/** Fetch the last candle's indicators + close series on the daily timeframe. */
-async function fetchIndicators(ticker: string): Promise<IndicatorData | null> {
+/** Fetch the last candle's indicators + close series on the specified timeframe. */
+async function fetchIndicators(ticker: string, interval: string): Promise<IndicatorData | null> {
   const res = await fetch('/api/market/indicators', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ticker, interval: '1d' }),
+    body: JSON.stringify({ ticker, interval }),
   });
   if (!res.ok) return null;
   const data = await res.json();
@@ -218,96 +217,131 @@ function Cell({ def }: { def: CellDef }) {
     def.subTone === 'down' ? 'var(--danger)' :
     def.subTone === 'warn' ? '#fff' : '#555';
   return (
-    <div style={{ background: '#0a0a0a', padding: '9px 14px', minWidth: 0 }}>
-      <div style={{ color: '#555', fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+    <div style={{ 
+      background: '#0a0a0a', 
+      padding: '10px 14px', 
+      minWidth: 0, 
+      display: 'flex', 
+      flexDirection: 'column', 
+      justifyContent: 'center',
+      transition: 'background 0.15s ease' 
+    }}>
+      <div style={{ color: '#555', fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {def.label}
       </div>
       <div style={{ color, fontSize: '13px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {def.value}
       </div>
-      {def.sub && (
+      {def.sub ? (
         <div style={{ color: subColor, fontSize: '8px', fontWeight: 700, letterSpacing: '0.1em', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {def.sub}
         </div>
+      ) : (
+        <div style={{ height: '10px', marginTop: '2px' }} />
       )}
     </div>
   );
 }
 
+const INTERVALS = [
+  { id: '15m', label: '15M' },
+  { id: '1h', label: '1H' },
+  { id: '4h', label: '4H' },
+  { id: '1d', label: '1D' },
+  { id: '1wk', label: '1W' },
+  { id: '1mo', label: '1M' },
+] as const;
+
 export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
   const [data, setData] = useState<IndicatorData | null>(null);
   const [loading, setLoading] = useState(true);
   const [cat, setCat] = useState<Category>('ALL');
-  const [boardHeight, setBoardHeight] = useState<number | undefined>(undefined);
+  const [interval, setIntervalState] = useState<string>('1d');
+  const [intervalMenuOpen, setIntervalMenuOpen] = useState(false);
   const seq = useRef(0);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const boardRef = useRef<HTMLDivElement>(null);
-
-  // Size the board so its bottom edge lands exactly on the info column's
-  // bottom (WHAT DOES THIS MEAN) — measured from the shared lower grid.
-  useEffect(() => {
-    const measure = () => {
-      const root = rootRef.current;
-      const board = boardRef.current;
-      if (!root || !board) return;
-      const lower = root.closest<HTMLElement>('[data-dashboard-lower]');
-      const infoCol = lower?.lastElementChild as HTMLElement | null;
-      if (!infoCol) return;
-      const h = Math.round(infoCol.getBoundingClientRect().bottom - board.getBoundingClientRect().top) - 1;
-      if (h >= 80) setBoardHeight(h); // sanity guard; ignore degenerate sizes
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    const rootEl = rootRef.current;
-    const lower = rootEl?.closest('[data-dashboard-lower]');
-    if (rootEl) ro.observe(rootEl);
-    if (lower) ro.observe(lower);
-    window.addEventListener('resize', measure);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', measure);
-    };
-  }, []);
 
   useEffect(() => {
     if (!ticker) return;
     const mySeq = ++seq.current;
     setLoading(true);
     setData(null);
-    fetchIndicators(ticker).then((result) => {
-      if (seq.current !== mySeq) return; // stale — ticker changed
+    fetchIndicators(ticker, interval).then((result) => {
+      if (seq.current !== mySeq) return; // stale — ticker or interval changed
       setData(result);
       setLoading(false);
     });
-  }, [ticker]);
+  }, [ticker, interval]);
 
   const allCells = buildCells(data);
   const visible = cat === 'ALL' ? allCells : allCells.filter((c) => c.cats.includes(cat));
 
   return (
-    <div ref={rootRef} style={{ borderTop: '1px solid #1a1a1a', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #1a1a1a' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+    <div style={{ background: '#000', display: 'flex', flexDirection: 'column', width: '100%' }}>
+      {/* Header Toolbar */}
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        padding: '8px 14px', 
+        borderBottom: '1px solid #1a1a1a',
+        flexWrap: 'wrap',
+        gap: '8px'
+      }}>
+        {/* Left: Title + Timeframe dropdown */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
           <span style={{ color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em' }}>
-            TECHNICAL • {ticker} • 1D
+            TECHNICAL • {ticker} • 
           </span>
-        </div>
-        <span style={{ color: '#555', fontSize: '9px', letterSpacing: '0.05em' }}>
-          {loading ? 'CALCULATING…' : data ? 'LIVE' : 'UNAVAILABLE'}
-        </span>
-      </div>
+          <button
+            type="button"
+            onClick={() => setIntervalMenuOpen(o => !o)}
+            style={{
+              background: '#0a0a0a', border: '1px solid #2a2a2a', color: '#fff',
+              padding: '2px 8px', fontFamily: 'var(--font-mono)', fontSize: '10px',
+              fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
+            }}
+          >
+            {INTERVALS.find(i => i.id === interval)?.label || '1D'}
+            <span style={{ fontSize: '8px', color: '#888' }}>▼</span>
+          </button>
 
-      {/* Category filter row */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px', borderBottom: '1px solid #1a1a1a' }}>
-        <div style={{ display: 'flex', gap: '4px' }}>
+          {intervalMenuOpen && (
+            <>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setIntervalMenuOpen(false)} />
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 4px)', left: '120px', zIndex: 50,
+                background: '#0d0d0d', border: '1px solid #2a2a2a', minWidth: '80px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.8)'
+              }}>
+                {INTERVALS.map(int => (
+                  <button
+                    key={int.id}
+                    type="button"
+                    onClick={() => { setIntervalState(int.id); setIntervalMenuOpen(false); }}
+                    style={{
+                      display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '6px 10px', background: 'transparent', border: 'none', color: interval === int.id ? '#00c853' : '#fff',
+                      fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 700, cursor: 'pointer', textAlign: 'left'
+                    }}
+                  >
+                    <span>{int.label}</span>
+                    {interval === int.id && <span style={{ color: '#00c853', fontSize: '8px' }}>●</span>}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Middle: Category filter tabs */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           {CATEGORIES.map((k) => (
             <button
               key={k}
               type="button"
               onClick={() => setCat(k)}
               style={{
-                background: 'transparent',
+                background: cat === k ? '#1a1a1a' : 'transparent',
                 border: `1px solid ${cat === k ? '#fff' : '#2a2a2a'}`,
                 color: cat === k ? '#fff' : '#888',
                 padding: '2px 9px',
@@ -316,25 +350,40 @@ export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
                 fontWeight: 700,
                 letterSpacing: '0.08em',
                 cursor: 'pointer',
+                transition: 'all 0.15s ease'
               }}
             >
               {k}
             </button>
           ))}
         </div>
-        <span style={{ color: '#555', fontSize: '9px', letterSpacing: '0.1em' }}>
-          {visible.length} INDICATORS
-        </span>
+
+        {/* Right: Count & Live state */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ color: '#555', fontSize: '9px', letterSpacing: '0.08em' }}>
+            {visible.length} INDICATORS
+          </span>
+          <span style={{ 
+            color: loading ? '#ffd700' : data ? '#00c853' : '#d50000', 
+            fontSize: '9px', 
+            fontWeight: 700,
+            letterSpacing: '0.05em' 
+          }}>
+            {loading ? 'CALCULATING…' : data ? '● LIVE' : 'UNAVAILABLE'}
+          </span>
+        </div>
       </div>
 
-      {/* Scrollable board — sized so it ends exactly at the info panel's
-          bottom; scrolls internally when its content is taller */}
-      <div ref={boardRef} style={{ height: boardHeight, minHeight: 200, overflowY: 'auto', overscrollBehavior: 'contain' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', background: '#000', gap: '1px' }}>
-          {visible.map((def) => (
-            <Cell key={def.label} def={def} />
-          ))}
-        </div>
+      {/* Responsive Indicator Grid */}
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', 
+        background: '#1a1a1a', 
+        gap: '1px' 
+      }}>
+        {visible.map((def) => (
+          <Cell key={def.label} def={def} />
+        ))}
       </div>
     </div>
   );

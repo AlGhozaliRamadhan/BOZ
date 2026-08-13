@@ -14,11 +14,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const resolved = ticker ? config.ticker : config.ticker;
     const sentimentService = new SentimentService();
-    const sentiment = await sentimentService.fetchCrowdSentiment();
+    const sentiment = await sentimentService.fetchCrowdSentiment(resolved);
 
     return jsonResponse({
-      ticker: config.ticker,
+      ticker: resolved,
       timestamp: new Date().toISOString(),
       ...sentiment,
     });
