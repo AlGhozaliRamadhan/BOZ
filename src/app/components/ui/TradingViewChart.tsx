@@ -158,8 +158,7 @@ function TradingViewChart({
 
       // Technical studies — overlays rendered on the chart
       studies: [
-        'MAExp@tv-basicstudies',
-        'MAExp@tv-basicstudies',
+        'MASimple@tv-basicstudies',
         'MAExp@tv-basicstudies',
         'Volume@tv-basicstudies',
         'RSI@tv-basicstudies',
