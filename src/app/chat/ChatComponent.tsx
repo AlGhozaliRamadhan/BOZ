@@ -524,7 +524,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
             {messages.length === 0 && !loading ? (
               <div className="empty-state" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                 <div style={{ width: 80, height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px' }}>
-                  <img src="/logo-boz.png" alt="BOZ" style={{ width: 80, height: 80, objectFit: 'contain' }} />
+                  <img src="/logo-boz-solid.png" alt="BOZ" style={{ width: 80, height: 80, objectFit: 'contain' }} />
                 </div>
                 <h2 style={{ fontSize: '28px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>How can I help you today?</h2>
                 <p style={{ fontSize: '15px', color: 'var(--text-muted)', marginBottom: '40px', maxWidth: '400px', textAlign: 'center' }}>
@@ -554,7 +554,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                     {msg.role === 'assistant' ? (
                       <div className="flex-row gap-3">
                         <div style={{ flexShrink: 0, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <img src="/logo-boz.png" alt="BOZ" style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: '12px' }} />
+                          <img src="/logo-boz-solid.png" alt="BOZ" style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: '12px' }} />
                         </div>
                         <div style={{ width: '100%', paddingTop: '4px' }}>
                           {msg.type === 'intraday' && <IntradayCard data={msg.data} />}
@@ -582,7 +582,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                   <div className={`chat-bubble assistant`}>
                     <div className="flex-row gap-3">
                       <div style={{ flexShrink: 0, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <img src="/logo-boz.png" alt="BOZ" style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: '12px' }} />
+                        <img src="/logo-boz-solid.png" alt="BOZ" style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: '12px' }} />
                       </div>
                       <div style={{ width: '100%', paddingTop: '4px' }}>
                         {streamingThoughts.length > 0 && (
