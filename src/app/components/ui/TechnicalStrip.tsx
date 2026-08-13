@@ -6,8 +6,7 @@ import { useEffect, useRef, useState } from 'react';
    TECHNICAL BOARD
    Bloomberg-style indicator panel rendered below the TradingView chart.
    Shows "lots" of indicators by default (ALL), filterable by category,
-   and scrolls internally — the page never grows. Timeframe is fixed at 1d:
-   the chart's own TradingView toolbar owns timeframe switching.
+   and responsive across all screen widths.
    Data: POST /api/market/indicators.
    ──────────────────────────────────────────────────────────────────────────── */
 

@@ -86,6 +86,7 @@ export default function Sidebar() {
   return (
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
       <div className="sidebar-logo" style={{ justifyContent: collapsed ? 'center' : 'space-between' }}>
+        <img src="/logo-boz.png" alt="BOZ" />
         {!collapsed && <span className="sidebar-logo-text">BOZ.</span>}
         <button
           className="sidebar-collapse-btn"
