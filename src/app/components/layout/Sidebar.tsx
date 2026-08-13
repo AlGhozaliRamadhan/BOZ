@@ -14,17 +14,17 @@ const navItems: NavItem[] = [
   {
     label: 'Dashboard',
     href: '/',
-    icon: <i className="fa-solid fa-house" style={{ fontSize: '18px' }}></i>,
+    icon: <i className="fa-regular fa-compass" style={{ fontSize: '14px' }}></i>,
   },
   {
     label: 'Chat Agent',
     href: '/chat',
-    icon: <i className="fa-solid fa-comment-dots" style={{ fontSize: '18px' }}></i>,
+    icon: <i className="fa-regular fa-comment-dots" style={{ fontSize: '14px' }}></i>,
   },
   {
     label: 'IDX Scanner',
     href: '/idx-scanner',
-    icon: <i className="fa-solid fa-magnifying-glass-chart" style={{ fontSize: '18px' }}></i>,
+    icon: <i className="fa-regular fa-chart-bar" style={{ fontSize: '14px' }}></i>,
   },
 ];
 
@@ -86,7 +86,6 @@ export default function Sidebar() {
   return (
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
       <div className="sidebar-logo" style={{ justifyContent: collapsed ? 'center' : 'space-between' }}>
-        <img src="/logo-boz.png" alt="BOZ" />
         {!collapsed && <span className="sidebar-logo-text">BOZ.</span>}
         <button
           className="sidebar-collapse-btn"
@@ -224,7 +223,7 @@ export default function Sidebar() {
           )}
         </div>
         <div className="sidebar-version-row">
-          <span className="sidebar-version">v2.2.0</span>
+          <span className="sidebar-version">v2.2.1</span>
         </div>
       </div>
     </aside>
