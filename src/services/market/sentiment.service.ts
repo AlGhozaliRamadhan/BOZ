@@ -87,7 +87,8 @@ export class SentimentService {
     throw lastErr;
   }
 
-  async fetchCrowdSentiment(): Promise<any> {
+  async fetchCrowdSentiment(tickerOverride?: string): Promise<any> {
+    const ticker = (tickerOverride || config.ticker || '').toUpperCase();
     const crowd = {
       fear_greed:          null as any,
       stocktwits_data:     null as any,
@@ -111,7 +112,7 @@ export class SentimentService {
       'Origin': 'https://stocktwits.com',
     };
 
-    const stockTwitsSymbol = resolveStockTwitsSymbol(config.ticker);
+    const stockTwitsSymbol = resolveStockTwitsSymbol(ticker);
 
     // ── Fear & Greed (CNN Money) ───────────────────────────────────────────────
     try {
@@ -159,7 +160,7 @@ export class SentimentService {
     // ── StockTwits ─────────────────────────────────────────────────────────────
     try {
       if (!stockTwitsSymbol) {
-        log.crowd('stocktwits', clr.dim(`skipped for ${config.ticker}`));
+        log.crowd('stocktwits', clr.dim(`skipped for ${ticker}`));
       } else {
         const stRes = await this.withRetry('stocktwits_stream', () =>
           axios.get(
@@ -176,10 +177,24 @@ export class SentimentService {
             if (basic === 'Bearish') bearish++;
           }
           const total = bullish + bearish;
+          const sampleMessages = messages
+            .filter((m: any) => typeof m.body === 'string' && m.body.trim().length > 0)
+            .slice(0, 2)
+            .map((m: any) => ({
+              id: m.id,
+              body: m.body.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim(),
+              sentiment: m.entities?.sentiment?.basic || null,
+              username: m.user?.username || 'Trader',
+              created_at: m.created_at,
+            }));
+
           crowd.stocktwits_data = {
             bullish,
             bearish,
             total_with_sentiment: total,
+            total_messages: messages.length,
+            watchlist_count: stRes.data?.symbol?.watchlist_count ?? null,
+            sample_messages: sampleMessages,
             bull_ratio: total > 0 ? (bullish / total) * 100 : 50,
           };
           const ratio      = crowd.stocktwits_data.bull_ratio;
@@ -188,7 +203,7 @@ export class SentimentService {
         }
       }
     } catch (err) {
-      log.warn('crowd', `StockTwits ${stockTwitsSymbol ?? config.ticker} error: ${(err as Error).message}`);
+      log.warn('crowd', `StockTwits ${stockTwitsSymbol ?? ticker} error: ${(err as Error).message}`);
     }
 
     // ── Reddit Social Buzz ─────────────────────────────────────────────────────
@@ -196,15 +211,15 @@ export class SentimentService {
     // Cloudflare (which protects reddit.com) rejects Node's OpenSSL JA3 fingerprint
     // with SSL alert 40. Undici has a different TLS fingerprint that passes the check.
     const now = Date.now();
-    const cacheKey = config.ticker;
+    const cacheKey = ticker;
     if ((global as any).__redditCache && (global as any).__redditCache[cacheKey] && now - (global as any).__redditCache[cacheKey].timestamp < 300000) {
       const cached = (global as any).__redditCache[cacheKey];
       crowd.social_buzz.push({ source: 'Reddit', mentions: cached.mentions, top_posts: cached.top_posts });
       log.crowd('reddit', clr.dim(`${cached.mentions} mentions (cached)`));
     } else {
       try {
-      const query    = encodeURIComponent(buildSocialSearchQuery(config.ticker));
-      const searchUrl = `https://www.reddit.com/search.rss?q=${query}&sort=new&limit=10&t=month`;
+      const query    = encodeURIComponent(buildSocialSearchQuery(ticker));
+      const searchUrl = `https://www.reddit.com/search.rss?q=${query}&sort=new&limit=100&t=month`;
 
       const res = await this.fetchWithRetry(searchUrl, {
         headers: {
@@ -225,11 +240,19 @@ export class SentimentService {
           .slice(0, 5);
 
         if (posts.length > 0) {
-          crowd.social_buzz.push({ source: 'Reddit', mentions: posts.length, top_posts: titles });
-          log.crowd('reddit', clr.dim(`${posts.length} mentions (last 10)`));
-          
+          // Report the actual RSS hit count. The feed is capped (~100); do not invent a larger number.
+          const mentions = posts.length;
+          crowd.social_buzz.push({
+            source: 'Reddit',
+            mentions,
+            top_posts: titles,
+            window: 'month',
+            capped: mentions >= 100,
+          });
+          log.crowd('reddit', clr.dim(`${mentions} recent posts${mentions >= 100 ? ' (feed cap)' : ''}`));
+
           if (!(global as any).__redditCache) (global as any).__redditCache = {};
-          (global as any).__redditCache[cacheKey] = { timestamp: now, mentions: posts.length, top_posts: titles };
+          (global as any).__redditCache[cacheKey] = { timestamp: now, mentions, top_posts: titles };
         } else {
           log.crowd('reddit', clr.dim('no recent posts found'));
         }
@@ -240,7 +263,7 @@ export class SentimentService {
       }
     } catch (err) {
         if (process.env.DEBUG_CROWD) {
-          log.warn('crowd', `Reddit ${config.ticker} error: ${(err as Error).message}`);
+          log.warn('crowd', `Reddit ${ticker} error: ${(err as Error).message}`);
         }
       }
     }
