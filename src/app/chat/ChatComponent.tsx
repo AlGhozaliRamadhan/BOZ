@@ -506,8 +506,8 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
         <div className="chat-messages">
             {messages.length === 0 && !loading ? (
               <div className="empty-state" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ width: 68, height: 68, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px' }}>
-                  <img src="/logo-boz-solid.png" alt="BOZ" style={{ width: 68, height: 68, objectFit: 'contain', borderRadius: '16px' }} />
+                <div style={{ width: 80, height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
+                  <img src="/logo-boz-solid.png" alt="BOZ" style={{ width: 80, height: 80, objectFit: 'contain', borderRadius: '16px' }} />
                 </div>
                 <h2 className="chat-empty-title">{greeting}</h2>
 
