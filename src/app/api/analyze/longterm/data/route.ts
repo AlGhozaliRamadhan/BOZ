@@ -1,11 +1,27 @@
 import { NextRequest } from 'next/server';
 import { jsonResponse, errorResponse, parseBody } from '@/app/lib/api-helpers';
 import { config } from '@/config/config';
-import { YahooService } from '@/services/market/yahoo.service';
+import { YahooService, yahooFinance } from '@/services/market/yahoo.service';
 import { IndicatorsService } from '@/services/market/indicators.service';
 import { MacroService } from '@/services/market/macro.service';
 import { SentimentService } from '@/services/market/sentiment.service';
 import { ChartAnalyzer } from '@/analyzers/chart.analyzer';
+
+const findSuggestions = async (t: string) => {
+  try {
+    const res = await yahooFinance.search(t, {}, { validateResult: false }) as any;
+    return (res?.quotes || [])
+      .filter((q: any) => q.symbol && (q.quoteType === 'EQUITY' || q.quoteType === 'ETF' || q.quoteType === 'CRYPTOCURRENCY' || q.quoteType === 'INDEX'))
+      .slice(0, 4)
+      .map((q: any) => ({
+        symbol: q.symbol,
+        name: q.shortname || q.longname || q.symbol,
+        exchange: q.exchDisp || q.exchange,
+      }));
+  } catch {
+    return [];
+  }
+};
 
 // Step 1 of the chat longterm flow: gather market data + 52w context + macro + sentiment +
 // chart patterns WITHOUT running AI. The /verdict route runs the AI on top.
@@ -17,7 +33,15 @@ export async function POST(request: NextRequest) {
     try {
       config.setTicker(ticker);
     } catch {
-      return errorResponse(`Unknown ticker: ${ticker}`, 400);
+      const suggestions = await findSuggestions(ticker);
+      return jsonResponse({
+        error: 'ticker_not_found',
+        ticker,
+        suggestions,
+        message: suggestions.length > 0
+          ? `Could not find exact ticker "${ticker}". Did you mean one of the suggested symbols?`
+          : `Unknown ticker "${ticker}". Please verify the symbol.`,
+      }, 404);
     }
 
     const yahoo = new YahooService();
@@ -27,7 +51,17 @@ export async function POST(request: NextRequest) {
     const date = new Date();
     date.setFullYear(date.getFullYear() - 2);
     let candles = await yahoo.getHistoricalData(config.ticker, date, '1d', false, { adjustPrices: true });
-    if (!candles.length) return errorResponse('No market data available', 404);
+    if (!candles.length) {
+      const suggestions = await findSuggestions(ticker);
+      return jsonResponse({
+        error: 'ticker_not_found',
+        ticker,
+        suggestions,
+        message: suggestions.length > 0
+          ? `No candle data available for "${ticker}". Did you mean one of the suggested symbols?`
+          : `No market data available for "${ticker}".`,
+      }, 404);
+    }
     candles = indicators.calculateAll(candles);
 
     // Parallel fetches

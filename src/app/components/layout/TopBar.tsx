@@ -36,8 +36,9 @@ export default function TopBar() {
   const [effortOpen, setEffortOpen] = useState(false);
   
   const providers = [
-    { id: 'github', label: 'GitHub', color: 'var(--accent-cyan)' },
+    { id: 'custom', label: '9router', color: 'var(--accent-cyan)' },
     { id: 'nvidia', label: 'NVIDIA', color: '#76b900' },
+    { id: 'github', label: 'GitHub', color: '#00d2ff' },
     { id: 'offline', label: 'Offline', color: '#ff9900' }
   ];
 
@@ -65,11 +66,25 @@ export default function TopBar() {
     return () => window.removeEventListener('boz_open_settings', handleOpenSettings);
   }, []);
 
-  useEffect(() => {
+  const loadSettings = () => {
     fetch('/api/settings')
       .then(res => res.json())
-      .then(data => setConfig(data))
+      .then(data => {
+        setConfig(data);
+        if (data.provider) setSelectedProvider(data.provider);
+        if (data.model) {
+          const provLabel = data.provider === 'custom' ? '9router' : data.provider === 'github' ? 'GitHub' : data.provider === 'nvidia' ? 'NVIDIA' : 'Offline';
+          const displayStr = `${provLabel} • ${data.model}`;
+          setLastUsedAi(displayStr);
+        }
+      })
       .catch(err => console.error('Failed to fetch settings:', err));
+  };
+
+  useEffect(() => {
+    loadSettings();
+    window.addEventListener('boz_settings_updated', loadSettings);
+    return () => window.removeEventListener('boz_settings_updated', loadSettings);
   }, []);
 
   useEffect(() => {
@@ -77,10 +92,14 @@ export default function TopBar() {
       if (dynamicModels.length === 0 && !isFetchingModels) {
         setIsFetchingModels(true);
         Promise.all([
+          fetch('/api/custom-models').then(res => res.json()).catch(() => ({ models: [] })),
           fetch('/api/github-models').then(res => res.json()).catch(() => ({ models: [] })),
           fetch('/api/nvidia-models').then(res => res.json()).catch(() => ({ models: [] }))
-        ]).then(([ghData, nvData]) => {
+        ]).then(([customData, ghData, nvData]) => {
            const models: any[] = [];
+           if (customData.models) {
+             models.push(...customData.models.map((m: any) => ({ ...m, provider: 'custom' })));
+           }
            if (ghData.models) {
              models.push(...ghData.models.map((m: any) => ({ ...m, provider: 'github' })));
            }
@@ -132,9 +151,11 @@ export default function TopBar() {
         const data = await res.json();
         setConfig(data);
         setModalOpen(false);
-        const displayStr = `${providerId === 'github' ? 'GitHub' : 'NVIDIA'} • ${modelId}`;
+        const provLabel = providerId === 'custom' ? '9router' : providerId === 'github' ? 'GitHub' : providerId === 'nvidia' ? 'NVIDIA' : 'Offline';
+        const displayStr = `${provLabel} • ${modelId}`;
         setLastUsedAi(displayStr);
         localStorage.setItem('boz_last_ai', displayStr);
+        window.dispatchEvent(new Event('boz_settings_updated'));
       }
     } catch (err) {
       console.error('Failed to update config:', err);
