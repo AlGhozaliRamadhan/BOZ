@@ -10,6 +10,7 @@ import { InteractiveChatAgent } from '../agents/chat.agent.js';
 import { config, type AIProvider } from '../config/config.js';
 import { githubConfig, GITHUB_TOKEN_URL, GITHUB_MODELS } from '../config/github.config.js';
 import { nvidiaConfig, NVIDIA_MODELS, NVIDIA_API_KEY_URL } from '../config/nvidia.config.js';
+import { customConfig, CUSTOM_DEFAULT_URL } from '../config/custom.config.js';
 import { resolveSymbol } from '../shared/market-constants.js';
 import { yahooFinance } from '../services/market/yahoo.service.js';
 import { getBuildVersion } from '../utils/version.js';
@@ -402,10 +403,11 @@ async function runStartupWizard(): Promise<void> {
 
   // ── Fast-path: skip picker when AI_PROVIDER is pre-set in .env ───────────
   const envProvider = (process.env.AI_PROVIDER || '').toLowerCase();
-  if (envProvider === 'nvidia' || envProvider === 'github' || envProvider === 'offline') {
+  if (envProvider === 'nvidia' || envProvider === 'github' || envProvider === 'offline' || envProvider === 'custom' || envProvider === '9router') {
     const chosenProvider: AIProvider =
       envProvider === 'nvidia'  ? 'nvidia'  :
-      envProvider === 'offline' ? 'offline' : 'github';
+      envProvider === 'offline' ? 'offline' :
+      envProvider === 'custom' || envProvider === '9router' ? 'custom' : 'github';
 
     if (chosenProvider === 'nvidia' && !hasNvidiaKey) {
       await promptForNvidiaKey();
@@ -418,13 +420,19 @@ async function runStartupWizard(): Promise<void> {
       const url = await askQuestion(`  URL [http://localhost:11434]: `);
       restoreRawMode();
       config.setOfflineEndpoint(url || 'http://localhost:11434');
+    } else if (chosenProvider === 'custom' && !customConfig.endpoint) {
+      process.stdout.write(`\n  ${c.wrap(c.ghost, '9router endpoint')}\n\n`);
+      const url = await askQuestion(`  URL [${CUSTOM_DEFAULT_URL}]: `);
+      restoreRawMode();
+      config.setCustomEndpoint(url || CUSTOM_DEFAULT_URL);
     }
 
     config.setAIProvider(chosenProvider);
 
     const providerColor =
       chosenProvider === 'nvidia'  ? c.cyan   :
-      chosenProvider === 'offline' ? c.yellow : c.green;
+      chosenProvider === 'offline' ? c.yellow :
+      chosenProvider === 'custom'  ? c.magenta : c.green;
 
     process.stdout.write(
       `  ${c.wrap(c.ghost, 'provider')}  ${c.wrap(providerColor, chosenProvider)}\n` +
@@ -662,7 +670,7 @@ export class CLI {
       },
       {
         name: 'model',
-        description: 'View or switch AI provider  (/model [github|offline|nvidia])',
+        description: 'View or switch AI provider  (/model [github|offline|nvidia|custom])',
         handler: async (args) => {
           if (!args.length) {
             process.stdout.write('\n');
@@ -716,10 +724,30 @@ export class CLI {
               upsertEnvVar('NVIDIA_AI_MODEL', nvidiaConfig.model);
               process.stdout.write(`\n  model  ${c.wrap(c.green, NVIDIA_MODELS[idx].id)}\n\n`);
             }
+          } else if (provider === 'custom') {
+            let url = args.slice(1).join(' ').trim();
+            if (!url || url === '--pick') {
+              process.stdout.write('\n');
+              url = await askQuestion(`  CUSTOM_AI_URL [${CUSTOM_DEFAULT_URL}]: `);
+              restoreRawMode();
+            }
+            const resolved = url || CUSTOM_DEFAULT_URL;
+            config.setCustomEndpoint(resolved);
+            process.env.CUSTOM_AI_URL = resolved;
+            upsertEnvVar('CUSTOM_AI_URL', resolved);
+
+            process.stdout.write('\n');
+            const modelName = await askQuestion(`  CUSTOM_AI_MODEL (current: ${config.custom.model || 'none'}): `);
+            restoreRawMode();
+            if (modelName.trim()) {
+              config.setAIModel(modelName.trim());
+              process.env.CUSTOM_AI_MODEL = modelName.trim();
+              upsertEnvVar('CUSTOM_AI_MODEL', modelName.trim());
+            }
           } else {
             process.stdout.write(
               `\n  Unknown provider: ${c.wrap(c.red, provider)}.` +
-              ` Use ${c.wrap(c.white, 'github')}, ${c.wrap(c.white, 'offline')}, or ${c.wrap(c.white, 'nvidia')}.\n\n`,
+              ` Use ${c.wrap(c.white, 'github')}, ${c.wrap(c.white, 'offline')}, ${c.wrap(c.white, 'nvidia')}, or ${c.wrap(c.white, 'custom')}.\n\n`,
             );
             return;
           }
@@ -773,6 +801,21 @@ export class CLI {
             config.setAIModel(newModel);
             process.env.NVIDIA_AI_MODEL = newModel;
             upsertEnvVar('NVIDIA_AI_MODEL', newModel);
+            process.stdout.write(`\n  Model set to: ${c.wrap(c.green, config.aiModel)}\n\n`);
+          } else if (provider === 'custom') {
+            let newModel = args.join(' ').trim();
+            if (!newModel) {
+              process.stdout.write('\n');
+              newModel = await askQuestion(`  Enter 9router model id (current: ${config.aiModel}): `);
+              restoreRawMode();
+            }
+            if (!newModel) {
+              process.stdout.write(`\n  ${c.wrap(c.red, 'Model name required.')}\n\n`);
+              return;
+            }
+            config.setAIModel(newModel);
+            process.env.CUSTOM_AI_MODEL = newModel;
+            upsertEnvVar('CUSTOM_AI_MODEL', newModel);
             process.stdout.write(`\n  Model set to: ${c.wrap(c.green, config.aiModel)}\n\n`);
           }
         },
@@ -853,6 +896,7 @@ export class CLI {
     const providerColor =
       config.aiProvider === 'nvidia'  ? c.cyan  :
       config.aiProvider === 'offline' ? c.yellow :
+      config.aiProvider === 'custom'  ? c.magenta :
                                         c.green;
     process.stdout.write(
       `  provider  ${c.wrap(providerColor, config.aiProvider)}\n` +

@@ -4,9 +4,17 @@ import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { marked } from 'marked';
 import DOMPurify from 'isomorphic-dompurify';
-import { IntradayCard, LongtermCard, NewsIntelCard } from './AnalysisCards';
 import { ThoughtAccordion } from '../components/ui/ThoughtAccordion';
 import { getEffort, getThinkingEnabled } from '../../shared/chat-options';
+import ChatModelPicker from './ChatModelPicker';
+import type { ToolResult } from './ToolResultCards';
+
+export interface TickerSuggestion {
+  symbol: string;
+  name: string;
+  exchange?: string;
+  command?: string;
+}
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -14,6 +22,8 @@ export interface ChatMessage {
   data?: any;
   type?: 'intraday' | 'longterm' | 'newsintel' | 'chat';
   thoughts?: string[];
+  tools?: ToolResult[];
+  suggestions?: TickerSuggestion[];
 }
 
 export interface ChatSession {
@@ -32,6 +42,112 @@ function formatContent(content: string): string {
   }
 }
 
+interface MarketQuote {
+  text: string;
+  author: string;
+}
+
+const MARKET_QUOTES: MarketQuote[] = [
+  { text: "Risk comes from not knowing what you are doing.", author: "Warren Buffett" },
+  { text: "In trading, you have to be defensive. If you have a bad trade, cut it quickly before it hurts.", author: "Paul Tudor Jones" },
+  { text: "The stock market is a device to transfer money from the impatient to the patient.", author: "Benjamin Graham" },
+  { text: "It is not whether you are right or wrong, but how much money you make when you are right and how much you lose when you are wrong.", author: "George Soros" },
+  { text: "The trend is your friend until the end when it bends.", author: "Ed Seykota" },
+  { text: "Markets can remain irrational longer than you can remain solvent.", author: "John Maynard Keynes" },
+  { text: "The four most dangerous words in investing are: 'This time it's different.'", author: "Sir John Templeton" },
+  { text: "Cut your losses short and let your winners run.", author: "Jesse Livermore" },
+  { text: "The goal of a successful trader is to make the best trades. Money is secondary.", author: "Alexander Elder" },
+  { text: "Rule No. 1: Never lose money. Rule No. 2: Never forget rule No. 1.", author: "Warren Buffett" },
+  { text: "In investing, what is comfortable is rarely profitable.", author: "Robert Arnott" },
+  { text: "Know what you own, and know why you own it.", author: "Peter Lynch" },
+  { text: "The elements of good trading are: 1. Cutting losses, 2. Cutting losses, and 3. Cutting losses.", author: "Ed Seykota" },
+  { text: "The stock market does not know you own it.", author: "Warren Buffett" },
+  { text: "Win or lose, everybody gets what they want out of the market.", author: "Ed Seykota" },
+  { text: "If you cannot control your emotions, you cannot control your money.", author: "Warren Buffett" },
+  { text: "Price is what you pay. Value is what you get.", author: "Warren Buffett" },
+  { text: "Wide diversification is only required when investors do not understand what they are doing.", author: "Warren Buffett" },
+  { text: "Opportunities come infrequently. When it rains gold, put out the bucket, not the thimble.", author: "Warren Buffett" },
+  { text: "The big money is not in the buying and the selling, but in the waiting.", author: "Charlie Munger" },
+  { text: "It is remarkable how much long-term advantage people like us have gotten by trying to be consistently not stupid, instead of trying to be very intelligent.", author: "Charlie Munger" },
+  { text: "In the short run, the market is a voting machine, but in the long run, it is a weighing machine.", author: "Benjamin Graham" },
+  { text: "Behind every stock is a company. Find out what it's doing.", author: "Peter Lynch" },
+  { text: "Go for a business that any idiot can run — because sooner or later, any idiot probably is going to run it.", author: "Peter Lynch" },
+  { text: "You get recessions, you have stock market declines. If you don't understand that's going to happen, then you're not ready, you won't do well in the markets.", author: "Peter Lynch" },
+  { text: "Losers average losers.", author: "Paul Tudor Jones" },
+  { text: "I'm always thinking about losing money as opposed to making money. Don't focus on making money, focus on protecting what you have.", author: "Paul Tudor Jones" },
+  { text: "Markets are constantly in a state of uncertainty and flux, and money is made by discounting the obvious and betting on the unexpected.", author: "George Soros" },
+  { text: "There is nothing new in Wall Street. Whatever happens in the stock market today has happened before and will happen again.", author: "Jesse Livermore" },
+  { text: "It was never my thinking that made the big money for me. It also was my sitting. Got that? My sitting tight!", author: "Jesse Livermore" },
+  { text: "A loss never bothers me after I take it. I forget it overnight. But being wrong — not taking the loss — that is what does the damage to the pocketbook and to the soul.", author: "Jesse Livermore" },
+  { text: "If you don't find a way to make money while you sleep, you will work until you die.", author: "Warren Buffett" },
+  { text: "The desire for constant action irrespective of underlying conditions is responsible for many losses on Wall Street.", author: "Jesse Livermore" },
+  { text: "I just wait until there is money lying in the corner, and all I have to do is go over there and pick it up. I do nothing in the meantime.", author: "Jim Rogers" },
+  { text: "Do not anticipate and move without market confirmation — being a little late in your trade is your insurance that your judgment is correct.", author: "Jesse Livermore" },
+  { text: "The market is a harsh teacher because she gives the test first, the lesson afterward.", author: "Vernon Law" },
+  { text: "The secret to being successful from a trading perspective is to have an indefatigable and undying and unquenchable thirst for information and knowledge.", author: "Paul Tudor Jones" },
+  { text: "Investing should be more like watching paint dry or watching grass grow. If you want excitement, take $800 and go to Las Vegas.", author: "Paul Samuelson" },
+  { text: "The individual investor should act consistently as an investor and not as a speculator.", author: "Benjamin Graham" },
+  { text: "Bull markets are born on pessimism, grow on skepticism, mature on optimism and die on euphoria.", author: "Sir John Templeton" },
+  { text: "The most important quality for an investor is temperament, not intellect.", author: "Warren Buffett" },
+  { text: "If you are shopping for common stocks, chose them the way you would buy groceries, not the way you would buy perfume.", author: "Benjamin Graham" },
+  { text: "All you need is one good idea to make a lot of money.", author: "Charlie Munger" },
+  { text: "It takes 20 years to build a reputation and five minutes to ruin it. If you think about that, you'll do things differently.", author: "Warren Buffett" },
+  { text: "I have two basic rules about winning in trading as well as in life: 1. If you don't bet, you can't win. 2. If you lose all your chips, you can't bet.", author: "Larry Hite" },
+  { text: "Whenever I get hit in the market, I get the hell out. It doesn't matter where the market is trading.", author: "Marty Schwartz" },
+  { text: "Learn to take losses. The most important thing in making money is not letting your losses get out of hand.", author: "Marty Schwartz" },
+  { text: "I always define my risk, and I don't have to worry about it.", author: "Tony Saliba" },
+  { text: "The key to trading success is emotional discipline. If intelligence were the key, there would be a lot more people making money.", author: "Victor Sperandeo" },
+  { text: "Amateurs think about how much money they can make. Professionals think about how much money they could lose.", author: "Mark Douglas" },
+  { text: "When you genuinely accept the risks, you will be at peace with any outcome.", author: "Mark Douglas" },
+  { text: "The market does not know you exist. You can do nothing to influence it. You can only control your behavior.", author: "Mark Douglas" },
+  { text: "I believe in both technical analysis and fundamentals. But the charts tell the story before the fundamentals do.", author: "Dan Zanger" },
+  { text: "The whole secret to winning in the stock market is to lose the least amount possible when you're not right.", author: "William O'Neil" },
+  { text: "Letting your losses run is the most serious mistake made by most investors.", author: "William O'Neil" },
+  { text: "It is crucial to have a plan for selling before you buy.", author: "Mark Minervini" },
+  { text: "Expectancy is everything: win rate multiplied by average win minus loss rate multiplied by average loss.", author: "Mark Minervini" },
+  { text: "Discipline is the bridge between goals and accomplishment.", author: "Jim Rohn" },
+  { text: "Compound interest is the eighth wonder of the world. He who understands it, earns it; he who doesn't, pays it.", author: "Albert Einstein" },
+  { text: "Spend each day trying to be a little wiser than you were when you woke up.", author: "Charlie Munger" }
+];
+
+const getRandomGreeting = (): string => {
+  const hour = new Date().getHours();
+  
+  if (hour >= 5 && hour < 12) {
+    const morning = [
+      'Good morning, User',
+      'Ready for the opening bell?',
+      'Rise and analyze, User',
+      'Good morning! Let\'s check the tape'
+    ];
+    return morning[Math.floor(Math.random() * morning.length)];
+  } else if (hour >= 12 && hour < 17) {
+    const noon = [
+      'Good afternoon, User',
+      'Midday market check-in',
+      'Active session underway, User',
+      'Good afternoon! What are we scanning?'
+    ];
+    return noon[Math.floor(Math.random() * noon.length)];
+  } else if (hour >= 17 && hour < 22) {
+    const evening = [
+      'Good evening, User',
+      'Evening debrief & analysis',
+      'Good evening! Reviewing today\'s action',
+      'Market wrap & research session'
+    ];
+    return evening[Math.floor(Math.random() * evening.length)];
+  } else {
+    const night = [
+      'Burning the midnight oil?',
+      'Late night research mode, User',
+      'Good night, User',
+      'Overnight global market scan'
+    ];
+    return night[Math.floor(Math.random() * night.length)];
+  }
+};
+
 export default function ChatComponent({ chatId }: { chatId?: string }) {
   const router = useRouter();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -42,9 +158,18 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
   const [loadingType, setLoadingType] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState('');
   const [streamingThoughts, setStreamingThoughts] = useState<string[]>([]);
-  const [toolStatuses, setToolStatuses] = useState<Array<{tool: string, status: 'running' | 'done', result?: string}>>([]);
+  const [toolStatuses, setToolStatuses] = useState<ToolResult[]>([]);
+  const [activeModel, setActiveModel] = useState('');
+  const [greeting, setGreeting] = useState('How can I help you today?');
+  const [currentQuote, setCurrentQuote] = useState<MarketQuote | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    setGreeting(getRandomGreeting());
+    setCurrentQuote(MARKET_QUOTES[Math.floor(Math.random() * MARKET_QUOTES.length)]);
+  }, []);
 
   const loadingMessages = [
     "Fetching real-time market data...",
@@ -79,8 +204,36 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
           console.error('Failed to load chat session', e);
         }
       }
+    } else {
+      setMessages([]);
+      setStreamingContent('');
+      setStreamingThoughts([]);
+      setToolStatuses([]);
     }
   }, [chatId]);
+
+  useEffect(() => {
+    const handleNewChat = () => {
+      setMessages([]);
+      setStreamingContent('');
+      setStreamingThoughts([]);
+      setToolStatuses([]);
+      setError(null);
+      setInput('');
+      setGreeting(getRandomGreeting());
+      setCurrentQuote(MARKET_QUOTES[Math.floor(Math.random() * MARKET_QUOTES.length)]);
+      textareaRef.current?.focus();
+    };
+    window.addEventListener('boz_new_chat', handleNewChat);
+    return () => window.removeEventListener('boz_new_chat', handleNewChat);
+  }, []);
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
+    }
+  }, [input]);
 
   const saveSession = (id: string, msgs: ChatMessage[]) => {
     try {
@@ -113,200 +266,24 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
   }, [messages]);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    textareaRef.current?.focus();
   }, []);
 
-  const formatIntradayMarkdown = (ticker: string, data: any): string => {
-    let markdown = `**Intraday Analysis for ${ticker.toUpperCase()}**\n\n`;
-    const v = data.verdict;
-    if (v) {
-      markdown += `**Verdict:** ${v.status === 'ok' ? (v.prediction === 'UP' ? 'Bullish Outlook 🟢' : 'Bearish Outlook 🔴') : 'Uncertain / Hold ⚪'} (${v.confidence || '--'}% Conviction)\n`;
-      markdown += `**Strategy:** ${v.strategy || v.reason || 'N/A'}\n\n`;
-    }
-
-    const tl = data.tradeLevels;
-    if (tl) {
-      markdown += `**Trade Levels:**\n`;
-      markdown += `- **Entry:** ${tl.entryRange || '--'}\n`;
-      markdown += `- **Target:** ${tl.targetRange || '--'}\n`;
-      markdown += `- **Stop Loss:** ${tl.stopLoss || '--'}\n\n`;
-    }
-
-    const md = data.marketData;
-    const macro = data.macro;
-    const sent = data.sentiment;
-
-    if (md || macro || sent) {
-      markdown += `**Technical & Macro Indicators:**\n\n`;
-      if (md) {
-        markdown += `- **Technicals:** RSI: ${md.rsi?.toFixed(1) || '--'} | MACD: ${md.macd?.toFixed(4) || '--'} | ATR: ${md.atr?.toFixed(4) || '--'} | SMA20: $${md.sma_20?.toFixed(2) || '--'} | OBV Trend: ${md.obv_trend ? '🟢 Bullish' : '🔴 Bearish'}\n`;
+  useEffect(() => {
+    const loadModel = async () => {
+      try {
+        const res = await fetch('/api/settings');
+        if (!res.ok) return;
+        const data = await res.json();
+        setActiveModel(data.model || '');
+      } catch {
+        // keep last known model
       }
-      if (macro) {
-        markdown += `- **Macro:** Regime: ${macro.market_regime || '--'} | Risk: ${macro.risk_sentiment || '--'} | VIX: ${macro.vix_level?.toFixed(2) || '--'}\n`;
-      }
-      if (sent) {
-        markdown += `- **Sentiment:** Fear & Greed: ${sent.fear_greed?.value || '--'} (${sent.fear_greed?.label || '--'}) | StockTwits: ${sent.stocktwits_data?.bull_ratio ? sent.stocktwits_data.bull_ratio.toFixed(0) + '% Bullish' : '--'}\n`;
-      }
-      markdown += `\n`;
-    }
-
-    if (v && v.reasons && v.reasons.length > 0) {
-      markdown += `**AI Reasoning:**\n`;
-      v.reasons.forEach((r: string) => {
-        markdown += `- ${r}\n`;
-      });
-    }
-
-    return markdown;
-  };
-
-  const formatLongtermMarkdown = (ticker: string, data: any): string => {
-    let markdown = `**Long-term Outlook for ${ticker.toUpperCase()}**\n\n`;
-    const v = data.verdict;
-    if (v) {
-      markdown += `**Verdict:** ${v.status === 'ok' ? (v.prediction === 'UP' ? 'Bullish Outlook 🟢' : 'Bearish Outlook 🔴') : 'Uncertain / Hold ⚪'} (${v.confidence || '--'}% Conviction)\n`;
-      markdown += `**Strategy:** ${v.strategy || v.reason || 'N/A'}\n\n`;
-    }
-
-    const tl = data.tradeLevels;
-    if (tl) {
-      markdown += `**Trade Levels:**\n`;
-      markdown += `- **Entry:** ${tl.entryRange || '--'}\n`;
-      markdown += `- **Target:** ${tl.targetRange || '--'}\n`;
-      markdown += `- **Stop Loss:** ${tl.stopLoss || '--'}\n\n`;
-    }
-
-    const md = data.marketData;
-    if (md && md.fiftyTwoWeekHigh) {
-      markdown += `**52-Week Context:**\n`;
-      markdown += `- **High:** $${md.fiftyTwoWeekHigh?.toFixed(2)} (${md.from52wHigh?.toFixed(1)}%) | **Low:** $${md.fiftyTwoWeekLow?.toFixed(2)} (+${md.from52wLow?.toFixed(1)}%)\n\n`;
-    }
-
-    const macro = data.macro;
-    if (macro) {
-      markdown += `**Macro Context:**\n`;
-      markdown += `- **Regime:** ${macro.market_regime || '--'} | **10Y Yield:** ${macro.tnx_yield ? macro.tnx_yield + '%' : '--'} | **SPY Corr:** ${macro.sp500_correlation || '--'}\n\n`;
-    }
-    if (v && v.reasons && v.reasons.length > 0) {
-      markdown += `**AI Reasoning:**\n`;
-      v.reasons.forEach((r: string) => {
-        markdown += `- ${r}\n`;
-      });
-    }
-
-    return markdown;
-  };
-
-  const formatNewsIntelMarkdown = (data: any): string => {
-    let markdown = `**Latest Market News Intelligence**\n\n`;
-    const sent = data.sentiment;
-    if (sent) {
-      markdown += `**Market Sentiment Overview:**\n`;
-      markdown += `- **Fear & Greed:** ${sent.fear_greed?.value || '--'} (${sent.fear_greed?.label || 'N/A'})\n`;
-      if (sent.stocktwits_data?.bull_ratio) markdown += `- **StockTwits Bull %:** ${sent.stocktwits_data.bull_ratio.toFixed(0)}%\n`;
-      markdown += `- **Headlines Analyzed:** ${data.totalHeadlines || 0}\n`;
-      if (sent.summary?.overall_signals) markdown += `- **Signals:** ${sent.summary.overall_signals.join(' | ')}\n\n`;
-    }
-
-    markdown += `**Top Headlines:**\n`;
-    const headlines = data.headlines || [];
-    headlines.slice(0, 5).forEach((h: any) => {
-      markdown += `- **[${h.source}]** ${h.title} *(Sentiment: ${h.sentiment})*\n`;
-    });
-
-    return markdown;
-  };
-
-  const executeIntradayCommand = async (ticker: string, updatedMessages: ChatMessage[]): Promise<ChatMessage> => {
-    // 1. Fetch data
-    const dataRes = await fetch('/api/analyze/intraday/data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticker: ticker.toUpperCase() }),
-    });
-    if (!dataRes.ok) throw new Error('Intraday data fetch failed');
-    const data = await dataRes.json();
-
-    // Push intermediate message with data immediately
-    const intermediateMessages = [...updatedMessages, { 
-      role: 'assistant', 
-      content: '*Synthesizing AI verdict...*', 
-      data, 
-      type: 'intraday' 
-    } as ChatMessage];
-    setMessages(intermediateMessages);
-
-    // Update loading state for AI reasoning step
-    setLoadingType('/intraday-verdict');
-
-    // 2. Fetch AI Verdict
-    const verdictRes = await fetch('/api/analyze/intraday/verdict', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticker: ticker.toUpperCase(), ...data }),
-    });
-    if (!verdictRes.ok) throw new Error('Intraday AI verdict failed');
-    const verdictData = await verdictRes.json();
-
-    data.verdict = verdictData.verdict;
-    data.tradeLevels = verdictData.tradeLevels;
-
-    const markdown = formatIntradayMarkdown(ticker, data);
-    const intradayThoughts = data.verdict?.thoughts || data.verdict?.reasons || (data.verdict?.thought ? [data.verdict.thought] : []);
-    return { role: 'assistant', content: markdown, data, type: 'intraday', thoughts: intradayThoughts };
-  };
-
-  const executeLongtermCommand = async (ticker: string, updatedMessages: ChatMessage[]): Promise<ChatMessage> => {
-    // 1. Fetch data
-    const dataRes = await fetch('/api/analyze/longterm/data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticker: ticker.toUpperCase() }),
-    });
-    if (!dataRes.ok) throw new Error('Longterm data fetch failed');
-    const data = await dataRes.json();
-
-    // Push intermediate message with data immediately
-    const intermediateMessages = [...updatedMessages, { 
-      role: 'assistant', 
-      content: '*Synthesizing AI verdict...*', 
-      data, 
-      type: 'longterm' 
-    } as ChatMessage];
-    setMessages(intermediateMessages);
-
-    // Update loading state for AI reasoning step
-    setLoadingType('/longterm-verdict');
-
-    // 2. Fetch AI Verdict
-    const verdictRes = await fetch('/api/analyze/longterm/verdict', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticker: ticker.toUpperCase(), ...data }),
-    });
-    if (!verdictRes.ok) throw new Error('Longterm AI verdict failed');
-    const verdictData = await verdictRes.json();
-
-    data.verdict = verdictData.verdict;
-    data.tradeLevels = verdictData.tradeLevels;
-
-    const markdown = formatLongtermMarkdown(ticker, data);
-    const longtermThoughts = data.verdict?.thoughts || data.verdict?.reasons || (data.verdict?.thought ? [data.verdict.thought] : []);
-    return { role: 'assistant', content: markdown, data, type: 'longterm', thoughts: longtermThoughts };
-  };
-
-  const executeNewsIntelCommand = async (): Promise<ChatMessage> => {
-    const res = await fetch('/api/news-intel', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) throw new Error('News intel failed');
-    const data = await res.json();
-    
-    const markdown = formatNewsIntelMarkdown(data);
-    const newsThoughts = data.thoughts || data.sentiment?.summary?.overall_signals || [];
-    return { role: 'assistant', content: markdown, data, type: 'newsintel', thoughts: newsThoughts };
-  };
+    };
+    loadModel();
+    window.addEventListener('boz_settings_updated', loadModel);
+    return () => window.removeEventListener('boz_settings_updated', loadModel);
+  }, []);
 
   const executeStreamChat = async (command: string, updatedMessages: ChatMessage[]): Promise<ChatMessage> => {
     const res = await fetch('/api/chat/stream', {
@@ -314,9 +291,10 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: command,
-        history: updatedMessages,
+        history: updatedMessages.map(({ role, content }) => ({ role, content })),
         effort: getEffort(),
         thinking: getThinkingEnabled(),
+        model: activeModel || undefined,
       }),
     });
 
@@ -326,6 +304,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
     let accumulatedContent = '';
     let accumulatedThoughts: string[] = [];
+    const collectedTools: ToolResult[] = [];
     const decoder = new TextDecoder();
     let buffer = '';
 
@@ -360,31 +339,37 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
           } else if (currentEvent === 'tool_start') {
             try {
               const data = JSON.parse(dataStr);
-              setToolStatuses(prev => [...prev, { tool: data.tool, status: 'running' }]);
-              accumulatedThoughts.push(`tool used: ${data.tool}`);
+              collectedTools.push({ tool: data.tool, status: 'running', args: data.args });
+              setToolStatuses([...collectedTools]);
+              const toolArgStr = data.args && Object.keys(data.args).length > 0 ? ` (${Object.values(data.args).join(', ')})` : '';
+              accumulatedThoughts.push(`tool used: ${data.tool}${toolArgStr}`);
               setStreamingThoughts([...accumulatedThoughts]);
             } catch (e) {}
           } else if (currentEvent === 'tool_result') {
             try {
               const data = JSON.parse(dataStr);
-              setToolStatuses(prev => {
-                const next = [...prev];
-                const idx = next.findIndex(t => t.tool === data.tool && t.status === 'running');
-                if (idx !== -1) {
-                  next[idx] = { ...next[idx], status: 'done', result: data.fact };
-                } else {
-                  next.push({ tool: data.tool, status: 'done', result: data.fact });
-                }
-                return next;
-              });
+              const idx = collectedTools.findIndex(t => t.tool === data.tool && t.status === 'running');
+              const next: ToolResult = {
+                tool: data.tool,
+                status: 'done',
+                fact: data.fact,
+                quality: data.quality,
+                success: data.success,
+                preview: data.preview,
+                args: data.args ?? (idx !== -1 ? collectedTools[idx].args : undefined),
+              };
+              if (idx !== -1) collectedTools[idx] = next;
+              else collectedTools.push(next);
+              setToolStatuses([...collectedTools]);
               const toolLabel = data.tool;
+              const toolArgStr = data.args && Object.keys(data.args).length > 0 ? ` (${Object.values(data.args).join(', ')})` : '';
               const resultText = data.fact ? ` — ${data.fact.substring(0, 140)}${data.fact.length > 140 ? '…' : ''}` : '';
               const marker = `tool used: ${toolLabel}`;
-              const idx = accumulatedThoughts.findIndex(t => t.startsWith(marker));
-              if (idx !== -1) {
-                accumulatedThoughts[idx] = `${marker}${resultText}`;
+              const thoughtIdx = accumulatedThoughts.findIndex(t => t.startsWith(marker));
+              if (thoughtIdx !== -1) {
+                accumulatedThoughts[thoughtIdx] = `${marker}${toolArgStr}${resultText}`;
               } else {
-                accumulatedThoughts.push(`${marker}${resultText}`);
+                accumulatedThoughts.push(`${marker}${toolArgStr}${resultText}`);
               }
               setStreamingThoughts([...accumulatedThoughts]);
             } catch (e) {}
@@ -401,26 +386,32 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
               setStreamingThoughts([...accumulatedThoughts]);
             }
           } else if (currentEvent === 'thought') {
+            let dataText = dataStr;
             try {
-              let data = JSON.parse(dataStr);
-              if (typeof data !== 'string') {
-                data = typeof data === 'object' && data.text ? data.text : JSON.stringify(data);
+              let parsed = JSON.parse(dataStr);
+              if (typeof parsed !== 'string') {
+                parsed = typeof parsed === 'object' && parsed.text ? parsed.text : JSON.stringify(parsed);
               }
-              
-              if (accumulatedThoughts.length === 0) {
-                accumulatedThoughts = [data];
-              } else {
-                accumulatedThoughts[accumulatedThoughts.length - 1] += data;
-              }
-              setStreamingThoughts([...accumulatedThoughts]);
-            } catch (e) {
-              if (accumulatedThoughts.length === 0) {
-                accumulatedThoughts = [dataStr];
-              } else {
-                accumulatedThoughts[accumulatedThoughts.length - 1] += dataStr;
-              }
-              setStreamingThoughts([...accumulatedThoughts]);
+              dataText = parsed;
+            } catch {}
+
+            const lastIdx = accumulatedThoughts.length - 1;
+            const lastItem = lastIdx >= 0 ? accumulatedThoughts[lastIdx] : null;
+            const isLastItemToolOrHeader = lastItem && (
+              lastItem.startsWith('tool used: ') ||
+              lastItem.startsWith('• tool_call: ') ||
+              lastItem.startsWith('Searched: ') ||
+              lastItem.startsWith('Branching off:') ||
+              lastItem.startsWith('Branches are in') ||
+              lastItem.startsWith('Before answering')
+            );
+
+            if (accumulatedThoughts.length === 0 || isLastItemToolOrHeader) {
+              accumulatedThoughts.push(dataText);
+            } else {
+              accumulatedThoughts[lastIdx] += dataText;
             }
+            setStreamingThoughts([...accumulatedThoughts]);
           } else if (currentEvent === 'error') {
             throw new Error(JSON.parse(dataStr).message || 'Stream error');
           }
@@ -432,6 +423,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
       role: 'assistant',
       content: accumulatedContent || 'No response received.',
       thoughts: accumulatedThoughts.length > 0 ? [...accumulatedThoughts] : undefined,
+      tools: collectedTools.filter((t) => t.status === 'done'),
     };
   };
 
@@ -458,20 +450,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     }
 
     try {
-      let reply: ChatMessage;
-      const lower = command.toLowerCase();
-
-      if (lower.startsWith('/intraday ')) {
-        const ticker = command.substring(10).trim();
-        reply = await executeIntradayCommand(ticker, updatedMessages);
-      } else if (lower.startsWith('/longterm ')) {
-        const ticker = command.substring(10).trim();
-        reply = await executeLongtermCommand(ticker, updatedMessages);
-      } else if (lower === '/newsintel') {
-        reply = await executeNewsIntelCommand();
-      } else {
-        reply = await executeStreamChat(command, updatedMessages);
-      }
+      const reply = await executeStreamChat(command, updatedMessages);
 
       const finalMessages = [...updatedMessages, reply];
       setMessages(finalMessages);
@@ -491,18 +470,19 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
       ];
       setMessages(errMessages);
       setStreamingContent('');
+      setStreamingThoughts([]);
       setToolStatuses([]);
       saveSession(activeChatId, errMessages);
     } finally {
       setLoading(false);
-      inputRef.current?.focus();
+      textareaRef.current?.focus();
       if (chatId !== activeChatId) {
         router.replace('/chat/' + activeChatId);
       }
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
@@ -511,34 +491,45 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
 
 
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  const copyMessage = (text: string, index: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
   return (
-    <div className="animate-fadeIn">
-      {/* Header */}
-
-
-      {/* Chat Container */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <div className="chat-container">
-          {/* Messages */}
-          <div className="chat-messages">
+    <div className="chat-page-root animate-fadeIn">
+      <div className="chat-container">
+        {/* Messages */}
+        <div className="chat-messages">
             {messages.length === 0 && !loading ? (
               <div className="empty-state" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ width: 80, height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px' }}>
-                  <img src="/logo-boz-solid.png" alt="BOZ" style={{ width: 80, height: 80, objectFit: 'contain' }} />
+                <div style={{ width: 80, height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
+                  <img src="/logo-boz-solid.png" alt="BOZ" style={{ width: 80, height: 80, objectFit: 'contain', borderRadius: '16px' }} />
                 </div>
-                <h2 style={{ fontSize: '28px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>How can I help you today?</h2>
-                <p style={{ fontSize: '15px', color: 'var(--text-muted)', marginBottom: '40px', maxWidth: '400px', textAlign: 'center' }}>
-                  Analyze markets, lookup stocks, or generate trading strategies.
-                </p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', maxWidth: '560px' }}>
+                <h2 className="chat-empty-title">{greeting}</h2>
+
+                {currentQuote && (
+                  <div className="chat-empty-quote animate-fadeIn">
+                    &ldquo;{currentQuote.text}&rdquo;
+                    <span className="chat-empty-quote-author"> — {currentQuote.author}</span>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', maxWidth: '640px' }}>
                   {[
-                    { text: 'What is the current market outlook?', action: 'What is the current market outlook?' },
-                    { text: 'Intraday analysis (NVDA)', action: '/intraday NVDA' },
-                    { text: 'News Intel', action: '/newsintel' },
-                    { text: 'Longterm outlook (AAPL)', action: '/longterm AAPL' },
+                    { text: 'Global Market Outlook', action: 'What is the current global market outlook across equities, bonds, and macro regimes?' },
+                    { text: 'Intraday NVDA', action: '/intraday NVDA' },
+                    { text: 'Scan IDX Momentum', action: 'Scan Indonesia stocks for high-probability momentum and breakout candidates' },
+                    { text: 'Market News Intel', action: '/newsintel' },
+                    { text: 'Longterm AAPL', action: '/longterm AAPL' },
+                    { text: 'Crypto & Bitcoin Status', action: 'What is the current Bitcoin price action and crypto crowd sentiment?' },
                   ].map((s, i) => (
                     <button
                       key={i}
+                      type="button"
                       onClick={() => sendMessage(s.action)}
                       className="suggestion-chip"
                     >
@@ -552,23 +543,61 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                 {messages.map((msg, i) => (
                   <div key={i} className={`chat-bubble ${msg.role}`}>
                     {msg.role === 'assistant' ? (
-                      <div className="flex-row gap-3">
-                        <div style={{ flexShrink: 0, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <img src="/logo-boz-solid.png" alt="BOZ" style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: '12px' }} />
+                      <div className="flex-row gap-3" style={{ width: '100%' }}>
+                        <div className="chat-assistant-avatar" style={{ flexShrink: 0, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                          <img src="/logo-boz-solid.png" alt="BOZ" style={{ width: 22, height: 22, objectFit: 'contain' }} />
                         </div>
-                        <div style={{ width: '100%', paddingTop: '4px' }}>
-                          {msg.type === 'intraday' && <IntradayCard data={msg.data} />}
-                          {msg.type === 'longterm' && <LongtermCard data={msg.data} />}
-                          {msg.type === 'newsintel' && <NewsIntelCard data={msg.data} />}
-                          {/* Analysis cards already render their own CoT — skip duplicate for those types */}
-                          {msg.thoughts && msg.thoughts.length > 0 && msg.type !== 'intraday' && msg.type !== 'longterm' && msg.type !== 'newsintel' && (
+                        <div style={{ width: '100%', paddingTop: '2px' }}>
+                          {msg.thoughts && msg.thoughts.length > 0 && (
                             <ThoughtAccordion
                               thoughts={msg.thoughts}
-                              title="AI Thinking Process"
+                              title="Thought process"
                               defaultOpen={false}
                             />
                           )}
-                          <div dangerouslySetInnerHTML={{ __html: formatContent(msg.content) }} />
+                          {msg.content && (
+                            <div dangerouslySetInnerHTML={{ __html: formatContent(msg.content) }} />
+                          )}
+
+                          {/* Ticker Typo Clarification Suggestions */}
+                          {msg.suggestions && msg.suggestions.length > 0 && (
+                            <div className="chat-suggestion-group">
+                              <div className="chat-suggestion-label">Suggested Tickers:</div>
+                              <div className="chat-suggestion-cards">
+                                {msg.suggestions.map((s, si) => (
+                                  <button
+                                    key={si}
+                                    type="button"
+                                    className="chat-suggestion-card"
+                                    onClick={() => sendMessage(s.command || `/intraday ${s.symbol}`)}
+                                    title={`Run analysis for ${s.symbol}`}
+                                  >
+                                    <div className="chat-suggestion-card-main">
+                                      <span className="chat-suggestion-symbol">{s.symbol}</span>
+                                      <span className="chat-suggestion-name">{s.name}</span>
+                                    </div>
+                                    {s.exchange && <span className="chat-suggestion-exchange">{s.exchange}</span>}
+                                    <i className="fa-solid fa-arrow-right chat-suggestion-arrow"></i>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Assistant Message Actions */}
+                          {msg.content && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', paddingTop: '6px', borderTop: '1px solid rgba(255, 255, 255, 0.04)' }}>
+                              <button
+                                type="button"
+                                onClick={() => copyMessage(msg.content, i)}
+                                className="chat-copy-btn"
+                                title="Copy response to clipboard"
+                              >
+                                <i className={copiedIndex === i ? 'fa-solid fa-check' : 'fa-regular fa-copy'} style={{ fontSize: '11px' }}></i>
+                                <span>{copiedIndex === i ? 'Copied!' : 'Copy'}</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     ) : (
@@ -580,28 +609,26 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                 {/* Loading indicator — streaming assistant response */}
                 {loading && (
                   <div className={`chat-bubble assistant`}>
-                    <div className="flex-row gap-3">
-                      <div style={{ flexShrink: 0, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <img src="/logo-boz-solid.png" alt="BOZ" style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: '12px' }} />
+                    <div className="flex-row gap-3" style={{ width: '100%' }}>
+                      <div className="chat-assistant-avatar" style={{ flexShrink: 0, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        <img src="/logo-boz-solid.png" alt="BOZ" style={{ width: 22, height: 22, objectFit: 'contain' }} />
                       </div>
-                      <div style={{ width: '100%', paddingTop: '4px' }}>
+                      <div style={{ width: '100%', paddingTop: '2px' }}>
                         {streamingThoughts.length > 0 && (
                           <ThoughtAccordion
                             thoughts={streamingThoughts}
                             isStreaming={true}
                             defaultOpen={true}
-                            title="Live AI Thinking Process"
+                            title="Thought process"
                           />
                         )}
                         {streamingContent ? (
                           <div dangerouslySetInnerHTML={{ __html: formatContent(streamingContent) }} />
                         ) : streamingThoughts.length > 0 ? null : (
                           <div className="flex-row gap-2 items-center" style={{ height: '28px' }}>
-                            {!toolStatuses.length && <span className="spinner spinner-sm"></span>}
+                            <span className="spinner spinner-sm"></span>
                             <span className="page-subtitle animate-fadeIn" key={loadingStep} style={{ margin: 0, transition: 'all 0.3s ease' }}>
-                              {(loadingType?.startsWith('/intraday') || loadingType?.startsWith('/longterm'))
-                                ? loadingMessages[loadingStep]
-                                : toolStatuses.length ? 'Analyzing data...' : 'Thinking...'}
+                              Analyzing market intelligence...
                             </span>
                           </div>
                         )}
@@ -615,71 +642,82 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
             )}
           </div>
 
-          {/* Input Area */}
-          <div className="chat-input-area">
+          {/* Input Area (Claude-style composer) */}
+          <div className="chat-composer">
             {input.startsWith('/') && !input.includes(' ') && input !== '/newsintel' && (
-              <div style={{
-                position: 'absolute',
-                bottom: 'calc(100% - 1px)',
-                left: '32px',
-                width: '300px',
-                background: 'rgba(18, 18, 18, 0.95)',
-                backdropFilter: 'blur(20px)',
-                WebkitBackdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                borderBottom: 'none',
-                borderRadius: '16px 16px 0 0',
-                padding: '8px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '2px',
-                boxShadow: '0 -10px 40px -10px rgba(0,0,0,0.8)',
-                zIndex: 10,
-              }}>
-                <div style={{ padding: '8px 12px 4px 12px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Slash Commands</div>
+              <div className="chat-slash-menu">
+                <div className="chat-slash-menu-label">Slash Commands</div>
                 
                 {[
-                  { cmd: '/intraday ', title: '/intraday [ticker]', desc: 'Live intraday analysis & key levels' },
-                  { cmd: '/longterm ', title: '/longterm [ticker]', desc: 'Fundamental analysis & long-term outlook' },
-                  { cmd: '/newsintel', title: '/newsintel', desc: 'Scan latest market headlines' }
+                  { cmd: '/intraday ', title: '/intraday [ticker]', desc: 'Live intraday analysis & key levels', icon: 'fa-chart-line' },
+                  { cmd: '/longterm ', title: '/longterm [ticker]', desc: 'Fundamental analysis & long-term outlook', icon: 'fa-scale-balanced' },
+                  { cmd: '/newsintel', title: '/newsintel', desc: 'Scan latest market headlines', icon: 'fa-newspaper' }
                 ].filter(c => c.cmd.startsWith(input) || c.title.startsWith(input)).map(item => (
                   <button 
                     key={item.cmd}
-                    onClick={() => { setInput(item.cmd); inputRef.current?.focus(); }}
-                    style={{ display: 'flex', flexDirection: 'column', padding: '10px 12px', background: 'transparent', border: 'none', borderRadius: '10px', color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left', transition: 'background 0.2s' }}
-                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
-                    onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                    type="button"
+                    onClick={() => { setInput(item.cmd); textareaRef.current?.focus(); }}
+                    className="chat-slash-item"
                   >
-                    <div style={{ fontSize: '13px', fontWeight: 600 }}>{item.title}</div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{item.desc}</div>
+                    <div className="chat-slash-item-icon">
+                      <i className={`fa-solid ${item.icon}`} style={{ fontSize: '11px' }}></i>
+                    </div>
+                    <div className="chat-slash-item-text">
+                      <div className="chat-slash-item-title">{item.title}</div>
+                      <div className="chat-slash-item-desc">{item.desc}</div>
+                    </div>
                   </button>
                 ))}
               </div>
             )}
-            <input
-              ref={inputRef}
-              type="text"
-              className="input"
-              placeholder="Ask anything..."
+
+            <textarea
+              ref={textareaRef}
+              className="chat-composer-textarea"
+              placeholder="Write a message or type '/' for commands..."
               value={input}
+              rows={1}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={loading}
             />
-            <button
-              className="chat-input-btn"
-              onClick={() => sendMessage()}
-              disabled={loading || !input.trim()}
-            >
-              {loading ? (
-                <i className="fa-solid fa-stop" style={{ fontSize: '14px' }}></i>
-              ) : (
-                <i className="fa-solid fa-arrow-up" style={{ fontSize: '16px' }}></i>
-              )}
-            </button>
+
+            <div className="chat-composer-footer">
+              <div className="chat-composer-footer-left">
+                <button
+                  type="button"
+                  className="chat-composer-action-btn"
+                  onClick={() => {
+                    setInput((prev) => (prev ? prev : '/'));
+                    textareaRef.current?.focus();
+                  }}
+                  title="Commands & tools"
+                  aria-label="Commands"
+                >
+                  <i className="fa-solid fa-plus" style={{ fontSize: '12px' }}></i>
+                </button>
+              </div>
+
+              <div className="chat-composer-footer-right">
+                <ChatModelPicker />
+                <button
+                  type="button"
+                  className={`chat-composer-send-btn${input.trim() ? ' active' : ''}`}
+                  onClick={() => sendMessage()}
+                  disabled={loading || !input.trim()}
+                  title={loading ? 'Stop generation' : 'Send message (Enter)'}
+                  aria-label="Send message"
+                >
+                  {loading ? (
+                    <i className="fa-solid fa-stop" style={{ fontSize: '12px' }}></i>
+                  ) : (
+                    <i className="fa-solid fa-arrow-up" style={{ fontSize: '13px' }}></i>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
 
       {/* Error toast */}
       {error && (

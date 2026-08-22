@@ -11,6 +11,7 @@ export const aiPredictionSchema = {
     prediction: { type: 'string', enum: ['UP', 'DOWN', 'UNKNOWN'] },
     confidence: { type: 'number', minimum: 0, maximum: 100 },
     strategy: { type: ['string', 'null'] },
+    thesis: { type: ['string', 'null'] },
     target_price: { type: ['number', 'null'] },
     stop_loss: { type: ['number', 'null'] },
     reasons: { type: 'array', items: { type: 'string' } },

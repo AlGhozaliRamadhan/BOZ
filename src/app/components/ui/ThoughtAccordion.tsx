@@ -4,26 +4,40 @@ import React, { useState, useEffect, useRef } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'isomorphic-dompurify';
 
+export interface ThoughtTimelineStep {
+  id?: string;
+  type: 'thought' | 'tool' | 'search';
+  title?: string;
+  content: string;
+  toolName?: string;
+  args?: Record<string, unknown>;
+  preview?: string;
+  status?: 'running' | 'done';
+}
+
 export interface ThoughtAccordionProps {
   /**
    * Single thought string, or array of thought strings/steps
    */
   thoughts?: string[] | string;
   /**
-   * Optional standalone thought string (alias for thoughts as string)
+   * Optional standalone thought string
    */
   thought?: string;
   /**
-   * Title shown in header (e.g. "AI Thinking Process", "AI Reasoning Chain")
-   * Long marketing titles are shortened automatically.
+   * Optional timeline steps
+   */
+  timeline?: ThoughtTimelineStep[];
+  /**
+   * Title shown in header (e.g. "Thought process")
    */
   title?: string;
   /**
-   * Optional duration string or number in seconds (e.g. "2.4s" or 2.4)
+   * Optional duration string or number in seconds
    */
   duration?: string | number;
   /**
-   * Model or provider name (e.g. "DeepSeek R1", "GPT-4o", "Claude 3.7", "Nemotron")
+   * Model or provider name
    */
   modelName?: string;
   /**
@@ -31,11 +45,11 @@ export interface ThoughtAccordionProps {
    */
   isStreaming?: boolean;
   /**
-   * Whether the accordion starts expanded (defaults to false for finished, true for streaming)
+   * Whether the accordion starts expanded
    */
   defaultOpen?: boolean;
   /**
-   * Accent style: 'default' | 'cyan' | 'bull' | 'bear' | 'violet'
+   * Accent style
    */
   accent?: 'default' | 'cyan' | 'bull' | 'bear' | 'violet';
   /**
@@ -52,17 +66,13 @@ const LABEL_OVERRIDES: Record<string, string> = {
   'AI Thinking Process': 'Thought process',
   'Live AI Thinking Process': 'Thought process',
   'Intraday AI Reasoning Process': 'Intraday reasoning',
-  'Intraday AI Deep Reasoning Process': 'Intraday reasoning',
-  'Long-Term Fundamental Thesis & Reasoning': 'Long-term thesis',
-  'Long-Term AI Fundamental Thesis & Thought Process': 'Long-term thesis',
-  'News Intel AI Synthesis & Macro Deductions': 'News synthesis',
-  'News Intelligence AI Synthesis & Macro Deductions': 'News synthesis',
-  'IDX Scanner AI Momentum Deductions & Breadth Analysis': 'Scanner analysis',
+  'Long-Term Fundamental Thesis & Reasoning': 'Long-term reasoning',
+  'News Intel AI Synthesis & Macro Deductions': 'News reasoning',
 };
 
 function shortTitle(t: string): string {
   if (LABEL_OVERRIDES[t]) return LABEL_OVERRIDES[t];
-  if (/^Market AI Reasoning/i.test(t)) return 'Market analysis';
+  if (/^Market AI Reasoning/i.test(t)) return 'Thought process';
   if (t.length > 28) return t.slice(0, 28).trimEnd() + '…';
   return t;
 }
@@ -70,6 +80,7 @@ function shortTitle(t: string): string {
 export function ThoughtAccordion({
   thoughts,
   thought,
+  timeline,
   title,
   duration,
   modelName,
@@ -79,52 +90,68 @@ export function ThoughtAccordion({
   className = '',
   style = {},
 }: ThoughtAccordionProps) {
-  // Normalize thoughts into array of non-empty strings
-  const rawList: string[] = [];
-  if (Array.isArray(thoughts)) {
-    thoughts.forEach((t) => {
-      if (typeof t === 'string' && t.trim()) rawList.push(t.trim());
-      else if (t && typeof t === 'object') rawList.push(JSON.stringify(t, null, 2));
+  // Normalize steps into structured timeline items
+  const steps: ThoughtTimelineStep[] = [];
+
+  if (timeline && timeline.length > 0) {
+    steps.push(...timeline);
+  } else {
+    const rawList: string[] = [];
+    if (Array.isArray(thoughts)) {
+      thoughts.forEach((t) => {
+        if (typeof t === 'string' && t.trim()) rawList.push(t.trim());
+        else if (t && typeof t === 'object') rawList.push(JSON.stringify(t, null, 2));
+      });
+    } else if (typeof thoughts === 'string' && thoughts.trim()) {
+      rawList.push(thoughts.trim());
+    }
+
+    if (typeof thought === 'string' && thought.trim() && !rawList.includes(thought.trim())) {
+      rawList.unshift(thought.trim());
+    }
+
+    rawList.forEach((raw) => {
+      if (raw.startsWith('tool used: ') || raw.startsWith('• tool_call: ') || raw.startsWith('Searched: ')) {
+        const toolStr = raw.replace(/^tool used:\s*|^• tool_call:\s*|^Searched:\s*/i, '');
+        const parts = toolStr.split(' — ');
+        steps.push({
+          type: 'tool',
+          toolName: parts[0]?.trim(),
+          content: raw,
+          preview: parts[1]?.trim(),
+          status: 'done',
+        });
+      } else {
+        steps.push({
+          type: 'thought',
+          content: raw,
+        });
+      }
     });
-  } else if (typeof thoughts === 'string' && thoughts.trim()) {
-    rawList.push(thoughts.trim());
   }
 
-  if (typeof thought === 'string' && thought.trim() && !rawList.includes(thought.trim())) {
-    rawList.unshift(thought.trim());
-  }
-
-  const hasThoughts = rawList.length > 0 || isStreaming;
+  const hasThoughts = steps.length > 0 || isStreaming;
   const initialOpen = defaultOpen !== undefined ? defaultOpen : isStreaming;
 
   const [isOpen, setIsOpen] = useState(initialOpen);
-  const [isRawView, setIsRawView] = useState(false);
   const [copied, setCopied] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
 
-  // Auto-open if streaming starts and user hasn't explicitly set defaultOpen
   useEffect(() => {
     if (isStreaming && defaultOpen === undefined) {
       setIsOpen(true);
     }
   }, [isStreaming, defaultOpen]);
 
-  // Track whether the user is scrolled near the bottom. Auto-scroll only while
-  // they're already at the bottom — if they scroll up to read an earlier step,
-  // stop yanking them back to the newest.
-  const stickToBottom = useRef(true);
-
-  // Auto-scroll when streaming inside open accordion, but only if the user
-  // hasn't scrolled away from the bottom.
   useEffect(() => {
     if (isStreaming && isOpen && contentRef.current) {
       if (stickToBottom.current) {
         contentRef.current.scrollTop = contentRef.current.scrollHeight;
       }
     }
-  }, [isStreaming, isOpen, rawList]);
+  }, [isStreaming, isOpen, steps]);
 
-  // Detect scroll-away so we stop auto-following while the user reads up top.
   const handleScroll = () => {
     const el = contentRef.current;
     if (!el) return;
@@ -134,7 +161,7 @@ export function ThoughtAccordion({
 
   if (!hasThoughts) return null;
 
-  const combinedText = rawList.join('\n\n');
+  const combinedText = steps.map((s) => s.content).join('\n\n');
 
   const formatThoughtHtml = (content: string): string => {
     try {
@@ -167,9 +194,8 @@ export function ThoughtAccordion({
         ? duration.trim()
         : null;
 
-  const stepCount = rawList.length;
+  const stepCount = steps.length;
 
-  // Prefer short defaults over long marketing titles from call sites
   const label = isStreaming
     ? 'Thinking…'
     : title
@@ -177,13 +203,6 @@ export function ThoughtAccordion({
       : formattedDuration
         ? `Thought for ${formattedDuration}`
         : 'Thought process';
-
-  // Show duration chip only when label is a short title (not already "Thought for Xs")
-  const showDurationChip = !isStreaming && !!formattedDuration && !!title;
-
-  const metaParts: string[] = [];
-  if (modelName) metaParts.push(modelName);
-  if (stepCount > 1) metaParts.push(`${stepCount} steps`);
 
   return (
     <div
@@ -208,8 +227,8 @@ export function ThoughtAccordion({
           {isStreaming ? (
             <svg
               className="spinner-spin thought-spinner"
-              width="12"
-              height="12"
+              width="13"
+              height="13"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -223,8 +242,8 @@ export function ThoughtAccordion({
           ) : (
             <svg
               className={`thought-chevron ${isOpen ? 'is-open' : ''}`}
-              width="12"
-              height="12"
+              width="13"
+              height="13"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -239,31 +258,22 @@ export function ThoughtAccordion({
 
           <span className="thought-label">{label}</span>
 
-          {showDurationChip && (
-            <span className="thought-duration">{formattedDuration}</span>
+          {!isStreaming && stepCount > 1 && (
+            <span className="thought-step-badge">{stepCount} steps</span>
           )}
 
-          <span className={`thought-dot accent-${accent}`} aria-hidden="true" />
+          {!isStreaming && formattedDuration && (
+            <span className="thought-duration">{formattedDuration}</span>
+          )}
         </div>
 
         <div className="thought-actions" onClick={(e) => e.stopPropagation()}>
-          {isOpen && combinedText.length > 0 && (
-            <button
-              type="button"
-              className="thought-action-btn"
-              onClick={() => setIsRawView((prev) => !prev)}
-              title={isRawView ? 'Switch to Formatted Markdown' : 'Switch to Raw Text'}
-            >
-              {isRawView ? 'RAW' : 'MD'}
-            </button>
-          )}
-
           {combinedText.length > 0 && (
             <button
               type="button"
               className={`thought-action-btn ${copied ? 'is-copied' : ''}`}
               onClick={handleCopy}
-              title="Copy thought process to clipboard"
+              title="Copy thought process"
               aria-label={copied ? 'Copied' : 'Copy thought process'}
             >
               {copied ? (
@@ -281,31 +291,65 @@ export function ThoughtAccordion({
         </div>
       </div>
 
-      {/* Expandable body */}
+      {/* Expandable Timeline Track */}
       {isOpen && (
         <div ref={contentRef} className="thought-content-area" onScroll={handleScroll}>
-          {isRawView ? (
-            <pre className="thought-raw">{combinedText}</pre>
-          ) : (
-            <div className="thought-formatted-body">
-              {rawList.map((stepText, idx) => (
-                <div key={idx} className="thought-step-item">
-                  {rawList.length > 1 && (
-                    <div className="thought-step-label">Step {idx + 1}</div>
+          <div className="thought-timeline-track">
+            {steps.map((step, idx) => (
+              <div
+                key={idx}
+                className={`thought-timeline-item type-${step.type} ${step.status === 'running' ? 'is-running' : ''}`}
+              >
+                <div className="thought-timeline-node">
+                  {step.type === 'tool' || step.type === 'search' ? (
+                    <span className="thought-node-dot">•</span>
+                  ) : (
+                    <svg className="thought-node-clock" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
                   )}
-                  <div
-                    className="thought-markdown-text"
-                    dangerouslySetInnerHTML={{ __html: formatThoughtHtml(stepText) }}
-                  />
                 </div>
-              ))}
 
-              {isStreaming && <span className="thought-cursor" aria-hidden="true" />}
-            </div>
-          )}
+                <div className="thought-timeline-content">
+                  {step.type === 'tool' || step.type === 'search' ? (
+                    <div className="thought-tool-block">
+                      <div className="thought-tool-header">
+                        <span className="thought-tool-name">{step.toolName || step.title || 'tool_call'}</span>
+                        {step.status === 'running' && (
+                          <span className="thought-tool-spinner" />
+                        )}
+                      </div>
+                      {step.preview && (
+                        <div className="thought-tool-preview">
+                          {step.preview}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div
+                      className="thought-markdown-text"
+                      dangerouslySetInnerHTML={{ __html: formatThoughtHtml(step.content) }}
+                    />
+                  )}
+                </div>
+              </div>
+            ))}
 
-          {metaParts.length > 0 && (
-            <div className="thought-meta">{metaParts.join(' · ')}</div>
+            {isStreaming && (
+              <div className="thought-timeline-item is-running">
+                <div className="thought-timeline-node">
+                  <span className="thought-timeline-pulse" />
+                </div>
+                <div className="thought-timeline-content">
+                  <span className="thought-cursor" aria-hidden="true" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {modelName && (
+            <div className="thought-meta">{modelName}</div>
           )}
         </div>
       )}

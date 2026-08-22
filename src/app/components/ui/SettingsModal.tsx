@@ -16,8 +16,11 @@ interface SettingsConfig {
   riskMode: string;
   hasGithubToken: boolean;
   hasNvidiaKey: boolean;
+  hasCustomKey: boolean;
   nvidiaKey: string;
   githubToken: string;
+  customKey: string;
+  customUrl: string;
   availableModels: { id: string; label: string }[];
 }
 
@@ -47,6 +50,14 @@ const ALL_PROVIDERS = [
     ),
     available: true,
     examples: ['meta/llama-3.1-405b', 'mistralai/mixtral-8x22b', 'nvidia/nemotron-4-340b']
+  },
+  {
+    id: 'custom',
+    name: '9router',
+    description: 'OpenAI-compatible local router at localhost:20128/v1',
+    icon: <i className="fa-solid fa-route" style={{ fontSize: '22px' }}></i>,
+    available: true,
+    examples: []
   },
   {
     id: 'openai',
@@ -156,6 +167,11 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
   const [testLoading, setTestLoading] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [effort, setEffortLocal] = useState<Effort>(() => getEffort());
+  const [customUrl, setCustomUrl] = useState('http://localhost:20128/v1');
+  const [customKey, setCustomKey] = useState('');
+  const [customModels, setCustomModels] = useState<{ id: string; label: string }[]>([]);
+  const [customModelDraft, setCustomModelDraft] = useState('');
+  const [fetchingCustomModels, setFetchingCustomModels] = useState(false);
 
   // Local state for storing multiple keys per provider
   // Format: { providerId: [ { id: string, name: string, value: string, active: boolean } ] }
@@ -169,12 +185,18 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
       if (!res.ok) throw new Error('Failed to load settings');
       const data = await res.json();
       setConfig(data);
-      
+      setCustomUrl(data.customUrl || 'http://localhost:20128/v1');
+      setCustomKey(data.customKey || '');
+      setCustomModels(Array.isArray(data.availableModels) && data.provider === 'custom'
+        ? data.availableModels
+        : (data.allModels || []).filter((m: { provider?: string }) => m.provider === 'custom'));
+
       // Initialize local multi-key storage with the backend's active key
       const localKeys = localStorage.getItem('boz_provider_keys');
       let parsedKeys = localKeys ? JSON.parse(localKeys) : {
         nvidia: [],
-        github: []
+        github: [],
+        custom: []
       };
 
       // Ensure the backend key is synced as the active one
@@ -269,6 +291,7 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
       if (!res.ok) throw new Error('Failed to update');
       const data = await res.json();
       setConfig(data);
+      window.dispatchEvent(new Event('boz_settings_updated'));
       showToast(successMsg);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');
@@ -286,9 +309,49 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
     // 2. Sync with backend
     const activeKey = newKeys[providerId].find(k => k.id === keyId);
     if (activeKey && activeKey.value && activeKey.value !== '***') {
-      const payloadKey = providerId === 'nvidia' ? 'nvidiaKey' : 'githubToken';
+      const payloadKey =
+        providerId === 'nvidia' ? 'nvidiaKey' :
+        providerId === 'custom' ? 'customKey' : 'githubToken';
       await updateConfig({ [payloadKey]: activeKey.value }, 'Active key applied to backend');
     }
+  };
+
+  const saveCustomEndpoint = async () => {
+    const url = customUrl.trim() || 'http://localhost:20128/v1';
+    await updateConfig({ customUrl: url, customKey }, '9router endpoint saved');
+  };
+
+  const fetchCustomModels = async () => {
+    setFetchingCustomModels(true);
+    try {
+      const res = await fetch('/api/custom-models');
+      const data = await res.json();
+      const models = Array.isArray(data.models) ? data.models : [];
+      setCustomModels(models);
+      if (models.length > 0) {
+        await updateConfig(
+          { customModels: models.map((m: { id: string }) => m.id) },
+          `Loaded ${models.length} models from 9router`,
+        );
+      } else {
+        showToast('No models returned. Add one below.');
+      }
+    } catch {
+      setError('Could not reach 9router /models');
+    } finally {
+      setFetchingCustomModels(false);
+    }
+  };
+
+  const addCustomModel = async (id: string) => {
+    const trimmed = id.trim();
+    if (!trimmed) return;
+    const next = customModels.some((m) => m.id === trimmed)
+      ? customModels
+      : [...customModels, { id: trimmed, label: trimmed }];
+    setCustomModels(next);
+    setCustomModelDraft('');
+    await updateConfig({ customModels: next.map((m) => m.id), model: trimmed, provider: 'custom' }, `Model ${trimmed} saved`);
   };
 
   const testConnection = async () => {
@@ -464,7 +527,97 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                                 <div style={{ padding: '20px 16px', borderTop: '1px solid rgba(255, 255, 255, 0.05)', background: 'rgba(0, 0, 0, 0.2)' }}>
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                                     
+                                    {p.id === 'custom' && (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        <div>
+                                          <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '8px' }}>Endpoint</label>
+                                          <div style={{ display: 'flex', gap: '8px' }}>
+                                            <input
+                                              type="text"
+                                              value={customUrl}
+                                              onChange={(e) => setCustomUrl(e.target.value)}
+                                              placeholder="http://localhost:20128/v1"
+                                              style={{ flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '8px 10px', borderRadius: '6px', fontSize: '12px', fontFamily: 'monospace', outline: 'none' }}
+                                            />
+                                            <button
+                                              onClick={saveCustomEndpoint}
+                                              disabled={saving}
+                                              style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
+                                            >
+                                              Save
+                                            </button>
+                                          </div>
+                                        </div>
+                                        <div>
+                                          <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '8px' }}>API Key (optional)</label>
+                                          <input
+                                            type="password"
+                                            value={customKey}
+                                            onChange={(e) => setCustomKey(e.target.value)}
+                                            onBlur={saveCustomEndpoint}
+                                            placeholder="Leave blank if 9router does not require a key"
+                                            style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '8px 10px', borderRadius: '6px', fontSize: '12px', fontFamily: 'monospace', outline: 'none' }}
+                                          />
+                                        </div>
+                                        <div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                            <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, margin: 0 }}>Models</label>
+                                            <button
+                                              onClick={fetchCustomModels}
+                                              disabled={fetchingCustomModels}
+                                              style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', cursor: 'pointer' }}
+                                            >
+                                              {fetchingCustomModels ? 'Loading...' : 'Fetch /v1/models'}
+                                            </button>
+                                          </div>
+                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
+                                            {customModels.length === 0 ? (
+                                              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No models yet. Fetch from 9router or add one.</span>
+                                            ) : customModels.map((m) => (
+                                              <button
+                                                key={m.id}
+                                                onClick={() => updateConfig({ provider: 'custom', model: m.id }, `${m.id} set as active`)}
+                                                style={{
+                                                  background: config?.model === m.id ? 'var(--text-primary)' : 'rgba(255,255,255,0.04)',
+                                                  color: config?.model === m.id ? 'var(--bg-primary)' : 'var(--text-secondary)',
+                                                  border: '1px solid rgba(255,255,255,0.1)',
+                                                  padding: '4px 8px',
+                                                  borderRadius: '4px',
+                                                  fontSize: '11px',
+                                                  cursor: 'pointer',
+                                                }}
+                                              >
+                                                {m.id}
+                                              </button>
+                                            ))}
+                                          </div>
+                                          <div style={{ display: 'flex', gap: '8px' }}>
+                                            <input
+                                              type="text"
+                                              value={customModelDraft}
+                                              onChange={(e) => setCustomModelDraft(e.target.value)}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                  e.preventDefault();
+                                                  addCustomModel(customModelDraft);
+                                                }
+                                              }}
+                                              placeholder="Add model id, then Enter"
+                                              style={{ flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '8px 10px', borderRadius: '6px', fontSize: '12px', fontFamily: 'monospace', outline: 'none' }}
+                                            />
+                                            <button
+                                              onClick={() => addCustomModel(customModelDraft)}
+                                              style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
+                                            >
+                                              Add
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+
                                     {/* Multiple API Keys Manager */}
+                                    {p.id !== 'custom' && (
                                     <div>
                                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                         <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, margin: 0 }}>API Keys</label>
@@ -514,9 +667,10 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                                         </div>
                                       )}
                                     </div>
+                                    )}
 
                                     {/* Supported Models Badges */}
-                                    {p.examples && (
+                                    {p.id !== 'custom' && p.examples && (
                                       <div style={{ marginTop: '8px' }}>
                                         <label style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, margin: '0 0 8px 0', display: 'block', textTransform: 'uppercase' }}>Available Models</label>
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>

@@ -10,6 +10,7 @@ interface AIPredictionPayload {
   prediction?: 'UP' | 'DOWN' | 'UNKNOWN';
   confidence?: number;
   strategy?: string;
+  thesis?: string;
   target_price?: number | null;
   stop_loss?: number | null;
   reasons?: string[];
@@ -26,6 +27,7 @@ export type AIResult =
       prediction:    'UP' | 'DOWN' | 'UNKNOWN';
       confidence:    number;
       strategy?:     string;
+      thesis?:       string;
       target_price?: number;
       stop_loss?:    number;
       reasons?:      string[];
@@ -46,16 +48,17 @@ const FALLBACK_MODELS = [
 ] as const;
 
 const JSON_OUTPUT_RULES = [
-  'OUTPUT JSON ONLY. No markdown, no commentary.',
+  'OUTPUT JSON ONLY. No markdown, no commentary outside the JSON.',
   'Schema:',
   '{',
   '  "status": "ok|uncertain|error",',
   '  "prediction": "UP|DOWN|UNKNOWN",',
   '  "confidence": 0-100,',
-  '  "strategy": "string",',
+  '  "strategy": "string (concrete tactical execution recommendation)",',
+  '  "thesis": "string (deep multi-paragraph fundamental & market structure analysis explaining the vision, macro drivers, and catalyst roadmap)",',
   '  "target_price": number|null,',
   '  "stop_loss": number|null,',
-  '  "reasons": ["string", ...],',
+  '  "reasons": ["string", ...] // 3-4 high-level strategic catalyst bullets (e.g. secular drivers, business moat, liquidity inflection)',
   '  "reason": "string" // required when status != ok',
   '}',
   'If data is insufficient, set status to "uncertain", prediction to "UNKNOWN", and explain in reason.',
@@ -69,27 +72,19 @@ const errResult = (reason: string, raw?: string): AIResult => ({ status: 'error'
 /** The system-level analysis preamble injected for all providers */
 function buildSystemPrompt(): string {
   return (
-    `You are a senior ${config.ticker} stock analyst at a top hedge fund. Your job is to produce ` +
-    `ruthlessly objective, high-conviction analysis based on the provided technical, macro, ` +
-    `and sentiment data. You have NO directional preference — ` +
-    `bearish calls are equally valid and professionally respected as bullish ones.\n\n` +
-    `REASONING FRAMEWORK (apply in order):\n` +
-    `1. TECHNICAL SIGNALS: Weight validated patterns, volume, multi-timeframe confluence.\n` +
-    `2. CROWD SENTIMENT (CONTRARIAN RULE — MANDATORY):\n` +
-    `   - StockTwits >70% bullish → treat as BEARISH contrarian signal (retail euphoria precedes reversals).\n` +
-    `   - StockTwits <30% bullish → treat as BULLISH contrarian signal (retail panic = dip opportunity).\n` +
-    `   - Fear & Greed >75 (Extreme Greed) → reduce confidence in long positions.\n` +
-    `   - Fear & Greed <25 (Extreme Fear) → increase confidence in long positions.\n` +
-    `   - Do NOT use crowd consensus as confirmation — it is a contrarian indicator.\n` +
-    `3. MACRO CONTEXT: Consider SPY/QQQ correlation and sector momentum.\n` +
-    `4. CROSS-VALIDATION: Bull case requires ≥3 independent confirming signals. If <3, confidence ≤55%.\n` +
-    `5. TIMING: If price already moved significantly, lower confidence and tighten stops.\n\n` +
-    // Removed anti-bias checklist after observing reduced accuracy; prefer explicit accuracy checks.
+    `You are a Lead Portfolio Manager and Senior Equity Strategist at a premier quantitative macro fund. ` +
+    `Your goal is to deliver sharp, strategic, high-conviction market research and investment thesis.\n\n` +
+    `ANALYTICAL DIRECTIVE:\n` +
+    `1. STRATEGIC THESIS: Provide a rich, professional thesis explaining what is fundamentally and technically driving this asset. ` +
+    `   Cover secular growth trends, business moat, revenue catalysts, institutional order flow, and macro cycle positioning.\n` +
+    `2. CONVICTION & STRATEGY: Synthesize technical levels, ATR volatility, and macro regime into a clear risk-managed game plan.\n` +
+    `3. CATALYST DRIVERS (reasons): Do NOT merely repeat technical formulas (like "SMA20 is X"). Instead, distill the 3-4 decisive strategic reasons ` +
+    `   (e.g., "Secular AI datacenter capital expenditure expansion", "Bullish momentum continuation above multi-month accumulation base", "Contrarian retail sentiment reset with institutional accumulation").\n` +
+    `4. RUTHLESS OBJECTIVITY: Both bullish and bearish calls are equally respected. Always specify the primary invalidation risk.\n\n` +
     `ACCURACY CHECK (do before answering):\n` +
-    `  - Use only evidence from the provided data; do not invent metrics or news.\n` +
-    `  - If a key data point is missing, say so and lower confidence.\n` +
-    `  - Ensure prediction, confidence, and levels align with cited signals.\n` +
-    `  - IMPORTANT: Rarely use emojis in your response. Keep text highly professional.\n\n` +
+    `  - Ground all price levels to the provided dataset.\n` +
+    `  - Ensure prediction, confidence, thesis, and trade levels form a unified narrative.\n` +
+    `  - Keep tone highly professional, precise, and institutional.\n\n` +
     JSON_OUTPUT_RULES
   );
 }
@@ -110,6 +105,7 @@ export class AIService {
     switch (config.aiProvider) {
       case 'offline': return this.analyzeWithOffline(prompt);
       case 'nvidia':  return this.analyzeWithNvidia(prompt);
+      case 'custom':  return this.analyzeWithCustom(prompt);
       default:        return this.analyzeWithGitHub(prompt);
     }
   }
@@ -239,6 +235,51 @@ export class AIService {
       const msg = err instanceof Error ? err.message : String(err);
       log.error('ai', `NVIDIA error: ${msg}`);
       return errResult(`NVIDIA API call failed: ${msg}`);
+    }
+  }
+
+  // ─── Custom / 9router (OpenAI-compatible) ─────────────────────────────────
+
+  private async analyzeWithCustom(prompt: string): Promise<AIResult> {
+    const endpoint = config.custom.endpoint;
+    const model = config.custom.model;
+    if (!model) {
+      log.warn('ai', 'No custom model set — pick one in Settings or Chat.');
+      return uncertain('No custom model configured');
+    }
+
+    console.log('');
+    log.ai('mode',     'Custom (9router / OpenAI-compatible)');
+    log.ai('endpoint', clr.dim(endpoint));
+    log.ai('model',    clr.white(model));
+    log.ai('timeout',  clr.dim((TIMEOUT_MS / 1000) + 's'));
+
+    try {
+      const content = await this.llm.callText({
+        messages: [
+          { role: 'system', content: buildSystemPrompt() },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.3,
+        maxTokens: 4096,
+        responseFormat: 'json',
+      });
+
+      const parsed = this.validateResponse(content);
+      if (parsed.ok) {
+        if (parsed.warnings.length > 0) {
+          parsed.warnings.forEach(w => log.warn('ai', w));
+        }
+        return parsed.result;
+      }
+
+      log.error('ai', `Invalid JSON from custom provider: ${parsed.error}`);
+      return uncertain('Custom provider response failed schema validation');
+
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error('ai', `Custom provider error: ${msg}`);
+      return errResult(`Custom provider API call failed: ${msg}`);
     }
   }
 

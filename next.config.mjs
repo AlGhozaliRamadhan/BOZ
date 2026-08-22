@@ -9,6 +9,9 @@ const nextConfig = {
   turbopack: {
     root: __dirname,
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.json'],
+    resolveAlias: {
+      '*.js': ['*.ts', '*.tsx', '*.js'],
+    },
   },
   serverExternalPackages: [
     'yahoo-finance2',
