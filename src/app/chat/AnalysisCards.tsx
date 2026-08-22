@@ -1,18 +1,31 @@
 import React from 'react';
 import { ThoughtAccordion } from '../components/ui/ThoughtAccordion';
+import VerdictBox from '../components/ui/VerdictBox';
+import TradeLevels from '../components/ui/TradeLevels';
 
-const fmt = (v: number | null | undefined, d = 2) => v != null ? v.toFixed(d) : '—';
+const fmt = (v: number | null | undefined, d = 2) => v != null ? v.toFixed(d) : '--';
+const money = (v: number | null | undefined, d = 2) => v != null ? `$${v.toFixed(d)}` : '--';
+
+function PriceStrip({ ticker, price }: { ticker?: string; price?: number | null }) {
+  if (price == null && !ticker) return null;
+  return (
+    <div className="analysis-price-strip">
+      <span className="analysis-price-ticker">{ticker || 'PRICE'}</span>
+      <span className="analysis-price-value">{money(price)}</span>
+    </div>
+  );
+}
 
 export function IntradayCard({ data }: { data: any }) {
   if (!data) return null;
-  const { verdict, marketData: md, macro, sentiment: sent, chartPatterns: cp, tradeLevels: tl, thoughts } = data;
-  const isOk = verdict?.status === 'ok';
+  const { verdict, marketData: md, macro, sentiment: sent, chartPatterns: cp, tradeLevels: tl, thoughts, ticker } = data;
   const isBull = verdict?.prediction === 'UP';
   const cardThoughts = thoughts || verdict?.thoughts || verdict?.reasons || (verdict?.thought ? [verdict.thought] : []);
+  const prediction = verdict?.prediction === 'UP' || verdict?.prediction === 'DOWN' ? verdict.prediction : 'UNKNOWN';
+  const sym = (ticker || 'TICKER').toUpperCase();
 
   return (
-    <div className="flex-col gap-6" style={{ marginBottom: '16px' }}>
-      {/* AI Thought Process Accordion */}
+    <div className="flex-col gap-4" style={{ marginBottom: '14px' }}>
       {cardThoughts && cardThoughts.length > 0 && (
         <ThoughtAccordion
           thoughts={cardThoughts}
@@ -22,163 +35,94 @@ export function IntradayCard({ data }: { data: any }) {
         />
       )}
 
+      <PriceStrip ticker={sym} price={md?.current_price} />
 
-      {/* Technical + Macro Row */}
-      <div className="grid-2 gap-4">
-        {/* Technical Indicators */}
-        <div className="glass-card">
-          <div className="card-header">
-            <span className="card-title">Technical Indicators</span>
-          </div>
-          <table className="data-table">
-            <thead>
-              <tr><th>Indicator</th><th>Value</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>RSI (14)</td>
-                <td className={md?.rsi > 70 ? 'table-cell-negative' : md?.rsi < 30 ? 'table-cell-positive' : ''}>{fmt(md?.rsi, 1)}</td>
-              </tr>
-              <tr>
-                <td>MACD</td>
-                <td className={(md?.macd ?? 0) >= 0 ? 'table-cell-positive' : 'table-cell-negative'}>{fmt(md?.macd, 4)}</td>
-              </tr>
-              <tr><td>SMA 20</td><td>${fmt(md?.sma_20)}</td></tr>
-              <tr><td>SMA 50</td><td>${fmt(md?.sma_50)}</td></tr>
-              <tr><td>SMA 200</td><td>${fmt(md?.sma_200)}</td></tr>
-              <tr><td>ATR</td><td>{fmt(md?.atr, 4)} ({fmt(md?.atr_percent)}%)</td></tr>
-              <tr><td>BB Width</td><td>{fmt(md?.bb_width, 4)}</td></tr>
-              <tr>
-                <td>Volume Ratio</td>
-                <td className={(md?.volume_ratio ?? 0) > 1.5 ? 'table-cell-positive' : ''}>{fmt(md?.volume_ratio)}x</td>
-              </tr>
-              <tr><td>OBV Trend</td><td>{md?.obv_trend ? '🟢 Bullish' : '🔴 Bearish'}</td></tr>
-            </tbody>
-          </table>
-        </div>
+      {verdict && (
+        <VerdictBox
+          prediction={prediction}
+          confidence={typeof verdict.confidence === 'number' ? verdict.confidence : 0}
+          strategy={verdict.strategy || verdict.reason}
+        />
+      )}
 
-        {/* Macro Context */}
-        <div className="glass-card">
-          <div className="card-header">
-            <span className="card-title">Macro Context</span>
+      {tl && (tl.entryRange || tl.targetRange || tl.stopLoss) && (
+        <TradeLevels
+          entry={tl.entryRange || '--'}
+          target={tl.targetRange || '--'}
+          stop={tl.stopLoss || '--'}
+          action="Trade levels"
+        />
+      )}
+
+      {/* Strategic Thesis & Vision */}
+      {verdict?.thesis && (
+        <div className="analysis-thesis-card">
+          <div className="analysis-thesis-header">
+            <i className="fa-solid fa-compass" style={{ color: 'var(--accent-cyan)' }}></i>
+            <span>Intraday Session Vision & Market Structure</span>
           </div>
-          <table className="data-table">
-            <thead>
-              <tr><th>Metric</th><th>Value</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Market Regime</td>
-                <td>
-                  <span className={`badge ${
-                    macro?.market_regime?.toLowerCase().includes('bull') ? 'badge-bull' :
-                    macro?.market_regime?.toLowerCase().includes('bear') ? 'badge-bear' :
-                    'badge-neutral'
-                  }`}>{macro?.market_regime ?? '—'}</span>
-                </td>
-              </tr>
-              <tr>
-                <td>Risk Sentiment</td>
-                <td>
-                  <span className={`badge ${
-                    macro?.risk_sentiment === 'RISK_ON' ? 'badge-bull' :
-                    macro?.risk_sentiment === 'RISK_OFF' ? 'badge-bear' :
-                    'badge-neutral'
-                  }`}>{macro?.risk_sentiment ?? '—'}</span>
-                </td>
-              </tr>
-              <tr><td>SPY Correlation</td><td>{macro?.sp500_correlation ?? '—'}</td></tr>
-              <tr><td>NASDAQ Correlation</td><td>{macro?.nasdaq_correlation ?? '—'}</td></tr>
-              <tr>
-                <td>VIX Level</td>
-                <td className={(macro?.vix_level ?? 0) > 25 ? 'table-cell-negative' : 'table-cell-positive'}>
-                  {fmt(macro?.vix_level)}
-                </td>
-              </tr>
-              <tr><td>10Y Yield</td><td>{fmt(macro?.tnx_yield)}%</td></tr>
-            </tbody>
-          </table>
+          <div className="analysis-thesis-body">
+            {verdict.thesis}
+          </div>
         </div>
+      )}
+
+      {/* Strategic Catalyst Pillars */}
+      {verdict?.reasons && verdict.reasons.length > 0 && (
+        <div className="analysis-catalyst-card">
+          <div className="analysis-catalyst-header">
+            <i className="fa-solid fa-bolt" style={{ color: 'var(--accent-cyan)' }}></i>
+            <span>Key Session Catalysts</span>
+          </div>
+          <ul className="analysis-catalyst-list">
+            {verdict.reasons.map((r: string, idx: number) => (
+              <li key={idx}>{r}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Quick Summary Pill Bar */}
+      <div className="analysis-summary-bar">
+        {md?.rsi != null && (
+          <div className="analysis-summary-pill">
+            <span className="analysis-pill-label">RSI</span>
+            <span className={`analysis-pill-val ${md.rsi > 70 ? 'text-bear' : md.rsi < 30 ? 'text-bull' : ''}`}>{fmt(md.rsi, 1)}</span>
+          </div>
+        )}
+        {macro?.market_regime && (
+          <div className="analysis-summary-pill">
+            <span className="analysis-pill-label">Regime</span>
+            <span className="analysis-pill-val">{macro.market_regime}</span>
+          </div>
+        )}
+        {macro?.vix_level != null && (
+          <div className="analysis-summary-pill">
+            <span className="analysis-pill-label">VIX</span>
+            <span className="analysis-pill-val">{fmt(macro.vix_level, 1)}</span>
+          </div>
+        )}
+        {sent?.fear_greed?.value != null && (
+          <div className="analysis-summary-pill">
+            <span className="analysis-pill-label">Sentiment</span>
+            <span className="analysis-pill-val">{sent.fear_greed.value}</span>
+          </div>
+        )}
       </div>
 
-      {/* Patterns + Sentiment Row */}
-      <div className="grid-2 gap-4">
-        {/* Chart Patterns */}
-        <div className="glass-card">
-          <div className="card-header">
-            <span className="card-title">Chart Patterns</span>
-          </div>
-          {cp?.patterns?.length > 0 ? (
-            <div className="flex-col gap-2">
-              {cp.patterns.map((p: string, i: number) => (
-                <div key={i} className="flex-row justify-between items-center" style={{ padding: 'var(--space-2) 0', borderBottom: '1px solid var(--border-glass)' }}>
-                  <span style={{ fontSize: '13px' }}>{p}</span>
-                  <span className={`badge ${
-                    cp.pattern_confidence?.[i] === 'HIGH' ? 'badge-high' :
-                    cp.pattern_confidence?.[i] === 'MEDIUM' ? 'badge-medium' : 'badge-low'
-                  }`}>{cp.pattern_confidence?.[i] ?? '—'}</span>
-                </div>
-              ))}
-              <div style={{ padding: 'var(--space-2) 0' }}>
-                <span className="card-title">Fibonacci: </span>
-                <span className="badge badge-cyan">{cp.fibonacci_position}</span>
-              </div>
-            </div>
-          ) : (
-            <div className="empty-state" style={{ padding: '24px 0' }}>
-              <p className="empty-state-text">No patterns detected</p>
-            </div>
-          )}
+      {/* Dashboard Deep-Dive CTA */}
+      <div className="analysis-dashboard-cta">
+        <div className="analysis-dashboard-cta-text">
+          <span className="analysis-dashboard-cta-title">Explore {sym} Ticker Dashboard</span>
+          <span className="analysis-dashboard-cta-sub">Interactive chart, multi-timeframe indicators, order book & live news</span>
         </div>
-
-        {/* Sentiment */}
-        <div className="glass-card">
-          <div className="card-header">
-            <span className="card-title">Sentiment</span>
-          </div>
-          <table className="data-table">
-            <thead>
-              <tr><th>Signal</th><th>Value</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Fear &amp; Greed</td>
-                <td>
-                  <span className={`badge ${
-                    (sent?.fear_greed?.value ?? 50) > 60 ? 'badge-bull' :
-                    (sent?.fear_greed?.value ?? 50) < 40 ? 'badge-bear' : 'badge-neutral'
-                  }`}>{sent?.fear_greed?.value ?? '—'} ({sent?.fear_greed?.label ?? '—'})</span>
-                </td>
-              </tr>
-              <tr>
-                <td>StockTwits</td>
-                <td>
-                  <span className={`badge ${
-                    (sent?.stocktwits_data?.bull_ratio ?? 50) > 60 ? 'badge-bull' :
-                    (sent?.stocktwits_data?.bull_ratio ?? 50) < 40 ? 'badge-bear' : 'badge-neutral'
-                  }`}>{fmt(sent?.stocktwits_data?.bull_ratio, 0)}% bullish</span>
-                </td>
-              </tr>
-              <tr>
-                <td>Reddit</td>
-                <td><span className="badge badge-violet">{sent?.social_buzz?.length ?? 0} sources</span></td>
-              </tr>
-              <tr>
-                <td>Overall</td>
-                <td>
-                  {sent?.summary?.overall_signals?.map((s: string, i: number) => (
-                    <span key={i} className={`badge ${
-                      s.includes('BULL') ? 'badge-bull' :
-                      s.includes('BEAR') ? 'badge-bear' :
-                      s.includes('FEAR') ? 'badge-bear' :
-                      s.includes('GREED') ? 'badge-warning' : 'badge-neutral'
-                    }`} style={{ marginRight: '4px', fontSize: '10px' }}>{s}</span>
-                  )) ?? '—'}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <a
+          href={`/dashboard/${encodeURIComponent(sym)}`}
+          className="analysis-dashboard-cta-btn"
+        >
+          <span>Open Dashboard</span>
+          <i className="fa-solid fa-arrow-up-right-from-square"></i>
+        </a>
       </div>
     </div>
   );
@@ -186,17 +130,14 @@ export function IntradayCard({ data }: { data: any }) {
 
 export function LongtermCard({ data }: { data: any }) {
   if (!data) return null;
-  const { verdict, marketData: md, macro, sentiment: sent, chartPatterns: cp, thoughts } = data;
-  const isOk = verdict?.status === 'ok';
+  const { verdict, marketData: md, macro, sentiment: sent, chartPatterns: cp, tradeLevels: tl, thoughts, ticker } = data;
   const isBull = verdict?.prediction === 'UP';
   const cardThoughts = thoughts || verdict?.thoughts || verdict?.reasons || (verdict?.thought ? [verdict.thought] : []);
-
-  const fmt = (v: number | null | undefined, decimals = 2) =>
-    v != null ? v.toFixed(decimals) : '—';
+  const prediction = verdict?.prediction === 'UP' || verdict?.prediction === 'DOWN' ? verdict.prediction : 'UNKNOWN';
+  const sym = (ticker || 'TICKER').toUpperCase();
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', marginTop: 'var(--space-2)' }}>
-      {/* Long-term AI Thought Process Accordion */}
+    <div className="flex-col gap-4" style={{ marginBottom: '14px' }}>
       {cardThoughts && cardThoughts.length > 0 && (
         <ThoughtAccordion
           thoughts={cardThoughts}
@@ -206,109 +147,88 @@ export function LongtermCard({ data }: { data: any }) {
         />
       )}
 
-      {md?.fiftyTwoWeekHigh && (
-        <div className="glass-card compact" style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)' }}>
-          <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-3)' }}>52-Week Context</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--space-4)' }}>
-            <div><span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>52W High</span><br /><span style={{ fontWeight: 600 }}>${fmt(md.fiftyTwoWeekHigh)}</span></div>
-            <div><span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>From High</span><br /><span style={{ fontWeight: 600, color: 'var(--bear)' }}>{fmt(md.from52wHigh, 1)}%</span></div>
-            <div><span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>52W Low</span><br /><span style={{ fontWeight: 600 }}>${fmt(md.fiftyTwoWeekLow)}</span></div>
-            <div><span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>From Low</span><br /><span style={{ fontWeight: 600, color: 'var(--bull)' }}>+{fmt(md.from52wLow, 1)}%</span></div>
+      <PriceStrip ticker={sym} price={md?.current_price} />
+
+      {verdict && (
+        <VerdictBox
+          prediction={prediction}
+          confidence={typeof verdict.confidence === 'number' ? verdict.confidence : 0}
+          strategy={verdict.strategy || verdict.reason}
+        />
+      )}
+
+      {tl && (tl.entryRange || tl.targetRange || tl.stopLoss) && (
+        <TradeLevels
+          entry={tl.entryRange || '--'}
+          target={tl.targetRange || '--'}
+          stop={tl.stopLoss || '--'}
+          action="Long-term levels"
+        />
+      )}
+
+      {/* Strategic Investment Thesis & Business Vision */}
+      {verdict?.thesis && (
+        <div className="analysis-thesis-card">
+          <div className="analysis-thesis-header">
+            <i className="fa-solid fa-compass" style={{ color: 'var(--accent-cyan)' }}></i>
+            <span>Investment Thesis & Secular Business Vision</span>
+          </div>
+          <div className="analysis-thesis-body">
+            {verdict.thesis}
           </div>
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
-        <div className="glass-card" style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)' }}>
-          <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-3)' }}>Technical Indicators</div>
-          <table className="data-table" style={{ width: '100%', fontSize: 'var(--text-xs)' }}>
-            <thead><tr><th style={{ textAlign: 'left', paddingBottom: '8px' }}>Indicator</th><th style={{ textAlign: 'right', paddingBottom: '8px' }}>Value</th></tr></thead>
-            <tbody>
-              <tr><td>RSI (14)</td><td style={{ textAlign: 'right' }} className={md?.rsi > 70 ? 'table-cell-negative' : md?.rsi < 30 ? 'table-cell-positive' : ''}>{fmt(md?.rsi, 1)}</td></tr>
-              <tr><td>MACD</td><td style={{ textAlign: 'right' }} className={(md?.macd ?? 0) >= 0 ? 'table-cell-positive' : 'table-cell-negative'}>{fmt(md?.macd, 4)}</td></tr>
-              <tr><td>SMA 20</td><td style={{ textAlign: 'right' }}>${fmt(md?.sma_20)}</td></tr>
-              <tr><td>SMA 50</td><td style={{ textAlign: 'right' }}>${fmt(md?.sma_50)}</td></tr>
-              <tr><td>SMA 200</td><td style={{ textAlign: 'right' }}>${fmt(md?.sma_200)}</td></tr>
-              <tr><td>ATR</td><td style={{ textAlign: 'right' }}>{fmt(md?.atr, 4)} ({fmt(md?.atr_percent)}%)</td></tr>
-              <tr><td>BB Width</td><td style={{ textAlign: 'right' }}>{fmt(md?.bb_width, 4)}</td></tr>
-              <tr><td>Volume Ratio</td><td style={{ textAlign: 'right' }}>{fmt(md?.volume_ratio)}x</td></tr>
-              <tr><td>OBV Trend</td><td style={{ textAlign: 'right' }}>{md?.obv_trend ? '🟢 Bullish' : '🔴 Bearish'}</td></tr>
-            </tbody>
-          </table>
+      {/* Strategic Catalyst Pillars */}
+      {verdict?.reasons && verdict.reasons.length > 0 && (
+        <div className="analysis-catalyst-card">
+          <div className="analysis-catalyst-header">
+            <i className="fa-solid fa-bolt" style={{ color: 'var(--accent-cyan)' }}></i>
+            <span>Secular Catalysts & Strategic Pillars</span>
+          </div>
+          <ul className="analysis-catalyst-list">
+            {verdict.reasons.map((r: string, idx: number) => (
+              <li key={idx}>{r}</li>
+            ))}
+          </ul>
         </div>
+      )}
 
-        <div className="glass-card" style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)' }}>
-          <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-3)' }}>Macro Context</div>
-          <table className="data-table" style={{ width: '100%', fontSize: 'var(--text-xs)' }}>
-            <thead><tr><th style={{ textAlign: 'left', paddingBottom: '8px' }}>Metric</th><th style={{ textAlign: 'right', paddingBottom: '8px' }}>Value</th></tr></thead>
-            <tbody>
-              <tr><td>Market Regime</td><td style={{ textAlign: 'right' }}><span className={`badge ${macro?.market_regime?.toLowerCase().includes('bull') ? 'badge-bull' : macro?.market_regime?.toLowerCase().includes('bear') ? 'badge-bear' : 'badge-neutral'}`}>{macro?.market_regime ?? '—'}</span></td></tr>
-              <tr><td>Risk Sentiment</td><td style={{ textAlign: 'right' }}><span className={`badge ${macro?.risk_sentiment === 'RISK_ON' ? 'badge-bull' : macro?.risk_sentiment === 'RISK_OFF' ? 'badge-bear' : 'badge-neutral'}`}>{macro?.risk_sentiment ?? '—'}</span></td></tr>
-              <tr><td>SPY Correlation</td><td style={{ textAlign: 'right' }}>{macro?.sp500_correlation ?? '—'}</td></tr>
-              <tr><td>NASDAQ Correlation</td><td style={{ textAlign: 'right' }}>{macro?.nasdaq_correlation ?? '—'}</td></tr>
-              <tr><td>VIX Level</td><td style={{ textAlign: 'right' }} className={(macro?.vix_level ?? 0) > 25 ? 'table-cell-negative' : 'table-cell-positive'}>{fmt(macro?.vix_level)}</td></tr>
-              <tr><td>10Y Yield</td><td style={{ textAlign: 'right' }}>{fmt(macro?.tnx_yield)}%</td></tr>
-            </tbody>
-          </table>
+      {/* 52-Week Context Bar */}
+      {md?.fiftyTwoWeekHigh != null && (
+        <div className="analysis-summary-bar">
+          <div className="analysis-summary-pill">
+            <span className="analysis-pill-label">52W High</span>
+            <span className="analysis-pill-val">${fmt(md.fiftyTwoWeekHigh)}</span>
+          </div>
+          <div className="analysis-summary-pill">
+            <span className="analysis-pill-label">From High</span>
+            <span className="analysis-pill-val text-bear">{fmt(md.from52wHigh, 1)}%</span>
+          </div>
+          <div className="analysis-summary-pill">
+            <span className="analysis-pill-label">52W Low</span>
+            <span className="analysis-pill-val">${fmt(md.fiftyTwoWeekLow)}</span>
+          </div>
+          <div className="analysis-summary-pill">
+            <span className="analysis-pill-label">From Low</span>
+            <span className="analysis-pill-val text-bull">+{fmt(md.from52wLow, 1)}%</span>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
-        <div className="glass-card" style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)' }}>
-          <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-3)' }}>Chart Patterns</div>
-          {cp?.patterns?.length > 0 ? (
-            <div className="flex-col gap-2">
-              {cp.patterns.map((p: string, i: number) => (
-                <div key={i} className="flex-row justify-between items-center" style={{ padding: 'var(--space-2) 0', borderBottom: '1px solid var(--border-glass)' }}>
-                  <span style={{ fontSize: '13px' }}>{p}</span>
-                  <span className={`badge ${
-                    cp.pattern_confidence?.[i] === 'HIGH' ? 'badge-high' :
-                    cp.pattern_confidence?.[i] === 'MEDIUM' ? 'badge-medium' : 'badge-low'
-                  }`}>{cp.pattern_confidence?.[i] ?? '—'}</span>
-                </div>
-              ))}
-              <div style={{ padding: 'var(--space-2) 0', fontSize: '13px', marginTop: 'var(--space-2)' }}>
-                <strong>Fibonacci:</strong> {cp.fibonacci_position || 'N/A'}
-              </div>
-            </div>
-          ) : (
-            <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No significant patterns detected.</div>
-          )}
+      {/* Dashboard Deep-Dive CTA */}
+      <div className="analysis-dashboard-cta">
+        <div className="analysis-dashboard-cta-text">
+          <span className="analysis-dashboard-cta-title">Explore {sym} Ticker Dashboard</span>
+          <span className="analysis-dashboard-cta-sub">Interactive chart, multi-timeframe indicators, order book & live news</span>
         </div>
-
-        <div className="glass-card" style={{ padding: 'var(--space-4)', borderRadius: 'var(--radius-lg)' }}>
-          <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-3)' }}>Sentiment</div>
-          <table className="data-table" style={{ width: '100%', fontSize: 'var(--text-xs)' }}>
-            <thead><tr><th style={{ textAlign: 'left', paddingBottom: '8px' }}>Signal</th><th style={{ textAlign: 'right', paddingBottom: '8px' }}>Value</th></tr></thead>
-            <tbody>
-              <tr>
-                <td>Fear & Greed</td>
-                <td style={{ textAlign: 'right' }}>{sent?.fear_greed?.value ?? '—'} ({sent?.fear_greed?.label ?? '—'})</td>
-              </tr>
-              <tr>
-                <td>StockTwits</td>
-                <td style={{ textAlign: 'right' }}>{sent?.stocktwits_data?.bull_ratio != null ? `${sent.stocktwits_data.bull_ratio.toFixed(0)}% bullish` : '—'}</td>
-              </tr>
-              <tr>
-                <td>Reddit</td>
-                <td style={{ textAlign: 'right' }}><span className="badge badge-violet">{sent?.social_buzz?.length ?? 0} sources</span></td>
-              </tr>
-              <tr>
-                <td>Overall</td>
-                <td style={{ textAlign: 'right' }}>
-                  {sent?.summary?.overall_signals?.map((s: string, i: number) => (
-                    <span key={i} className={`badge ${
-                      s.includes('BULL') ? 'badge-bull' :
-                      s.includes('BEAR') ? 'badge-bear' :
-                      s.includes('FEAR') ? 'badge-bear' :
-                      s.includes('GREED') ? 'badge-warning' : 'badge-neutral'
-                    }`} style={{ marginLeft: '4px', fontSize: '10px' }}>{s}</span>
-                  )) ?? '—'}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <a
+          href={`/dashboard/${encodeURIComponent(sym)}`}
+          className="analysis-dashboard-cta-btn"
+        >
+          <span>Open Dashboard</span>
+          <i className="fa-solid fa-arrow-up-right-from-square"></i>
+        </a>
       </div>
     </div>
   );

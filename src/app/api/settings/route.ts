@@ -4,6 +4,7 @@ import { config } from '@/config/config';
 import type { AIProvider, RiskMode } from '@/config/config';
 import { GITHUB_MODELS } from '@/config/github.config';
 import { NVIDIA_MODELS } from '@/config/nvidia.config';
+import { parseCustomModels, normalizeCustomEndpoint } from '@/config/custom.config';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -29,25 +30,46 @@ function upsertEnvVar(key: string, value: string): void {
   fs.writeFileSync(envPath, contents, 'utf8');
 }
 
+function customModelsPayload() {
+  const persisted = parseCustomModels(process.env.CUSTOM_AI_MODELS);
+  const current = config.custom.model;
+  const list = [...persisted];
+  if (current && !list.some((m) => m.id === current)) {
+    list.unshift({ id: current, label: current });
+  }
+  return list;
+}
+
+function settingsPayload() {
+  const customModels = customModelsPayload();
+  return {
+    provider:       config.aiProvider,
+    model:          config.aiModel,
+    endpoint:       config.aiEndpoint,
+    ticker:         config.ticker,
+    riskMode:       config.riskMode,
+    hasGithubToken: !!config.github.token,
+    hasNvidiaKey:   !!config.nvidia.apiKey,
+    hasCustomKey:   !!config.custom.apiKey,
+    nvidiaKey:      config.nvidia.apiKey || '',
+    githubToken:    config.github.token || '',
+    customKey:      config.custom.apiKey || '',
+    customUrl:      config.custom.endpoint,
+    availableModels:
+      config.aiProvider === 'nvidia' ? NVIDIA_MODELS :
+      config.aiProvider === 'github' ? GITHUB_MODELS :
+      config.aiProvider === 'custom' ? customModels : [],
+    allModels: [
+      ...GITHUB_MODELS.map(m => ({ ...m, provider: 'github' })),
+      ...NVIDIA_MODELS.map(m => ({ ...m, provider: 'nvidia' })),
+      ...customModels.map(m => ({ ...m, provider: 'custom' })),
+    ],
+  };
+}
+
 export async function GET() {
   try {
-    return jsonResponse({
-      provider:       config.aiProvider,
-      model:          config.aiModel,
-      endpoint:       config.aiEndpoint,
-      ticker:         config.ticker,
-      riskMode:       config.riskMode,
-      hasGithubToken: !!config.github.token,
-      hasNvidiaKey:   !!config.nvidia.apiKey,
-      nvidiaKey:      config.nvidia.apiKey || '',
-      githubToken:    config.github.token || '',
-      availableModels: config.aiProvider === 'nvidia' ? NVIDIA_MODELS : 
-                       config.aiProvider === 'github' ? GITHUB_MODELS : [],
-      allModels: [
-        ...GITHUB_MODELS.map(m => ({ ...m, provider: 'github' })),
-        ...NVIDIA_MODELS.map(m => ({ ...m, provider: 'nvidia' })),
-      ],
-    });
+    return jsonResponse(settingsPayload());
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return errorResponse(msg);
@@ -63,10 +85,35 @@ export async function PUT(request: NextRequest) {
       riskMode?: RiskMode;
       nvidiaKey?: string;
       githubToken?: string;
+      customKey?: string;
+      customUrl?: string;
+      customModels?: string[];
     }>(request);
 
+    if (body.customUrl !== undefined) {
+      const endpoint = normalizeCustomEndpoint(body.customUrl);
+      config.setCustomEndpoint(endpoint);
+      process.env.CUSTOM_AI_URL = endpoint;
+      upsertEnvVar('CUSTOM_AI_URL', endpoint);
+    }
+
+    if (body.customKey !== undefined) {
+      process.env.CUSTOM_AI_KEY = body.customKey;
+      upsertEnvVar('CUSTOM_AI_KEY', body.customKey);
+    }
+
+    if (body.customModels) {
+      const ids = body.customModels
+        .map((id) => sanitizeEnvValue(id))
+        .filter(Boolean);
+      const joined = ids.join(',');
+      process.env.CUSTOM_AI_MODELS = joined;
+      upsertEnvVar('CUSTOM_AI_MODELS', joined);
+      config.custom.models = ids.map((id) => ({ id, label: id }));
+    }
+
     if (body.provider) {
-      const valid: AIProvider[] = ['github', 'offline', 'nvidia'];
+      const valid: AIProvider[] = ['github', 'offline', 'nvidia', 'custom'];
       if (!valid.includes(body.provider)) {
         return errorResponse(`Invalid provider. Valid: ${valid.join(', ')}`, 400);
       }
@@ -87,6 +134,16 @@ export async function PUT(request: NextRequest) {
       } else if (prov === 'offline') {
         process.env.OFFLINE_AI_MODEL = body.model;
         upsertEnvVar('OFFLINE_AI_MODEL', body.model);
+      } else if (prov === 'custom') {
+        process.env.CUSTOM_AI_MODEL = body.model;
+        upsertEnvVar('CUSTOM_AI_MODEL', body.model);
+        const existing = parseCustomModels(process.env.CUSTOM_AI_MODELS).map((m) => m.id);
+        if (!existing.includes(body.model)) {
+          const next = [...existing, body.model].join(',');
+          process.env.CUSTOM_AI_MODELS = next;
+          upsertEnvVar('CUSTOM_AI_MODELS', next);
+          config.custom.models = parseCustomModels(next);
+        }
       }
     }
 
@@ -118,25 +175,10 @@ export async function PUT(request: NextRequest) {
 
     return jsonResponse({
       message: 'Settings updated',
-      provider:       config.aiProvider,
-      model:          config.aiModel,
-      endpoint:       config.aiEndpoint,
-      ticker:         config.ticker,
-      riskMode:       config.riskMode,
-      hasGithubToken: !!config.github.token,
-      hasNvidiaKey:   !!config.nvidia.apiKey,
-      nvidiaKey:      config.nvidia.apiKey || '',
-      githubToken:    config.github.token || '',
-      availableModels: config.aiProvider === 'nvidia' ? NVIDIA_MODELS : 
-                       config.aiProvider === 'github' ? GITHUB_MODELS : [],
-      allModels: [
-        ...GITHUB_MODELS.map(m => ({ ...m, provider: 'github' })),
-        ...NVIDIA_MODELS.map(m => ({ ...m, provider: 'nvidia' })),
-      ],
+      ...settingsPayload(),
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return errorResponse(msg);
   }
 }
-

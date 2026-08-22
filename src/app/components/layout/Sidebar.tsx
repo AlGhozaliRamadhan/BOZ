@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 
 interface NavItem {
   label: string;
@@ -29,14 +29,48 @@ const navItems: NavItem[] = [
 ];
 
 export default function Sidebar() {
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [chatSessions, setChatSessions] = useState<{id: string, title: string}[]>([]);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
+
+  useEffect(() => {
+    if (!isProfileMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isProfileMenuOpen]);
 
   const sanitizeSessionId = (id: unknown): string | null => {
     if (typeof id !== 'string') return null;
     return /^[A-Za-z0-9_-]+$/.test(id) ? id : null;
+  };
+
+  const deleteSession = (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const stored = localStorage.getItem('boz_chat_sessions');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const updated = parsed.filter((s: any) => s.id !== id);
+        localStorage.setItem('boz_chat_sessions', JSON.stringify(updated));
+        setChatSessions((prev) => prev.filter((s) => s.id !== id));
+        window.dispatchEvent(new Event('boz_chat_updated'));
+        if (pathname === `/chat/${id}`) {
+          router.push('/chat');
+          window.dispatchEvent(new Event('boz_new_chat'));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to delete session', err);
+    }
   };
 
   useEffect(() => {
@@ -106,7 +140,7 @@ export default function Sidebar() {
 
       <nav className="sidebar-nav">
         {navItems.map((item) => (
-          <div key={item.href}>
+          <div key={item.href} className="sidebar-nav-item-group">
             <Link
               href={item.href}
               className={`sidebar-link${isActive(item.href) ? ' active' : ''}`}
@@ -114,32 +148,61 @@ export default function Sidebar() {
               <span className="sidebar-link-icon">{item.icon}</span>
               <span className="sidebar-link-label">{item.label}</span>
             </Link>
-            {item.href === '/chat' && isActive('/chat') && chatSessions.length > 0 && !collapsed && (
-              <div className="sidebar-recent-chats">
-                <div className="sidebar-group-title">Recent Chats</div>
-                {chatSessions.slice(0, 5).map(session => {
-                  const chatHref = `/chat/${session.id}`;
-                  return (
-                    <Link 
-                      key={session.id} 
-                      href={chatHref}
-                      className={`sidebar-chat-link${pathname === chatHref ? ' active' : ''}`}
-                    >
-                      {session.title}
-                    </Link>
-                  );
-                })}
+            {item.href === '/chat' && isActive('/chat') && !collapsed && (
+              <div className="sidebar-chat-subnav animate-fadeIn">
+                <Link
+                  href="/chat"
+                  onClick={() => {
+                    window.dispatchEvent(new Event('boz_new_chat'));
+                  }}
+                  className="sidebar-new-chat-btn"
+                  title="Start a fresh conversation"
+                >
+                  <i className="fa-solid fa-plus" style={{ fontSize: '11px' }}></i>
+                  <span>New Chat</span>
+                </Link>
+
+                {chatSessions.length > 0 && (
+                  <div className="sidebar-recent-chats">
+                    <div className="sidebar-group-title">Recent Chats</div>
+                    {chatSessions.slice(0, 10).map((session) => {
+                      const chatHref = `/chat/${session.id}`;
+                      const isSelected = pathname === chatHref;
+                      return (
+                        <div key={session.id} className={`sidebar-chat-item-wrapper${isSelected ? ' active' : ''}`}>
+                          <Link 
+                            href={chatHref}
+                            className={`sidebar-chat-link${isSelected ? ' active' : ''}`}
+                            title={session.title}
+                          >
+                            <i className="fa-regular fa-message sidebar-chat-icon"></i>
+                            <span className="sidebar-chat-title">{session.title}</span>
+                          </Link>
+                          <button
+                            type="button"
+                            className="sidebar-chat-delete-btn"
+                            onClick={(e) => deleteSession(e, session.id)}
+                            title="Delete chat"
+                            aria-label="Delete chat"
+                          >
+                            <i className="fa-solid fa-xmark"></i>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
         ))}
       </nav>
 
-      <div className="sidebar-footer">
+      <div className="sidebar-footer" ref={profileRef}>
         {isProfileMenuOpen && !collapsed && (
-          <div className="profile-popover">
+          <div className="profile-popover animate-fadeIn">
             <div className="profile-popover-header">
-              <span className="profile-popover-email">ajaaoja@gmail.com</span>
+              <span className="profile-popover-email">User</span>
             </div>
             <div className="profile-popover-group">
               <button 
@@ -155,46 +218,15 @@ export default function Sidebar() {
                 </div>
                 <div className="profile-popover-item-right">Ctrl+⇧+,</div>
               </button>
-              <button className="profile-popover-item">
-                <div className="profile-popover-item-left">
-                  <i className="fa-solid fa-globe"></i>
-                  <span>Language</span>
-                </div>
-                <div className="profile-popover-item-right"><i className="fa-solid fa-chevron-right" style={{fontSize: '10px'}}></i></div>
-              </button>
-              <button className="profile-popover-item">
-                <div className="profile-popover-item-left">
-                  <i className="fa-regular fa-circle-question"></i>
-                  <span>Get help</span>
-                </div>
-              </button>
-            </div>
-            <div className="profile-popover-group">
-              <button className="profile-popover-item">
-                <div className="profile-popover-item-left">
-                  <i className="fa-solid fa-arrow-up"></i>
-                  <span>Upgrade plan</span>
-                </div>
-              </button>
-              <button className="profile-popover-item">
-                <div className="profile-popover-item-left">
-                  <i className="fa-solid fa-download"></i>
-                  <span>Get apps and extensions</span>
-                </div>
-              </button>
-              <button className="profile-popover-item">
+              <button 
+                className="profile-popover-item"
+                onClick={() => {
+                  setIsProfileMenuOpen(false);
+                }}
+              >
                 <div className="profile-popover-item-left">
                   <i className="fa-solid fa-circle-info"></i>
-                  <span>Learn more</span>
-                </div>
-                <div className="profile-popover-item-right"><i className="fa-solid fa-chevron-right" style={{fontSize: '10px'}}></i></div>
-              </button>
-            </div>
-            <div className="profile-popover-group">
-              <button className="profile-popover-item">
-                <div className="profile-popover-item-left">
-                  <i className="fa-solid fa-arrow-right-from-bracket"></i>
-                  <span>Log out</span>
+                  <span>About BOZ</span>
                 </div>
               </button>
             </div>
@@ -207,24 +239,23 @@ export default function Sidebar() {
           tabIndex={0}
         >
           <div className="sidebar-profile-avatar" aria-hidden="true">
-            A
+            <i className="fa-solid fa-user" style={{ fontSize: '13px', opacity: 0.85 }}></i>
           </div>
           {!collapsed && (
             <div className="sidebar-profile-meta">
-              <div className="sidebar-profile-name">aja</div>
-              <div className="sidebar-profile-role">Free plan</div>
+              <div className="sidebar-profile-name">User</div>
             </div>
           )}
           {!collapsed && (
             <div className="sidebar-profile-actions-wrapper">
               <div className="sidebar-profile-action" aria-label="Menu">
-                <i className="fa-solid fa-sort" style={{ fontSize: '12px' }}></i>
+                <i className="fa-solid fa-ellipsis" style={{ fontSize: '13px' }}></i>
               </div>
             </div>
           )}
         </div>
         <div className="sidebar-version-row">
-          <span className="sidebar-version">v2.2.1</span>
+          <span className="sidebar-version">v2.3.0</span>
         </div>
       </div>
     </aside>

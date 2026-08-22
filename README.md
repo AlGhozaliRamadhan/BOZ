@@ -20,14 +20,14 @@
   <a href="https://github.com/AlGhozaliRamadhan">
     <img src="https://img.shields.io/badge/Author-AGR-111111?style=flat"/>
   </a>
-  <img src="https://img.shields.io/badge/version-2.2.1-brightgreen?style=flat"/>
+  <img src="https://img.shields.io/badge/version-2.3.0-brightgreen?style=flat"/>
 </p>
 
 ---
 
 ## What is BOZ?
 
-**BOZ (Behavioral Outlook Zone) v2.2** is an open-source, full-stack AI market analysis dashboard. It fuses real-time price data, technical indicators, multi-timeframe confluence, macro context, news, and crowd sentiment into structured, actionable intelligence complete with entry, target, stop, and risk/reward.
+**BOZ (Behavioral Outlook Zone) v2.3** is an open-source, full-stack AI market analysis dashboard. It fuses real-time price data, technical indicators, multi-timeframe confluence, macro context, news, and crowd sentiment into structured, actionable intelligence complete with entry, target, stop, and risk/reward.
 
 Analysis is now fully consolidated into a sleek, unified text-based Omni-Agent Chat interface. The UI relies entirely on natural conversational prompts and slash commands:
 

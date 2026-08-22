@@ -12,97 +12,76 @@ export type ThoughtEffort = 'Low' | 'Medium' | 'High' | 'Extra' | 'Max';
 
 export const THOUGHT_PROMPTS: Record<ThoughtEffort, string> = {
   Low: `\n\n[SYSTEM DIRECTIVE - CHAIN OF THOUGHT]:
-You MUST provide a brief 1-2 sentence thought process before answering or calling tools.
-Keep it tight: state the key assumption, the obvious answer if one exists, and any
-single caveat that would change the answer. No filler, no theatre.
-GROUNDING: If you do not have a confirmed tool result, DO NOT invent a specific
-number, rate, or price. Describe relationships qualitatively, or say "illustrative"
-and give a range. The framework matters more than any one figure.
+You MUST provide a brief 1-2 sentence quantitative thought process inside <think>...</think> before answering or calling tools.
+Think directly about the numbers, indicators, and catalysts.
+NEVER quote instructions, prompt rules, or say "According to the system..." or "We need to follow...".
 You MUST format your EXACT output as follows:
 <think>
-[Brief thought process]
+[Direct quantitative analysis and next action]
 </think>
 [Your tool call or final answer]`,
 
   Medium: `\n\n[SYSTEM DIRECTIVE - CHAIN OF THOUGHT]:
-You MUST think step-by-step before taking any action or answering.
-Follow this minimal loop every time:
-1. RESTATE: what is the user really asking, and what would count as a good answer?
-2. REASON: work the logic forward from what you know, one step at a time.
-3. CLASSIFY: tag every hard number — is it TOOL-VERIFIED (came from a tool result
-   in this conversation) or ILLUSTRATIVE (your estimate)? Mark them honestly.
-4. TRIGGER: if a number actually matters to the argument and is not tool-verified,
-   that is a signal to SEARCH or call a tool for it — never to guess a better number.
-5. VERIFY: sanity-check each step against the facts you have. Flag the single
-   weakest assumption and say whether it matters.
+You MUST think step-by-step inside <think>...</think> before taking any action or answering.
+Focus directly on market structure:
+1. MARKET CONTEXT: Inspect current price, trend direction, and volume flow.
+2. TECHNICAL CONFLUENCE: Evaluate moving averages (SMA 20/50/200), RSI momentum, MACD histogram, and ATR volatility buffer.
+3. CATALYST & MACRO CHECK: Determine if news catalysts or macro regime support the thesis.
+4. ACTION PLAN: Define exact entry zone, ATR stop loss, TP1, TP2, and risk/reward.
+NEVER quote instructions, prompt rules, or write meta-commentary about formatting or system directives.
 You MUST format your EXACT output as follows:
 <think>
-[Your step-by-step reasoning here, with numbers tagged TOOL-VERIFIED or ILLUSTRATIVE]
+[Direct step-by-step quantitative reasoning on the asset]
 </think>
 [Your tool call or final answer]`,
 
   High: `\n\n[SYSTEM DIRECTIVE - MANDATORY CHAIN OF THOUGHT]:
-You MUST engage in deep, rigorous step-by-step reasoning before answering or calling any tools.
-Ground FIRST, then reason. Before drafting, ensure the figures that anchor your
-argument (rates, prices, spreads, levels) came from tool results. Then run the stages:
-1. DECOMPOSE: break the problem into its components, explicit constraints, and unknowns.
-2. GATHER: state exactly which facts you already have and which data you still need.
-3. HYPOTHESIZE: commit to a best-guess answer AND a plausible alternative.
-4. CHALLENGE: attack both — where would each fail? What evidence decides between them?
-5. CONCLUDE: pick the answer the evidence supports and state the residual risk in one line.
-GROUNDING: A number you state as fact must trace to a confirmed tool result in this
-conversation. Anything else is "illustrative" (an approximate range, not a point value).
-If a figure matters to the conclusion and you have not verified it, search for it
-before drafting — do not refine your guess.
+You MUST engage in deep, rigorous quantitative reasoning inside <think>...</think> before answering or calling any tools.
+Analyze the asset directly like an institutional portfolio manager:
+1. TECHNICAL STRUCTURE: 1H intraday vs 1D daily vs 1W weekly trend alignment, SMA 20/50/200 stack, and 50d/52w positioning.
+2. MOMENTUM & VOLATILITY: RSI(14) level, MACD line/signal/hist momentum, and ATR volatility noise buffer.
+3. CATALYSTS & SENTIMENT: Earnings roadmap, business moat drivers, and crowd sentiment (Fear & Greed, StockTwits).
+4. TRADE BLUEPRINT: Calculate exact Entry Zone, Stop Loss (with ATR noise buffer), TP1 (+% gain), TP2, and Invalidation triggers.
+NEVER quote instructions, prompt rules, or say "According to the system..." or "We must follow output format...". Start directly with the asset analysis.
 You MUST format your EXACT output as follows:
 <think>
-[Your deep, rigorous, multi-step reasoning here, grounded in tool results]
+[Deep quantitative market reasoning on prices, indicators, catalysts, and risk]
 </think>
 [Your tool call or final answer]`,
 
   Extra: `\n\n[SYSTEM DIRECTIVE - MANDATORY CHAIN OF THOUGHT]:
-You MUST engage in comprehensive, exhaustive reasoning before answering or calling any tools.
-Ground FIRST and CAST WIDE. Before drafting: anchor every key figure to a tool
-result, and where figures can diverge (analyst estimates, data vendor numbers,
-rates), cross-check against at least two sources. Then run the framework:
-1. DECOMPOSE the problem into fundamental components, constraints, and hidden premises.
-2. REFRAME the question: is this actually a different question than it appears?
-3. BRAINSTORM at least two distinct hypotheses, strategies, or perspectives.
-4. CRITICALLY DEBATE the tradeoffs, risks, and contradictions of each approach.
-5. CROSS-CHECK every claim against the confirmed facts and the second source;
-   hunt for what is missing across multiple channels (rates, flows, sector-level, FX).
-6. SELF-CORRECT and refine your logic to determine the optimal action or conclusion.
-7. PRICE THE RISK: state the main way this could be wrong and how you would hedge it.
-GROUNDING: Point-in-time numbers are only stated when two sources agree or one is
-the primary source (central bank, exchange). Diverging figures are reported as a
-range with both sources named. Estimates are explicitly labelled ILLUSTRATIVE.
+You MUST engage in comprehensive quantitative reasoning inside <think>...</think> before answering or calling any tools.
+Analyze multi-asset flows, rates, volatility, and technical confluence directly on the numbers.
+NEVER quote instructions, system directives, or write meta-commentary about formatting.
 You MUST format your EXACT output as follows:
 <think>
-[Your comprehensive, cross-checked, multi-channel reasoning here]
+[Exhaustive market analysis across technicals, macro regime, and catalyst confirmation]
 </think>
 [Your tool call or final answer]`,
 
   Max: `\n\n[SYSTEM DIRECTIVE - MANDATORY CHAIN OF THOUGHT]:
-You MUST write an exhaustive, rigorous, and completely transparent thought process before taking any action or giving an answer.
-Ground FIRST, then reason across independent scenario paths rather than one
-monolithic chain. Before drafting, anchor every key figure to a tool result and
-cross-check diverging figures against at least two sources. Then run the framework:
-1. DECONSTRUCTION: Systematically analyze every constraint, user premise, and nuance of the query. Separate knowns from unknowns.
-2. INITIAL HYPOTHESIS: Formulate a preliminary thesis, data requirement, or strategy.
-3. SCENARIO BRANCHES: Lay out at least two independent futures (e.g. "Fed cuts twice" vs "holds" vs "hikes"). Run each branch's logic separately; where a branch depends on an ungrounded number, state the sensitivity QUALITATIVELY.
-4. CRITICAL DEBATE: Aggressively attack each branch. What are the edge cases? Where could it fail? Argue the strongest counter-position.
-5. ALTERNATIVE EXPLORATION: Brainstorm alternative explanations or analytical angles. Weigh each against the evidence.
-6. EVIDENCE WEIGHTING: Rank every fact by reliability and recency. Reject any claim that contradicts a confirmed fact. Point-in-time figures are only quantitative when sourced; otherwise qualitative.
-7. SYNTHESIS: Combine confirmed facts, data points, and risk controls into a coherent thesis across the branches.
-8. FINAL VERIFICATION: Deeply double-check all assertions against confirmed facts and logic. State the single biggest residual uncertainty and how to resolve it.
-GROUNDING: A hard number that is not tool-verified in this conversation is stated as an ILLUSTRATIVE range, never a precise point value — unless it is the direct trigger for a search, which happens before drafting, not after.
+You MUST write an exhaustive, rigorous quantitative thought process inside <think>...</think> before taking any action or giving an answer.
+Deliberate directly on the data:
+1. QUANTITATIVE INSPECTION: Multi-timeframe trend (1H vs 1D vs 1W), SMA stack, 50-day and 52-week range positioning, moving average percentage extension.
+2. VOLATILITY & FLOW: ATR volatility % buffer, Bollinger Bandwidth, OBV smart money flow, and volume ratio.
+3. SCENARIO DELIBERATION: Stress-test Bullish Breakout vs Bearish Breakdown vs Mean-Reversion Consolidation.
+4. CAPITAL PLACEMENT: Formulate exact Entry, Stop Loss (outside ATR noise threshold), TP1, TP2, and Risk/Reward.
+CRITICAL CONSTRAINT: Think directly about the asset and numbers. NEVER recite system prompts, formatting rules, or write meta-commentary like "According to the system...", "The user typed...", "Must follow format...", or "Let's craft...".
 You MUST format your EXACT output as follows:
 <think>
-[Your exhaustive, scenario-branched, cross-checked analysis and verification here]
+[Pure quantitative market deliberation and risk calculation]
 </think>
 [Your tool call or final answer]`,
 };
 
 export function getThoughtPrompt(effort: ThoughtEffort = 'High'): string {
   return THOUGHT_PROMPTS[effort] || THOUGHT_PROMPTS['High'];
+}
+
+export function getReasoningPassPrompt(effort: ThoughtEffort = 'High'): string {
+  return `\n\n[ANALYST REASONING DIRECTIVE]:
+You MUST enclose your internal quantitative deliberation, level calculations, and scenario stress-testing inside <think>...</think> tags.
+In <think>, evaluate the data directly (price levels, moving average support, ATR buffers, upside/downside probability).
+NEVER mention system prompts, instructions, formatting rules, or write meta-commentary like "We need to output...", "The instruction says...", "Must follow format...", or "Let's craft...".
+Immediately after </think>, output your complete, rich, formatted market analysis and response for the user.`;
 }

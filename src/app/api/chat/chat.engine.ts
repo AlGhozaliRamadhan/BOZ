@@ -9,7 +9,18 @@
 import { LLMAdapter } from '@/services/ai/llm.adapter';
 import type { ReasoningEffort } from '@/services/ai/llm.adapter';
 import { config } from '@/config/config';
-import { yahooFinance } from '@/services/market/yahoo.service';
+import { YahooService, yahooFinance } from '@/services/market/yahoo.service';
+import { IndicatorsService } from '@/services/market/indicators.service';
+import { MacroService } from '@/services/market/macro.service';
+import { ChartAnalyzer } from '@/analyzers/chart.analyzer';
+import {
+  fetchTickerDashboardDefinition,
+  fetchPriceDefinition,
+  executeFetchTickerDashboard,
+  executeFetchPrice,
+  extractTickerDashboardFact,
+  extractPriceFact,
+} from '@/tools/ticker.tool';
 import { newsFetchService } from '@/services/news/news.fetch.service';
 import { SentimentService } from '@/services/market/sentiment.service';
 import { webSearchService } from '@/services/search/web.search.service';
@@ -19,7 +30,7 @@ import { resolveSymbolIDX } from '@/shared/market-constants';
 import { GITHUB_MODELS } from '@/config/github.config';
 import { NVIDIA_MODELS } from '@/config/nvidia.config';
 import type { LLMMessage, RawToolCall } from '@/types/llm.types';
-import { getThoughtPrompt, type ThoughtEffort } from '@/shared/thought-prompts';
+import { getThoughtPrompt, getReasoningPassPrompt, type ThoughtEffort } from '@/shared/thought-prompts';
 import { formatLedgerFacts } from '@/shared/ledger-facts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -87,10 +98,15 @@ export class WebChatEngine {
     history?: Array<{ role: 'user' | 'assistant'; content: string }>;
     effort?: ThoughtEffort;
     thinking?: boolean;
+    model?: string;
   }): AsyncGenerator<ChatEvent> {
     const { message, history } = params;
     const effort: ThoughtEffort = params.effort ?? 'Max';
     const thinkingEnabled = params.thinking !== false;
+    const modelOverride = params.model?.trim() || undefined;
+    if (modelOverride) {
+      config.setAIModel(modelOverride);
+    }
 
     // Map ThoughtEffort → native reasoning_effort for backend
     const reasoningEffort: ReasoningEffort | undefined = thinkingEnabled
@@ -120,7 +136,7 @@ export class WebChatEngine {
         messages,
         this.getToolDefinitions(),
         0.3,
-        { reasoningEffort, assistantPrefill: thinkingEnabled ? PREFILL : undefined },
+        { reasoningEffort, assistantPrefill: thinkingEnabled ? PREFILL : undefined, model: modelOverride },
       );
       if (aiMessage.thought) {
         yield { type: 'thought', data: aiMessage.thought };
@@ -188,6 +204,8 @@ export class WebChatEngine {
             quality: fact?.quality || 'empty',
             step,
             success,
+            preview: obs.slice(0, 800),
+            args:    call.arguments,
           },
         };
 
@@ -205,7 +223,7 @@ export class WebChatEngine {
           messages,
           this.getToolDefinitions(),
           0.3,
-          { reasoningEffort },
+          { reasoningEffort, model: modelOverride },
         );
         if (aiMessage.thought) {
           yield { type: 'thought', data: aiMessage.thought };
@@ -223,12 +241,12 @@ export class WebChatEngine {
     // thought_new as a separate step, so the user sees the iterative loop.
     if (ledger.length > 0 || aiMessage.content) {
       const confirmedCount = ledger.filter(e => e.quality === 'confirmed').length;
-      yield { type: 'reasoning_start', data: { confirmedFacts: confirmedCount, totalSteps: step } };
-
-      // Passes to run. Deep Think OFF or Low effort → single pass (unchanged
-      // behaviour). Higher effort → more passes, each with a different job
-      // (audit numbers, then logic, then breadth, then scenario branches).
-      const passes = thinkingEnabled ? EFFORT_PASSES[effort] : 1;
+      // Passes to run:
+      // Multi-pass verification and independent scenario branches (bull/base/bear)
+      // are only needed when market research / tools were called (ledger.length > 0).
+      // For simple greetings and casual conversational queries where no tools were run,
+      // a single pass is used to respond immediately without over-analyzing.
+      const passes = (thinkingEnabled && ledger.length > 0) ? EFFORT_PASSES[effort] : 1;
 
       let draft = '';
       // Max scenario branches each build on the SAME pass-0 draft (independent
@@ -243,9 +261,20 @@ export class WebChatEngine {
         // coherent answer, never a concatenation of every pass's draft.
         if (ledger.length > 0) {
           const reasoningMessages = this.buildReasoningMessages(messages, ledger);
-          for await (const ev of this.streamThinkingPass(reasoningMessages, reasoningEffort, getThoughtPrompt(effort))) {
-            if (ev.type === 'token') draft += ev.data;
-            else yield ev;
+          let passThought = '';
+          for await (const ev of this.streamThinkingPass(reasoningMessages, reasoningEffort, getReasoningPassPrompt(effort), modelOverride)) {
+            if (ev.type === 'token') {
+              draft += ev.data;
+            } else if (ev.type === 'thought') {
+              passThought += ev.data;
+              yield ev;
+            } else {
+              yield ev;
+            }
+          }
+          draft = draft.trim();
+          if (!draft && passThought) {
+            draft = this.stripThinkingFull(passThought);
           }
         } else if (aiMessage.content) {
           draft = this.stripThinkingFull(aiMessage.content);
@@ -292,10 +321,22 @@ export class WebChatEngine {
           yield { type: 'thought_new', data: thoughtMsg };
           try {
             let passDraft = '';
-            for await (const ev of this.streamThinkingPass(passMessages, reasoningEffort, getThoughtPrompt(effort))) {
-              if (ev.type === 'token') passDraft += ev.data;
-              else yield ev;
+            let passThought = '';
+            for await (const ev of this.streamThinkingPass(passMessages, reasoningEffort, getReasoningPassPrompt(effort), modelOverride)) {
+              if (ev.type === 'token') {
+                passDraft += ev.data;
+              } else if (ev.type === 'thought') {
+                passThought += ev.data;
+                yield ev;
+              } else {
+                yield ev;
+              }
             }
+            passDraft = passDraft.trim();
+            if (!passDraft && passThought) {
+              passDraft = this.stripThinkingFull(passThought);
+            }
+            passDraft = this.stripThinkingFull(passDraft);
             if (effort === 'Max') {
               // Keep branch outputs separate; the synthesis pass merges them.
               branchDrafts += (passDraft || draft) + '\n';
@@ -364,12 +405,11 @@ export class WebChatEngine {
       'CONVERSATIONAL AI RULES:',
       '  - You have FULL AUTONOMY to decide whether tools are needed.',
       '  - If the user is asking a conceptual, philosophical, code, or follow-up question that does not need live market ticks, answer directly using your deep reasoning chain without calling market tools.',
-      '  - If you genuinely need live data, prices, news, or a fresh scan, call the tools.',
-      '  - ANTI-LOOP RULE: If you just ran tools 1 turn ago and the user asks a follow-up about',
-      '    the SAME topic, it is almost always WRONG to call tools again. Answer from context.',
-      '  - COST AWARENESS: Every tool call takes 10-30 seconds. Be frugal.',
+      '  - If you need live data, prices, news, or a fresh scan, call the tools.',
+      '  - RESEARCH THOROUGHNESS: Be comprehensive and thorough. Gather complete multi-source data (dashboard, news, search) to ensure high-conviction analysis.',
       '',
       'TOOLS:',
+      '  fetch_ticker_dashboard(symbol)    — COMPLETE quantitative & macro dashboard data (SMA stack, RSI, ATR, trade plan, patterns, support/resistance, macro regime, crowd sentiment). Use for in-depth ticker analysis.',
       '  fetch_price(symbol_or_name)       — live price for any asset',
       '  fetch_news(query, category?)      — market news; query is a free-text search string',
       '  fetch_sentiment()                 — Fear & Greed + StockTwits crowd data',
@@ -377,6 +417,34 @@ export class WebChatEngine {
       '  scan_indonesia_momentum(sector?,  — IDX scanner; screens the full IDX universe',
       '    signal_type?, setup?, scan_mode?)  for momentum candidates. Deep mode is exhaustive.',
       '  update_memory(fact, is_preference)— save long-term user facts or preferences',
+      '',
+      'TICKER & STOCK ANALYSIS MANDATE (COMPREHENSIVE MULTI-SOURCE GATHERING & TRADING ROADMAP):',
+      '  - When analyzing any stock, ETF, crypto, or index (via /intraday, /longterm, /newsintel, or natural conversation):',
+      '    1. MUST call fetch_ticker_dashboard(symbol) to pull the full institutional dataset (Hourly 1H, Daily 1D + Weekly 1W, 50-day range & positioning, 52-week high/low, SMA stack & % distances, 8 confluence signals, trading plan, ATR stop buffer, candlestick patterns, macro regime, SPY/QQQ Beta, StockTwits/Reddit sentiment, and live headlines).',
+      '    2. MUST call fetch_news(symbol) or web_search(symbol + " earnings catalysts business moat guidance") to gather live company catalysts and fundamental drivers. NEVER skip news or assume catalysts from memory.',
+      '    3. MUST think through the entire picture across multiple thought steps in <think>:',
+      '       - Cross-examine Daily (1D) vs Weekly (1W) trend: is daily momentum aligned with the higher-timeframe weekly structure, or is this a pullback within a macro uptrend?',
+      '       - Check 50-Day & 52-Week range positioning (% off 50d high/low, percentile position) to determine if the stock is overextended or coiled at support.',
+      '       - Evaluate moving average extension (% distance from SMA 20, 50, 200) to gauge mean-reversion risk.',
+      '       - Sanity-check the quantitative score and trade setup against the volume flow, live news catalysts, and ATR buffer.',
+      '    4. MUST produce a rich, comprehensive, and conversational institutional analysis with absolute clarity on WHERE TO PLACE THE MONEY and WHICH WAY THE ASSET IS MOVING:',
+      '       • Executive Directional Call: State unequivocally whether the bias is UP (BULLISH), DOWN (BEARISH), or SIDEWAYS, with Action (BUY / SELL / WAIT FOR PULLBACK), Score (+/-100), and Conviction %.',
+      '       • Capital Placement & Trade Blueprint: Provide exact, concrete price levels:',
+      '           - Optimal Entry Zone: Specific price range to place buy orders (e.g. $210.00 – $213.50)',
+      '           - Stop Loss (SL): Exact price to cut losses, with explicit ATR volatility buffer rationale (e.g. $204.80 — placed beyond the 2.92% ATR noise threshold so normal chop does not trigger a false exit)',
+      '           - Take Profit 1 (TP1): Exact price target for scaling out 50% (+% gain)',
+      '           - Take Profit 2 (TP2): Exact macro target for remaining runner (+% gain)',
+      '           - Risk/Reward (R:R) Ratio: Calculated risk-to-reward ratio',
+      '       • Holding, Scaling & Invalidation Rules: Explain clearly WHEN TO HOLD (what signals confirm staying in), when to trim/take partial profit, and what specific price/volume action triggers an exit or invalidation.',
+      '       • Multi-Timeframe Technical Landscape: Past Hourly (1H) candle action, Daily (1D) vs Weekly (1W) structure, 50-day & 52-week range positioning, SMA 20/50/200 stack and % extension, RSI divergence, MACD crossover, ATR volatility, Bollinger Bands, and Candlestick patterns (e.g. Marubozu, Hammer, Inside Bar).',
+      '       • Multi-Scenario Analysis: Detailed roadmap of what might and would happen if key support/resistance breaks (Bull Breakout vs Bear Breakdown scenarios).',
+      '       • Macro, Cross-Asset & Crowd Sentiment: Market regime (BULL_CONFIRMED etc.), VIX volatility, US10Y yield, SPY/QQQ Beta, Fear & Greed, and StockTwits/Reddit community pulse.',
+      '       • Strategic Business Vision & Catalysts: Competitive moat, secular growth drivers, earnings roadmap, and verified live news catalysts.',
+      '       • Direct Dashboard Link: [📊 Open Full $TICKER Dashboard ↗](/dashboard/$TICKER)',
+      '',
+      'CONCISE OUTPUT & DASHBOARD LINKING RULES:',
+      '  - Format responses using rich markdown: **bold**, structured headers, clear bullet levels, and high-signal sections.',
+      '  - DO NOT flood the chat with massive 30-row raw data tables — synthesize the actionable trading intelligence directly into the structured sections above.',
       '',
       'THINKING RULES:',
       '  1. After each tool result, reflect: What did I learn? Is this enough? What next?',
@@ -414,12 +482,13 @@ export class WebChatEngine {
       '',
       'OUTPUT FORMAT:',
       '  - Reply in a natural, conversational style. Direct, confident, professional.',
-      '  - Use rich markdown formatting: **bold**, headers, bullet lists, tables, code blocks.',
-      '  - For stock recommendations: rank your picks, give entry zone, stop-loss, and reasoning.',
-      '  - Cite data and reasoning, never vague hand-waving.',
-      '  - Acknowledge uncertainty honestly.',
-      '  - Never pad with filler. Be sharp and direct.',
-      '  - Rarely use emojis.',
+      '  - Lead with the answer, then the evidence. Do not bury the call.',
+      '  - Use rich markdown: **bold**, headers, bullet lists, and tables for prices, levels, scans, and comparisons.',
+      '  - When you have live data, present it as a compact table or labeled list (Price, Change, Range, Sentiment, Headlines).',
+      '  - For stock recommendations: rank picks, give entry zone, stop-loss, target, and the one risk that would invalidate the idea.',
+      '  - Cite tool results by name (price, news, sentiment, scan). Never invent a figure that is not in the ledger.',
+      '  - If a tool returned empty, say so in one line and move on. Do not pad with filler.',
+      '  - Acknowledge uncertainty honestly. Rarely use emojis.',
     ].join('\n');
   }
 
@@ -502,23 +571,7 @@ export class WebChatEngine {
           },
         },
       },
-      {
-        type: 'function',
-        function: {
-          name: 'fetch_price',
-          description: 'Fetch live market price for any asset — stocks, indices, crypto, forex, commodities.',
-          parameters: {
-            type: 'object',
-            properties: {
-              symbol_or_name: {
-                type: 'string',
-                description: 'Ticker or name. E.g.: BTC, AAPL, IHSG, BBCA, GOLD, EURUSD',
-              },
-            },
-            required: ['symbol_or_name'],
-          },
-        },
-      },
+      fetchPriceDefinition,
       {
         type: 'function',
         function: {
@@ -610,6 +663,7 @@ export class WebChatEngine {
           },
         },
       },
+      fetchTickerDashboardDefinition,
     ];
   }
 
@@ -624,6 +678,11 @@ export class WebChatEngine {
   ): Promise<string> {
     switch (name) {
 
+      case 'fetch_ticker_dashboard': {
+        const symbol = (args.symbol as string) ?? '';
+        return await executeFetchTickerDashboard(symbol);
+      }
+
       case 'summon_agent': {
         const agentName = (args.agent_name as string) ?? 'UnknownAgent';
         const task = (args.task as string) ?? '';
@@ -631,24 +690,8 @@ export class WebChatEngine {
       }
 
       case 'fetch_price': {
-        const raw    = args.symbol_or_name as string;
-        const symbol = resolveSymbolIDX(raw) || raw.toUpperCase();
-        const quote  = await this.retrySimple(() => yahooFinance.quote(symbol), 3, 2000);
-        const price  = (quote as any).regularMarketPrice;
-        const change = (quote as any).regularMarketChangePercent;
-        if (price === undefined || price === null) {
-          return `No price data for ${symbol}. Yahoo Finance may not support this symbol or market is closed.`;
-        }
-        const chgNum    = typeof change === 'number' ? change : 0;
-        const name_     = (quote as any).shortName || (quote as any).longName || symbol;
-        const dayHigh   = (quote as any).regularMarketDayHigh;
-        const dayLow    = (quote as any).regularMarketDayLow;
-        const prevClose = (quote as any).regularMarketPreviousClose;
-        return [
-          `Symbol: ${symbol} | Name: ${name_} | Price: ${price} (Change: ${chgNum.toFixed(2)}%)`,
-          dayHigh  != null ? `Day Range: ${dayLow} – ${dayHigh}` : '',
-          prevClose != null ? `Prev Close: ${prevClose}` : '',
-        ].filter(Boolean).join(' | ');
+        const raw = (args.symbol_or_name as string) ?? '';
+        return await executeFetchPrice(raw);
       }
 
       case 'update_memory': {
@@ -709,12 +752,36 @@ export class WebChatEngine {
           .slice(0, 10);
 
         for (const { n } of scored) {
-          const src = n.source ? ` (${n.source})` : '';
-          items.push(`- ${n.title}${src}`);
+          const src = n.source ? ` [${n.source}]` : '';
+          const details = n.details ? ` — ${n.details.slice(0, 120)}` : '';
+          items.push(`- ${n.title}${src}${details}`);
+        }
+
+        // Ticker / Topic direct lookup if RSS relevance is thin
+        if (items.length < 3) {
+          try {
+            const yahooRes = await yahooFinance.search(query, { newsCount: 8, quotesCount: 0 });
+            if (yahooRes.news?.length) {
+              for (const n of yahooRes.news.slice(0, 6)) {
+                const pub = n.publisher ? ` [${n.publisher}]` : '';
+                items.push(`- ${n.title}${pub}`);
+              }
+            }
+          } catch {}
+        }
+
+        // Live web search fallback if still empty
+        if (items.length === 0) {
+          try {
+            const webRes = await webSearchService.search(query + ' market news catalysts');
+            if (webRes && !webRes.includes('no results')) {
+              return webRes;
+            }
+          } catch {}
         }
 
         if (items.length === 0) {
-          return `No news found for "${query}". [HINT: call web_search with query "${query}" to get live results]`;
+          return `No news found for "${query}".`;
         }
         return items.join('\n');
       }
@@ -850,16 +917,7 @@ export class WebChatEngine {
                      obs.includes('Tool execution failed') || obs.includes('no data');
 
     if (toolName === 'fetch_price') {
-      const pm = obs.match(/Price:\s*([\d,.]+)/);
-      const cm = obs.match(/Change:\s*([-\d.]+)%/);
-      const nm = obs.match(/Name:\s*([^|]+)/);
-      if (pm) {
-        return {
-          step: 0, tool: toolName,
-          fact: `${nm?.[1]?.trim() ?? args.symbol_or_name}: price ${pm[1]}${cm ? ', change ' + cm[1] + '%' : ''}`,
-          quality: 'confirmed',
-        };
-      }
+      return extractPriceFact(args.symbol_or_name as string, obs);
     }
 
     if (toolName === 'fetch_news') {
@@ -939,6 +997,10 @@ export class WebChatEngine {
       };
     }
 
+    if (toolName === 'fetch_ticker_dashboard') {
+      return extractTickerDashboardFact(args.symbol as string, obs);
+    }
+
     if (toolName === 'summon_agent') {
       const reportLines = obs.split('\n').filter(l => l.trim()).slice(0, 5);
       return {
@@ -962,10 +1024,8 @@ export class WebChatEngine {
     messages: LLMMessage[],
     reasoningEffort?: ReasoningEffort,
     thoughtDirective?: string,
+    model?: string,
   ): AsyncGenerator<ChatEvent> {
-    // Inject the effort-scaled CoT directive so every pass (including the
-    // self-review refinements) reasons at the selected depth, not just the
-    // first one.
     const withDirective: LLMMessage[] = thoughtDirective
       ? messages.map(m =>
           m.role === 'system'
@@ -980,6 +1040,7 @@ export class WebChatEngine {
       temperature: 0.5,
       maxTokens: 8192,
       reasoningEffort,
+      model,
     })) {
       const { token: cleaned, thought: streamThought } = this.stripThinkingFromChunk(chunk);
       if (streamThought) {
@@ -989,20 +1050,18 @@ export class WebChatEngine {
         yield { type: 'token', data: cleaned };
       }
     }
+    // Flush any leftover buffer at stream completion
+    if (this.thinkingBuffer) {
+      if (this.insideThinking) {
+        yield { type: 'thought', data: this.thinkingBuffer };
+      } else {
+        yield { type: 'token', data: this.thinkingBuffer };
+      }
+      this.thinkingBuffer = '';
+      this.insideThinking = false;
+    }
   }
 
-  // Builds an effort-scaled "look again" pass. Feeds the model its own previous
-  // draft and gives it a SPECIFIC JOB rather than re-running the same generic
-  // critique loop each time. The role is selected by (effort, pass):
-  //   Medium (1 pass)      — NUMBER AUDIT: tag every hard number tool-verified or
-  //                          illustrative; never invent a replacement.
-  //   High   (1 pass)      — LOGIC/COMPLETENESS: check the argument holds against
-  //                          the ledger and nothing important is missing.
-  //   Extra  (2 passes)    — pass 1 = number audit, pass 2 = BREADTH (widen to
-  //                          channels/sources the draft left out).
-  // The review produces a corrected answer, but the correction is to how figures
-  // are framed (verified vs illustrative) and how complete the reasoning is —
-  // not a re-roll of the same unverified specifics.
   private buildSelfReviewMessages(
     messages: LLMMessage[],
     ledger: LedgerEntry[],
@@ -1010,7 +1069,6 @@ export class WebChatEngine {
     effort: ThoughtEffort,
     pass: number,
   ): { messages: LLMMessage[]; thought: string } {
-    // Conversation context — drop tool messages for token efficiency.
     const conversationContext = messages.filter(
       m => m.role === 'system' || m.role === 'user' || (m.role === 'assistant' && !m.tool_calls),
     ).slice(-8);
@@ -1020,6 +1078,12 @@ export class WebChatEngine {
     // marker, so the audit/logic/breadth pass can genuinely cross-check instead
     // of rubber-stamping a single flattened value.
     const confirmedFacts = formatLedgerFacts(ledger);
+
+    // Extract all raw tool outputs so the review pass has the complete dashboard dataset
+    const toolOutputs = messages
+      .filter(m => m.role === 'tool' && m.content)
+      .map(m => `=== TOOL: ${m.name} ===\n${m.content}`)
+      .join('\n\n');
 
     // Which job this pass performs.
     const role: 'audit' | 'logic' | 'breadth' =
@@ -1068,46 +1132,39 @@ export class WebChatEngine {
         '      (b) not in the ledger → mark ILLUSTRATIVE (a range, not a point value).',
         '      (c) neither, and it carries the argument → DROP it.',
         '  - NEVER leave a number "needs verification". That phrase is not an outcome —',
-        '    unverified figures are labelled or removed in this pass, full stop.',
-        '  - Do NOT invent replacement numbers.',
+        '    reach a verdict NOW or drop it.',
         '',
         'OUTPUT:',
-        '  - A cleaner, more rigorous version of the draft answer.',
-        '  - Keep the same structure and tone, but sharper and fully evidence-grounded.',
-        '  - Do NOT restate the framework, the review-pass label, or the original task. Just give the refined answer.',
+        '  - The refined, complete final answer.',
+        '  - Keep the same structure and tone as the draft, but tighter and fully verified.',
+        '  - Do NOT restate the review instructions or the review-pass label.',
       ].join('\n');
-      taskLine = `Stress-test the draft against the confirmed facts and tighten it. Apply the framework directly — do not restate it or the task.`;
-      thought = `Before answering, let me check the reasoning: does every claim hold against the confirmed facts, and is any important angle missing?`;
+      taskLine = `Refine the draft into the final answer. Keep the same structure, but tighter and fully verified.`;
+      thought = `Before answering, let me check the draft against the confirmed ledger.`;
     } else {
+      // role === 'audit'
       systemPrompt = [
-        'You are the NUMBER AUDITOR inside BOZ, a quantitative market analyst AI.',
-        'A draft answer has already been produced. Your job is to audit its hard numbers.',
-        '',
-        'REVIEW FRAMEWORK (execute it, do not re-explain it):',
-        '  1. FLAG: identify every specific number in the draft (rates, prices, spreads, percentages, ratios).',
-        '  2. CLASSIFY: for each, is it TOOL-VERIFIED (traces to a confirmed fact in this conversation) or ILLUSTRATIVE (the author\'s estimate)?',
-        '  3. STRENGTHEN: for each ILLUSTRATIVE figure, either (a) replace it with the confirmed figure if one exists, (b) soften it to an explicit "illustrative range", or (c) drop it if it carries the argument.',
-        '  4. DO NOT: invent a replacement number, or state any figure as fact that is not in the confirmed ledger.',
-        '  5. RELEASE: produce the corrected final answer.',
+        'You are the NUMBER AUDIT engine inside BOZ, a quantitative market analyst AI.',
+        'A draft answer has already been produced. Your job is to audit its numbers against the confirmed facts — and to APPLY the framework, not narrate it.',
         '',
         'NUMBER DISCIPLINE — HARD:',
-        '  - You CANNOT call tools in this pass. Every figure reaches a verdict NOW:',
-        '      (a) TOOL-VERIFIED → keep as fact.',
-        '      (b) not in the ledger → ILLUSTRATIVE (a range, not a point value).',
-        '      (c) neither, and it carries the argument → DROP it.',
-        '  - NEVER leave a number "needs verification". That phrase is not an outcome —',
-        '    unverified figures are labelled or removed in this pass, full stop.',
+        '  - Every single hard number in the draft must reach one of three verdicts NOW:',
+        '      (a) TOOL-VERIFIED: matches a confirmed fact in the ledger → KEEP it.',
+        '      (b) ILLUSTRATIVE: not in the ledger, but useful context → mark it explicitly as ILLUSTRATIVE (a range, not a point value, e.g. "illustrative ~5-7%").',
+        '      (c) UNVERIFIED & UNSUPPORTED: neither, and it carries the argument → DROP it or replace it with a qualitative statement.',
+        '  - NEVER write "needs verification" or "should be checked". You CANNOT call tools, so reach a verdict NOW or drop it.',
         '',
         'OUTPUT:',
-        '  - The refined answer with every number honestly labelled verified or illustrative.',
-        '  - Keep the same structure and tone.',
-        '  - Do NOT restate the framework, the review-pass label, or the original task. Just give the refined answer.',
+        '  - An audited version of the draft where every figure is either confirmed from the ledger or labelled illustrative.',
+        '  - Keep the same structure and tone as the draft.',
+        '  - Do NOT restate the audit framework or the review-pass label. Just give the refined answer.',
       ].join('\n');
-      taskLine = `Audit every figure in the draft: tag it TOOL-VERIFIED or ILLUSTRATIVE, soften or drop what is unverified — never invent a replacement number.`;
-      thought = `Let me audit the draft before answering — every number must be tool-verified or clearly illustrative, never left dangling.`;
+      taskLine = `Audit every number in the draft. Tag each as TOOL-VERIFIED or ILLUSTRATIVE, or drop unsupported figures.`;
+      thought = `Before answering, let me audit every number in the draft against the confirmed facts.`;
     }
 
     const userPrompt = [
+      toolOutputs ? `COMPLETE TOOL & MARKET DATA:\n${toolOutputs}\n` : '',
       confirmedFacts ? `CONFIRMED FACTS (immutable — do not contradict):\n${confirmedFacts}\n` : '',
       draft ? `PREVIOUS DRAFT TO REVIEW:\n${draft}\n` : '',
       taskLine,
@@ -1132,60 +1189,56 @@ export class WebChatEngine {
     draft: string,
     scenario: string,
   ): LLMMessage[] {
+    // Include only user messages to prevent intermediate assistant tool scratchpad pollution
     const conversationContext = messages.filter(
-      m => m.role === 'system' || m.role === 'user' || (m.role === 'assistant' && !m.tool_calls),
-    ).slice(-8);
+      m => m.role === 'user',
+    ).slice(-4);
 
     // Same disagreement-surfacing rendering as the review passes, so each branch
     // and the synthesis pass can weigh rival figures rather than one flattened value.
     const confirmedFacts = formatLedgerFacts(ledger);
 
+    // Extract all raw tool outputs so scenario passes have the complete dashboard dataset
+    const toolOutputs = messages
+      .filter(m => m.role === 'tool' && m.content)
+      .map(m => `=== TOOL: ${m.name} ===\n${m.content}`)
+      .join('\n\n');
+
     const isSynthesis = scenario.includes('synthesis');
 
     const systemPrompt = [
+      'You are BOZ, an institutional quantitative market analyst AI.',
       isSynthesis
-        ? 'You are the SYNTHESIS engine inside BOZ, a quantitative market analyst AI.'
-        : 'You are a SCENARIO ANALYST inside BOZ, a quantitative market analyst AI.',
-      isSynthesis
-        ? 'Independent scenario branches (bullish, base, bearish) have been produced. Your job is to merge them into one coherent final answer.'
-        : 'You reason along ONE independent path. Other analysts are running the other paths in parallel.',
+        ? 'Your objective: synthesize the quantitative data, catalyst inputs, and scenario probabilities into one definitive trading blueprint.'
+        : `Your objective: analyze the asset specifically through the ${scenario} framework.`,
       '',
-      'FRAMEWORK:',
-      isSynthesis
-        ? [
-            '  1. MERGE: pull the strongest, evidence-grounded reasoning from each branch.',
-            '  2. WEIGHT: give each scenario the weight the confirmed facts support — do not average them into mush.',
-            '  3. SENSITIVITY: state what would tip the balance from one scenario to another, qualitatively where the figures are ungrounded.',
-            '  4. RELEASE: produce the final answer with the scenario that the evidence best supports, and the risk stated in one line.',
-          ].join('\n')
-        : [
-            '  1. BRANCH: run the argument fully along this path (e.g. Fed cuts twice vs holds vs hikes).',
-            '  2. DRIVERS: which confirmed facts would have to be true for this path to play out?',
-            '  3. SENSITIVITY: where this path depends on an ungrounded number, state it qualitatively.',
-            '  4. RELEASE: produce the branch analysis. Do not hedge into the other branches — commit to this path.',
-          ].join('\n'),
-      '',
-      'NUMBER DISCIPLINE:',
-      '  - A number stated as fact must trace to the confirmed ledger.',
-      '  - Anything else is an ILLUSTRATIVE range, stated qualitatively where ungrounded.',
-      '',
-      'OUTPUT:',
-      isSynthesis
-        ? '  - The final, synthesized answer. Keep the same structure and tone as the draft.'
-        : '  - The branch analysis. Keep the same structure and tone as the draft.',
-      '  - Do NOT meta-comment about the review process. Just give the analysis.',
+      'GROUNDING & DISCIPLINE:',
+      '  - Ground all levels, moving averages, and metrics directly in the confirmed data ledger.',
+      '  - Define exact, concrete price levels (Entry, Stop Loss with ATR volatility buffer, TP1, TP2).',
+      '  - Output pure institutional analysis without referencing internal instructions or meta-review processes.',
     ].join('\n');
 
+    let scenarioDirective = '';
+    if (isSynthesis) {
+      scenarioDirective = 'Synthesize the scenario branches into the final institutional trading report for the user, clearly stating directional bias, conviction, exact entry zone, ATR stop loss, and price targets.';
+    } else if (scenario.includes('bullish')) {
+      scenarioDirective = 'Evaluate the BULLISH scenario: What technical drivers, volume expansion, and macro conditions would confirm upside continuation toward resistance, and what are the exact invalidation levels?';
+    } else if (scenario.includes('bearish')) {
+      scenarioDirective = 'Evaluate the BEARISH scenario: What breakdown triggers, distribution volume, and downside support levels would confirm a bearish trend reversal, and what are the exact invalidation levels?';
+    } else {
+      scenarioDirective = `Evaluate the ${scenario} scenario: Given current momentum, moving average stack, and trading range, what is the high-probability roadmap?`;
+    }
+
+    const cleanDraft = this.stripThinkingFull(draft);
     const userPrompt = [
+      toolOutputs ? `COMPLETE TOOL & MARKET DATA:\n${toolOutputs}\n` : '',
       confirmedFacts ? `CONFIRMED FACTS (immutable — do not contradict):\n${confirmedFacts}\n` : '',
-      draft
+      cleanDraft
         ? (isSynthesis
-            ? `SCENARIO BRANCH OUTPUTS TO SYNTHESIZE:\n${draft}\n`
-            : `PREVIOUS DRAFT TO BUILD ON:\n${draft}\n`)
+            ? `SCENARIO BRANCH OUTPUTS TO SYNTHESIZE:\n${cleanDraft}\n`
+            : `PREVIOUS DRAFT TO BUILD ON:\n${cleanDraft}\n`)
         : '',
-      isSynthesis
-        ? `Synthesize the scenario branches into one final answer, weighted by the evidence.`
-        : `This is an independent scenario branch: ${scenario}. Produce the analysis for this path.`,
+      scenarioDirective,
     ].filter(Boolean).join('\n');
 
     return [
@@ -1198,40 +1251,32 @@ export class WebChatEngine {
   private buildReasoningMessages(messages: LLMMessage[], ledger: LedgerEntry[]): LLMMessage[] {
     const confirmedFacts = formatLedgerFacts(ledger);
 
+    // Extract all raw tool outputs so reasoning has the full rich dashboard dataset
+    const toolOutputs = messages
+      .filter(m => m.role === 'tool' && m.content)
+      .map(m => `=== TOOL RESULT (${m.name}) ===\n${m.content}`)
+      .join('\n\n');
+
     const reasoningSystemPrompt = [
-      'You are the ANALYSIS ENGINE inside BOZ, a quantitative market analyst AI.',
-      'You receive a locked evidence ledger from the data-gathering phase, along with conversation history.',
-      'Your job: produce the final market analysis and action plan.',
+      'You are BOZ, an elite quantitative market analyst AI.',
+      'Produce an institutional-grade, exhaustive, and conversational market analysis and trading roadmap from the verified data.',
       '',
-      'HARD CONSTRAINTS:',
-      '  1. You MUST use every confirmed fact. Do not ignore any.',
-      '  2. You CANNOT contradict confirmed facts.',
-      '  3. For empty results: acknowledge honestly. Do not invent data.',
-      '  4. Apply contrarian analysis:',
-      '     StockTwits >70% bullish = crowd euphoria = caution',
-      '     Fear & Greed >75 = reduce long confidence',
-      '     Fear & Greed <25 = strong buy signal',
-      '  5. Incorporate fundamental reality and warn about speculative micro-caps.',
-      '',
-      'OUTPUT FORMAT:',
-      '  - Natural, conversational style with rich markdown formatting.',
-      '  - Use **bold**, headers, bullet lists, and tables when helpful.',
-      '  - Focus on actionable insights and clear takeaways.',
-      '  - Maintain a global perspective unless explicitly asked otherwise.',
-      '  - End with a clear Action Plan: Buy / Hold / Wait, with entry, stop-loss, target if applicable.',
+      'GROUNDING & TRADING RULES:',
+      '  - Ground all metrics, moving averages, and support/resistance strictly in the confirmed data ledger.',
+      '  - Synthesize a concrete trading plan: Directional Bias, Action Call, Exact Entry Zone, Stop Loss (with ATR volatility buffer), TP1, TP2, and Invalidation triggers.',
+      '  - Output pure institutional analysis without quoting system instructions or referencing review passes.',
     ].join('\n');
 
     const reasoningUserPrompt = [
-      'CONFIRMED DATA (immutable — you must use and cannot contradict):',
-      confirmedFacts || '  (none)',
-      '',
-      'Produce a complete, accurate market analysis and action plan based strictly on the above data and the conversation history.',
+      toolOutputs ? `COMPLETE TOOL & MARKET DATA:\n${toolOutputs}\n` : '',
+      confirmedFacts ? `CONFIRMED DATA (immutable — you must use and cannot contradict):\n${confirmedFacts}\n` : '',
+      'Synthesize the data into a comprehensive institutional market analysis and trading blueprint.',
     ].filter(Boolean).join('\n');
 
-    // Include conversation context but prune tool messages for token efficiency
+    // Include user messages to prevent intermediate assistant tool scratchpad pollution
     const conversationContext = messages.filter(
-      m => m.role === 'system' || m.role === 'user' || (m.role === 'assistant' && !m.tool_calls),
-    ).slice(-8);
+      m => m.role === 'user',
+    ).slice(-4);
 
     return [
       { role: 'system', content: reasoningSystemPrompt },
@@ -1246,7 +1291,7 @@ export class WebChatEngine {
     messages:    LLMMessage[],
     tools:       object[],
     temperature: number,
-    options: { reasoningEffort?: ReasoningEffort; assistantPrefill?: string } = {},
+    options: { reasoningEffort?: ReasoningEffort; assistantPrefill?: string; model?: string } = {},
   ): Promise<LLMMessage> {
     try {
       return await this.llm.callWithTools({
@@ -1254,6 +1299,7 @@ export class WebChatEngine {
         tools,
         temperature,
         maxTokens: 4096,
+        model: options.model,
         reasoningEffort: options.reasoningEffort,
         assistantPrefill: options.assistantPrefill,
       });
@@ -1325,11 +1371,38 @@ export class WebChatEngine {
 
   private stripThinkingFull(text: string): string {
     if (!text) return '';
-    return text
+    let cleaned = text
       .replace(/<think>\s*\n?\s*Thinking Process:\s*\n?\s*1\.\s*/gi, '')
       .replace(/<thinking>[\s\S]*?<\/thinking>\n*/gi, '')
       .replace(/<think>[\s\S]*?<\/think>\n*/gi, '')
+      .replace(/<think>[\s\S]*$/gi, '')
+      .replace(/^Branching off:[^\n]*\n*/gim, '')
+      .replace(/^\[(?:Your )?tool call or final answer\]\s*/gim, '')
+      .replace(/No additional tool call required\.?/gi, '')
+      .replace(/No further tool call needed;? analysis complete\.?/gi, '')
       .trim();
+
+    // If the output begins with prompt-echoing meta-commentary before a markdown heading,
+    // strip the commentary and keep the real analysis.
+    const headingIndex = cleaned.search(/(?:^|\n)#{1,3}\s+\S+/);
+    if (headingIndex > 0) {
+      const preamble = cleaned.slice(0, headingIndex).toLowerCase();
+      if (
+        preamble.includes('we need to') ||
+        preamble.includes('we must') ||
+        preamble.includes('according to the system') ||
+        preamble.includes('the user is asking') ||
+        preamble.includes('the user gave') ||
+        preamble.includes('the instruction') ||
+        preamble.includes('this is an independent scenario') ||
+        preamble.includes("let's craft") ||
+        preamble.includes("let's produce")
+      ) {
+        cleaned = cleaned.slice(headingIndex).trim();
+      }
+    }
+
+    return cleaned;
   }
 
   // For streaming: tracks if we're inside a thinking block and filters it
@@ -1341,23 +1414,30 @@ export class WebChatEngine {
     let token = '';
     let thought = '';
 
+    const startTags = ['<thinking>', '<think>', '<thought>', '<|begin_of_thought|>'];
+    const endTags = ['</thinking>', '</think>', '</thought>', '<|end_of_thought|>'];
+
     while (this.thinkingBuffer.length > 0) {
       if (this.insideThinking) {
-        const endIdx = this.thinkingBuffer.indexOf('</thinking>');
-        const endIdx2 = this.thinkingBuffer.indexOf('</think>');
-        const endTag = endIdx !== -1 ? '</thinking>' : endIdx2 !== -1 ? '</think>' : null;
-        const endPos = endIdx !== -1 ? endIdx : endIdx2 !== -1 ? endIdx2 : -1;
+        let bestEndPos = -1;
+        let matchedEndTag = '';
+        for (const tag of endTags) {
+          const idx = this.thinkingBuffer.indexOf(tag);
+          if (idx !== -1 && (bestEndPos === -1 || idx < bestEndPos)) {
+            bestEndPos = idx;
+            matchedEndTag = tag;
+          }
+        }
 
-        if (endTag && endPos !== -1) {
+        if (bestEndPos !== -1) {
           // Found end of thinking block — capture thought and skip tag
-          thought += this.thinkingBuffer.slice(0, endPos);
-          this.thinkingBuffer = this.thinkingBuffer.slice(endPos + endTag.length).replace(/^\n+/, '');
+          thought += this.thinkingBuffer.slice(0, bestEndPos);
+          this.thinkingBuffer = this.thinkingBuffer.slice(bestEndPos + matchedEndTag.length).replace(/^\n+/, '');
           this.insideThinking = false;
         } else {
           // Still inside thinking block — check for partial end tags
-          const partialCheck = this.thinkingBuffer.slice(-12);
-          const mightBePartial = '</thinking>'.startsWith(partialCheck.slice(partialCheck.lastIndexOf('<'))) ||
-                                  '</think>'.startsWith(partialCheck.slice(partialCheck.lastIndexOf('<')));
+          const partialCheck = this.thinkingBuffer.slice(-20);
+          const mightBePartial = endTags.some(tag => tag.startsWith(partialCheck.slice(partialCheck.lastIndexOf('<'))));
           if (mightBePartial && partialCheck.includes('<')) {
             const lastLt = this.thinkingBuffer.lastIndexOf('<');
             thought += this.thinkingBuffer.slice(0, lastLt);
@@ -1369,21 +1449,25 @@ export class WebChatEngine {
           break;
         }
       } else {
-        const startIdx = this.thinkingBuffer.indexOf('<thinking>');
-        const startIdx2 = this.thinkingBuffer.indexOf('<think>');
-        const startTag = startIdx !== -1 ? '<thinking>' : startIdx2 !== -1 ? '<think>' : null;
-        const startPos = startIdx !== -1 ? startIdx : startIdx2 !== -1 ? startIdx2 : -1;
+        let bestStartPos = -1;
+        let matchedStartTag = '';
+        for (const tag of startTags) {
+          const idx = this.thinkingBuffer.indexOf(tag);
+          if (idx !== -1 && (bestStartPos === -1 || idx < bestStartPos)) {
+            bestStartPos = idx;
+            matchedStartTag = tag;
+          }
+        }
 
-        if (startTag && startPos !== -1) {
+        if (bestStartPos !== -1) {
           // Output everything before the thinking tag
-          token += this.thinkingBuffer.slice(0, startPos);
-          this.thinkingBuffer = this.thinkingBuffer.slice(startPos + startTag.length);
+          token += this.thinkingBuffer.slice(0, bestStartPos);
+          this.thinkingBuffer = this.thinkingBuffer.slice(bestStartPos + matchedStartTag.length);
           this.insideThinking = true;
         } else {
           // Check if buffer might contain a partial tag at the end
-          const partialCheck = this.thinkingBuffer.slice(-12); // Max tag length is 10 (<thinking>)
-          const mightBePartial = '<thinking>'.startsWith(partialCheck.slice(partialCheck.lastIndexOf('<'))) ||
-                                  '<think>'.startsWith(partialCheck.slice(partialCheck.lastIndexOf('<')));
+          const partialCheck = this.thinkingBuffer.slice(-20);
+          const mightBePartial = startTags.some(tag => tag.startsWith(partialCheck.slice(partialCheck.lastIndexOf('<'))));
 
           if (mightBePartial && partialCheck.includes('<')) {
             const lastLt = this.thinkingBuffer.lastIndexOf('<');
@@ -1396,6 +1480,14 @@ export class WebChatEngine {
           break;
         }
       }
+    }
+
+    if (thought) {
+      thought = thought
+        .replace(/<\|begin_of_thought\|>|<\|end_of_thought\|>/g, '')
+        .replace(/^\s*\.\s*No meta commentary\.?\s*\n*/gim, '')
+        .replace(/^\s*Let's<\|begin_of_thought\|>\s*/gim, '')
+        .replace(/^(?:We need to|According to the system|The user typed|The user gave|The user says|The instruction|Must follow output format|We must enclose|Let's craft|Let's produce)[^\n]*\n*/gim, '');
     }
 
     return { token, thought };

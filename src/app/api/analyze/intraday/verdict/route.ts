@@ -46,30 +46,30 @@ function buildIntradayPrompt(
   const fmt = (v: number | null | undefined, decimals = 2) =>
     v != null ? v.toFixed(decimals) : 'N/A';
 
-  return `Analyze ${ticker} for intraday trading (2-6 hour horizon).
+  return `Conduct a comprehensive institutional intraday analysis for ${ticker}.
 
-Current Price: $${fmt(last.close)}
-RSI(14): ${fmt(last.RSI, 1)}
-MACD: ${fmt(last.MACD, 4)} / Signal: ${fmt(last.MACD_Signal, 4)}
-SMA20: ${fmt(last.SMA_20)} | SMA50: ${fmt(last.SMA_50)}
-ATR: ${fmt(last.ATR)} (${fmt(last.ATR_Percent)}%)
-BB Width: ${fmt(last.BB_Width)}
-Volume Ratio: ${fmt(last.Volume_Ratio)}
-OBV Trend: ${last.OBV_Trend ? 'Bullish' : 'Bearish'}
+Market Data Snapshot:
+- Current Price: $${fmt(last.close)}
+- RSI (14): ${fmt(last.RSI, 1)}
+- MACD: ${fmt(last.MACD, 4)} (Signal: ${fmt(last.MACD_Signal, 4)})
+- Moving Averages: SMA20: $${fmt(last.SMA_20)} | SMA50: $${fmt(last.SMA_50)}
+- Volatility: ATR: $${fmt(last.ATR)} (${fmt(last.ATR_Percent)}%) | BB Width: ${fmt(last.BB_Width)}
+- Volume Dynamics: Volume Ratio: ${fmt(last.Volume_Ratio)}x | OBV Trend: ${last.OBV_Trend ? 'Bullish' : 'Bearish'}
 
-Macro Context:
-- Market Regime: ${macro.market_regime}
-- Risk Sentiment: ${macro.risk_sentiment}
-- SPY Correlation: ${macro.sp500_correlation}
-- VIX: ${macro.vix_level ?? 'N/A'}
+Macro & Sentiment Landscape:
+- Macro Regime: ${macro.market_regime} | Risk Appetite: ${macro.risk_sentiment}
+- SPY Correlation: ${macro.sp500_correlation} | VIX Volatility Index: ${macro.vix_level ?? 'N/A'}
+- Sentiment Index: Fear & Greed: ${sentiment.fear_greed?.value ?? 'N/A'} (${sentiment.fear_greed?.label ?? 'N/A'})
+- Crowd Ratio: ${sentiment.stocktwits_data?.bull_ratio != null ? sentiment.stocktwits_data.bull_ratio.toFixed(0) + '% Bullish' : 'N/A'}
 
-Sentiment:
-- Fear & Greed: ${sentiment.fear_greed?.value ?? 'N/A'} (${sentiment.fear_greed?.label ?? 'N/A'})
-- StockTwits Bull Ratio: ${sentiment.stocktwits_data?.bull_ratio != null ? sentiment.stocktwits_data.bull_ratio.toFixed(0) + '%' : 'N/A'}
+Price Action & Structure:
+- Technical Patterns: ${chartPatterns.patterns?.join(', ') || 'None'}
+- Candlestick Dynamics: ${chartPatterns.candle_patterns?.summary_text || 'None'}
+- Fibonacci Zone: ${chartPatterns.fibonacci_position || 'N/A'}
+- Support Floor: $${fmt(chartPatterns.nearest_support)} | Resistance Ceiling: $${fmt(chartPatterns.nearest_resistance)}
 
-Chart Patterns: ${chartPatterns.patterns?.join(', ') || 'None'}
-Candle Pattern: ${chartPatterns.candle_patterns?.summary_text || 'None'}
-Fibonacci Position: ${chartPatterns.fibonacci_position || 'N/A'}
-Nearest Support: $${fmt(chartPatterns.nearest_support)}
-Nearest Resistance: $${fmt(chartPatterns.nearest_resistance)}`;
+REQUIRED OUTPUT:
+1. "thesis": Multi-paragraph professional market breakdown explaining the intraday session vision, liquidity pools, order flow bias, and catalysts.
+2. "strategy": Concise, actionable execution blueprint (entry trigger, scaling, stop-loss management).
+3. "reasons": 3-4 strategic catalyst points explaining the business/session rationale (NOT raw formula restatements).`;
 }

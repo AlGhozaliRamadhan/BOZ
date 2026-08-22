@@ -1,15 +1,17 @@
 import { githubConfig } from './github.config.js';
 import { offlineConfig } from './offline.config.js';
 import { nvidiaConfig }  from './nvidia.config.js';
+import { customConfig }  from './custom.config.js';
 import { resolveSymbol } from '../shared/market-constants.js';
 
-export type AIProvider = 'github' | 'offline' | 'nvidia';
+export type AIProvider = 'github' | 'offline' | 'nvidia' | 'custom';
 export type RiskMode = 'auto' | 'on' | 'off';
 
 const normalizeProvider = (value: string | undefined): AIProvider => {
   const v = (value || '').toLowerCase();
   if (v === 'offline') return 'offline';
   if (v === 'nvidia')  return 'nvidia';
+  if (v === 'custom' || v === '9router') return 'custom';
   return 'github';
 };
 
@@ -30,6 +32,9 @@ const applyProvider = (provider: AIProvider) => {
   } else if (provider === 'nvidia') {
     activeState.aiEndpoint = nvidiaConfig.baseURL;
     activeState.aiModel    = nvidiaConfig.model;
+  } else if (provider === 'custom') {
+    activeState.aiEndpoint = customConfig.endpoint;
+    activeState.aiModel    = customConfig.model;
   } else {
     activeState.aiEndpoint = githubConfig.endpoint;
     activeState.aiModel    = githubConfig.model;
@@ -42,6 +47,7 @@ export const config = {
   github:  githubConfig,
   offline: offlineConfig,
   nvidia:  nvidiaConfig,
+  custom:  customConfig,
 
   get ticker() { return activeState.ticker; },
   get aiProvider() { return activeState.aiProvider; },
@@ -59,6 +65,10 @@ export const config = {
     offlineConfig.endpoint = endpoint;
     if (activeState.aiProvider === 'offline') applyProvider('offline');
   },
+  setCustomEndpoint(endpoint: string) {
+    customConfig.endpoint = endpoint.replace(/\/+$/, '');
+    if (activeState.aiProvider === 'custom') applyProvider('custom');
+  },
   setAIProvider(provider: AIProvider) {
     applyProvider(provider);
   },
@@ -67,6 +77,8 @@ export const config = {
       offlineConfig.model = model;
     } else if (activeState.aiProvider === 'nvidia') {
       nvidiaConfig.model = model;
+    } else if (activeState.aiProvider === 'custom') {
+      customConfig.model = model;
     } else {
       githubConfig.model = model;
     }
