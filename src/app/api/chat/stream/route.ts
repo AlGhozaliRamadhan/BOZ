@@ -10,6 +10,7 @@ export async function POST(request: NextRequest) {
     history?: Array<{ role: 'user' | 'assistant'; content: string }>;
     effort?: string;
     thinking?: boolean;
+    model?: string;
   };
   try {
     body = await request.json();
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
           history: body.history,
           effort,
           thinking,
+          model: typeof body.model === 'string' ? body.model.trim() : undefined,
         })) {
           const payload = JSON.stringify(event.data);
           const sseMessage = `event: ${event.type}\ndata: ${payload}\n\n`;

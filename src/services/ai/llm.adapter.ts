@@ -32,6 +32,12 @@ export class LLMAdapter {
     return [...base, { role: 'assistant', content: assistantPrefill }];
   }
 
+  private customClient(): OpenAI {
+    const apiKey = config.custom.apiKey || 'not-needed';
+    const baseURL = config.custom.endpoint || 'http://localhost:20128/v1';
+    return new OpenAI({ apiKey, baseURL });
+  }
+
   async callText(options: {
     messages: LLMMessage[];
     temperature?: number;
@@ -47,6 +53,22 @@ export class LLMAdapter {
     const maxTokens = options.maxTokens ?? 1500;
     const model = options.model;
     const messages = this.buildMessages(options.messages, options.assistantPrefill);
+
+    if (provider === 'custom') {
+      const modelName = model ?? config.custom.model;
+      if (!modelName) throw new Error('No custom model configured. Set CUSTOM_AI_MODEL or pick a model in chat.');
+      const params: Record<string, any> = {
+        model: modelName,
+        messages: messages as any,
+        temperature,
+        max_tokens: maxTokens,
+      };
+      if (options.responseFormat === 'json') {
+        params.response_format = { type: 'json_object' };
+      }
+      const res = await this.customClient().chat.completions.create(params as any);
+      return LLMAdapter.stripThinking(res.choices?.[0]?.message?.content ?? '');
+    }
 
     if (provider === 'nvidia') {
       if (!config.nvidia.apiKey) throw new Error('No NVIDIA API key configured');
@@ -125,6 +147,44 @@ export class LLMAdapter {
     const model = options.model;
     const messages = this.buildMessages(options.messages, options.assistantPrefill);
 
+    if (provider === 'custom') {
+      const modelName = model ?? config.custom.model;
+      if (!modelName) throw new Error('No custom model configured. Set CUSTOM_AI_MODEL or pick a model in chat.');
+      const params: Record<string, any> = {
+        model: modelName,
+        messages: messages as any,
+        temperature,
+        max_tokens: maxTokens,
+        stream: true,
+      };
+      if (options.responseFormat === 'json') {
+        params.response_format = { type: 'json_object' };
+      }
+      const stream = await this.customClient().chat.completions.create(params as any);
+      let inReasoning = false;
+      for await (const chunk of stream as any) {
+        const delta = chunk.choices?.[0]?.delta;
+        if (delta?.reasoning_content) {
+          if (!inReasoning) {
+            yield '<think>';
+            inReasoning = true;
+          }
+          yield delta.reasoning_content;
+        }
+        if (delta?.content) {
+          if (inReasoning) {
+            yield '</think>';
+            inReasoning = false;
+          }
+          yield delta.content;
+        }
+      }
+      if (inReasoning) {
+        yield '</think>';
+      }
+      return;
+    }
+
     if (provider === 'nvidia') {
       if (!config.nvidia.apiKey) throw new Error('No NVIDIA API key configured');
       const client = new OpenAI({ apiKey: config.nvidia.apiKey, baseURL: config.nvidia.baseURL });
@@ -149,14 +209,26 @@ export class LLMAdapter {
         }
       }
       const stream = await client.chat.completions.create(params as any);
+      let inReasoning = false;
       for await (const chunk of stream as any) {
         const delta = chunk.choices?.[0]?.delta;
         if (delta?.reasoning_content) {
-          yield `<think>${delta.reasoning_content}</think>`;
+          if (!inReasoning) {
+            yield '<think>';
+            inReasoning = true;
+          }
+          yield delta.reasoning_content;
         }
         if (delta?.content) {
+          if (inReasoning) {
+            yield '</think>';
+            inReasoning = false;
+          }
           yield delta.content;
         }
+      }
+      if (inReasoning) {
+        yield '</think>';
       }
       return;
     }
@@ -186,14 +258,26 @@ export class LLMAdapter {
       params.reasoning_effort = options.reasoningEffort;
     }
     const stream = await client.chat.completions.create(params as any);
+    let inReasoning = false;
     for await (const chunk of stream as any) {
       const delta = chunk.choices?.[0]?.delta;
       if (delta?.reasoning_content) {
-        yield `<think>${delta.reasoning_content}</think>`;
+        if (!inReasoning) {
+          yield '<think>';
+          inReasoning = true;
+        }
+        yield delta.reasoning_content;
       }
       if (delta?.content) {
+        if (inReasoning) {
+          yield '</think>';
+          inReasoning = false;
+        }
         yield delta.content;
       }
+    }
+    if (inReasoning) {
+      yield '</think>';
     }
   }
 
@@ -211,6 +295,21 @@ export class LLMAdapter {
     const maxTokens = options.maxTokens ?? 4096;
     const model = options.model;
     const messages = this.buildMessages(options.messages, options.assistantPrefill);
+
+    if (provider === 'custom') {
+      const modelName = model ?? config.custom.model;
+      if (!modelName) throw new Error('No custom model configured. Set CUSTOM_AI_MODEL or pick a model in chat.');
+      const params: Record<string, any> = {
+        model: modelName,
+        messages: messages as any,
+        tools: options.tools as any,
+        tool_choice: 'auto',
+        temperature,
+        max_tokens: maxTokens,
+      };
+      const res = await this.customClient().chat.completions.create(params as any);
+      return LLMAdapter.normalizeOpenAIResponse(res.choices?.[0]?.message ?? {});
+    }
 
     if (provider === 'nvidia') {
       if (!config.nvidia.apiKey) throw new Error('No NVIDIA API key configured');
@@ -441,11 +540,14 @@ export class LLMAdapter {
     const hasTools = msg.tool_calls && msg.tool_calls.length > 0;
 
     if (!thought && rawContent.trim().length > 0) {
-        if (hasTools) {
-            // Models like Nemotron output reasoning text before tool calls without tags
-            thought = rawContent.trim();
-            content = null; // Since all text was thought, there is no final content
+      if (hasTools) {
+        // Discard mechanical planning chatter before tool calls
+        const isMechanicalChatter = /^(?:We need to|According to|The user|The instruction|Let's|We must|We'll call|Then we need|I should|Let me call)/i.test(rawContent.trim());
+        if (!isMechanicalChatter) {
+          thought = rawContent.trim();
         }
+        content = null; // In OpenAI tool protocol, content must be null when tool_calls is present
+      }
     }
 
     return {

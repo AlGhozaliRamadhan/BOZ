@@ -24,6 +24,14 @@ import { resolveSymbol, resolveSymbolIDX } from '../shared/market-constants.js';
 import { memoryService } from '../services/memory.service.js';
 import { withRetry } from '../utils/retry.util.js';
 import { getThoughtPrompt } from '../shared/thought-prompts.js';
+import {
+  fetchTickerDashboardDefinition,
+  fetchPriceDefinition,
+  executeFetchTickerDashboard,
+  executeFetchPrice,
+  extractTickerDashboardFact,
+  extractPriceFact,
+} from '../tools/ticker.tool.js';
 // ─── Evidence ledger entry ────────────────────────────────────────────────────
 // Once a fact is added to the ledger it cannot be contradicted.
 // The reasoning agent receives all ledger entries and must cite them.
@@ -405,6 +413,7 @@ export class InteractiveChatAgent extends BaseAgent {
 
       '',
       'TOOLS:',
+      '  fetch_ticker_dashboard(symbol)    — COMPLETE quantitative & macro dashboard data (Hourly 1H, Daily 1D + Weekly 1W, SMA stack, RSI, ATR, trade plan, patterns, support/resistance, macro regime, crowd sentiment). Use for in-depth ticker analysis.',
       '  fetch_price(symbol_or_name)       — live price for any asset',
       '  fetch_news(query, category?)      — market news; query is a free-text search string',
       '  fetch_sentiment()                 — Fear & Greed + StockTwits crowd data',
@@ -418,18 +427,24 @@ export class InteractiveChatAgent extends BaseAgent {
       '                                      or which IDX stocks have momentum building.',
       '  update_memory(fact, is_preference)— save long-term user facts or preferences',
       '',
+      'TICKER ANALYSIS & CAPITAL PLACEMENT MANDATE:',
+      '  - For every ticker analysis request (/intraday, /longterm, /newsintel, or ticker queries):',
+      '    1. MUST call fetch_ticker_dashboard(symbol) for complete technical structure, moving averages, ATR, and macro context.',
+      '    2. MUST call fetch_news(symbol) or web_search(symbol + " earnings catalysts business moat guidance") for authentic fundamental catalysts. NEVER skip news or assume catalysts from memory.',
+      '    3. MUST cross-examine Daily (1D) vs Weekly (1W) structure: check if daily momentum matches weekly macro trend or represents a pullback.',
+      '    4. MUST inspect 50-day and 52-week range positioning (% off highs/lows) and moving average extension (% distance from SMA 20, 50, 200).',
+      '    5. MUST provide absolute clarity on Directional Bias, Action Call, Exact Entry Zone, Stop Loss (with ATR buffer), TP1, TP2, and Holding/Invalidation rules.',
+      '',
       'THINKING RULES — CRITICAL:',
-      '  1. After EVERY tool result, write a short thought (1-3 sentences) tagged [THOUGHT]:',
+      '  1. NEVER ASSUME OR GUESS: You must gather all data (dashboard + live news + web search) BEFORE writing any analysis.',
+      '  2. After EVERY tool result, write a short thought (1-3 sentences) tagged [THOUGHT]:',
       '     - What did I just learn from this result?',
-      '     - Is this data good enough, or do I need more?',
+      '     - What news catalysts were found? Is there any missing piece?',
       '     - What is my next move and why?',
-      '  2. If a tool returns empty, irrelevant, or generic results: SAY SO in your thought,',
+      '  3. If a tool returns empty, irrelevant, or generic results: SAY SO in your thought,',
       '     then immediately call web_search with a better query. Do not accept empty results.',
-      '  3. Build a picture iteratively. Each tool call should add NEW information.',
-      '     If two consecutive calls give the same type of empty result, pivot to a different angle.',
-      '  4. You may call 6-10 tools per query if needed. More data = better analysis.',
-      '  4b. BUT: if data is already in the SESSION CACHE, skip the tool call. Cache = free. Tool = 30s wait.',
-      '  5. Maintain a global market focus. Do not restrict analysis solely to a specific region unless requested.',
+      '  4. Build a picture iteratively. Each tool call should add NEW verified information.',
+      '  5. Maintain a global market focus unless the user asks about a specific region.',
       '  6. FOLLOW-UP QUESTIONS: If the user asks a follow-up question about the analysis you JUST provided (e.g., "so which one should I buy?"), DO NOT call tools again. Answer directly using the recent conversation context.',
       '',
       'INDONESIAN STOCK HUNTING RULES:',
@@ -506,20 +521,7 @@ export class InteractiveChatAgent extends BaseAgent {
           },
         },
       },
-      {
-        type: 'function',
-        function: {
-          name: 'fetch_price',
-          description: 'Fetch live market price for any asset — stocks, indices, crypto, forex, commodities.',
-          parameters: {
-            type: 'object',
-            properties: {
-              symbol_or_name: { type: 'string', description: 'Ticker or name. E.g.: BTC, AAPL, IHSG, BBCA, GOLD, EURUSD' },
-            },
-            required: ['symbol_or_name'],
-          },
-        },
-      },
+      fetchPriceDefinition,
       {
         type: 'function',
         function: {
@@ -611,6 +613,7 @@ export class InteractiveChatAgent extends BaseAgent {
           },
         },
       },
+      fetchTickerDashboardDefinition,
     ];
   }
 
@@ -620,6 +623,11 @@ export class InteractiveChatAgent extends BaseAgent {
     try {
       switch (call.name) {
         
+        case 'fetch_ticker_dashboard': {
+          const symbol = (call.arguments.symbol as string) ?? '';
+          return await executeFetchTickerDashboard(symbol);
+        }
+
         case 'summon_agent': {
           const agent_name = (call.arguments.agent_name as string) ?? 'UnknownAgent';
           const task = (call.arguments.task as string) ?? '';
@@ -627,23 +635,8 @@ export class InteractiveChatAgent extends BaseAgent {
         }
 
         case 'fetch_price': {
-          const raw    = call.arguments.symbol_or_name as string;
-          const symbol = resolveSymbolIDX(raw) || raw.toUpperCase();
-          const quote  = await withRetry(() => yahooFinance.quote(symbol), 3, 2000);
-          const price  = (quote as any).regularMarketPrice;
-          const change = (quote as any).regularMarketChangePercent;
-          if (price === undefined || price === null)
-            return `No price data for ${symbol}. Yahoo Finance may not support this symbol or market is closed.`;
-          const chgNum = typeof change === 'number' ? change : 0;
-          const name   = (quote as any).shortName || (quote as any).longName || symbol;
-          const dayHigh  = (quote as any).regularMarketDayHigh;
-          const dayLow   = (quote as any).regularMarketDayLow;
-          const prevClose = (quote as any).regularMarketPreviousClose;
-          return [
-            `Symbol: ${symbol} | Name: ${name} | Price: ${price} (Change: ${chgNum.toFixed(2)}%)`,
-            dayHigh  != null ? `Day Range: ${dayLow} – ${dayHigh}` : '',
-            prevClose != null ? `Prev Close: ${prevClose}` : '',
-          ].filter(Boolean).join(' | ');
+          const raw = (call.arguments.symbol_or_name as string) ?? '';
+          return await executeFetchPrice(raw);
         }
 
         case 'update_memory': {
@@ -710,12 +703,36 @@ export class InteractiveChatAgent extends BaseAgent {
             .slice(0, 10);
 
           for (const { n } of scored) {
-            const src = n.source ? ` (${n.source})` : '';
-            items.push(`- ${n.title}${src}`);
+            const src = n.source ? ` [${n.source}]` : '';
+            const details = n.details ? ` — ${n.details.slice(0, 120)}` : '';
+            items.push(`- ${n.title}${src}${details}`);
+          }
+
+          // Ticker / Topic direct lookup if RSS relevance is thin
+          if (items.length < 3) {
+            try {
+              const yahooRes = await yahooFinance.search(query, { newsCount: 8, quotesCount: 0 });
+              if (yahooRes.news?.length) {
+                for (const n of yahooRes.news.slice(0, 6)) {
+                  const pub = n.publisher ? ` [${n.publisher}]` : '';
+                  items.push(`- ${n.title}${pub}`);
+                }
+              }
+            } catch {}
+          }
+
+          // Live web search fallback if still empty
+          if (items.length === 0) {
+            try {
+              const webRes = await webSearchService.search(query + ' market news catalysts');
+              if (webRes && !webRes.includes('no results')) {
+                return webRes;
+              }
+            } catch {}
           }
 
           if (items.length === 0) {
-            return `No news found for "${query}". [HINT: call web_search with query "${query}" to get live results]`;
+            return `No news found for "${query}".`;
           }
           return items.join('\n');
         }
@@ -881,17 +898,11 @@ export class InteractiveChatAgent extends BaseAgent {
     const quality: LedgerEntry['quality'] = wasEmpty ? 'empty' : 'confirmed';
 
     if (toolName === 'fetch_price') {
-      const pm = obs.match(/Price:\s*([\d,.]+)/);
-      const cm = obs.match(/Change:\s*([-\d.]+)%/);
-      const nm = obs.match(/Name:\s*([^|]+)/);
-      if (pm) {
-        return {
-          step: 0,
-          tool: toolName,
-          fact: `${nm?.[1]?.trim() ?? args.symbol_or_name}: price ${pm[1]}${cm ? ', change ' + cm[1] + '%' : ''}`,
-          quality: 'confirmed',
-        };
-      }
+      return extractPriceFact(args.symbol_or_name as string, obs);
+    }
+
+    if (toolName === 'fetch_ticker_dashboard') {
+      return extractTickerDashboardFact(args.symbol as string, obs);
     }
 
     if (toolName === 'fetch_news') {
@@ -973,6 +984,11 @@ export class InteractiveChatAgent extends BaseAgent {
     const confirmedFacts = ledger.filter(e => e.quality === 'confirmed').map(e => `  • ${e.fact}`).join('\n');
     const emptyFacts     = ledger.filter(e => e.quality === 'empty').map(e => `  • ${e.fact}`).join('\n');
 
+    const toolOutputs = conversationMessages
+      .filter(m => m.role === 'tool' && m.content)
+      .map(m => `=== TOOL: ${m.name} ===\n${m.content}`)
+      .join('\n\n');
+
     const reasoningSystemPrompt = [
       'You are the ANALYSIS ENGINE inside BOZ, a quantitative market analyst AI.',
       'You receive a locked evidence ledger from the data-gathering phase, along with the conversation history.',
@@ -1000,6 +1016,7 @@ export class InteractiveChatAgent extends BaseAgent {
     ].join('\n');
 
     const reasoningUserPrompt = [
+      toolOutputs ? `COMPLETE TOOL DATA:\n${toolOutputs}\n` : '',
       'CONFIRMED DATA (immutable — you must use and cannot contradict):',
       confirmedFacts || '  (none)',
       '',
