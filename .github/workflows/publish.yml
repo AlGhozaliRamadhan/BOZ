@@ -1,0 +1,52 @@
+name: Publish to NPM
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test and build web package
+        run: |
+          npm test
+          npm run typecheck
+          npm run build:package
+
+      - name: Check version & Publish to NPM
+        run: |
+          LOCAL_VERSION=$(node -p "require('./package.json').version")
+          REMOTE_VERSION=$(npm view @agr77/boz version 2>/dev/null || echo "none")
+          echo "Local version: $LOCAL_VERSION"
+          echo "NPM published version: $REMOTE_VERSION"
+
+          if [ "$LOCAL_VERSION" != "$REMOTE_VERSION" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Publishing @agr77/boz@$LOCAL_VERSION to NPM..."
+            npm publish --provenance --access public
+          else
+            echo "Version $LOCAL_VERSION is already published to NPM. Skipping publish."
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

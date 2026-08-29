@@ -2,73 +2,91 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { log } from '../utils/logger.js';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const MEMORY_FILE = path.join(DATA_DIR, 'memory.json');
-
 export interface UserMemory {
   preferences: string[];
   facts: string[];
   lastUpdated: string;
 }
 
+function emptyMemory(): UserMemory {
+  return {
+    preferences: [],
+    facts: [],
+    lastUpdated: new Date().toISOString(),
+  };
+}
+
 export class MemoryService {
-  private memory: UserMemory = { preferences: [], facts: [], lastUpdated: new Date().toISOString() };
+  private memory: UserMemory = emptyMemory();
+  private loaded = false;
 
-  constructor() {
-    this.ensureDataDir();
-    this.loadMemory();
+  private configDir(): string {
+    const configured = process.env.BOZ_CONFIG_DIR?.trim();
+    if (configured) return path.resolve(configured);
+
+    const userHome = process.env.USERPROFILE || process.env.HOME;
+    return path.resolve(userHome || process.cwd(), '.boz');
   }
 
-  private ensureDataDir() {
-    if (!fs.existsSync(DATA_DIR)) {
-      try {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      } catch (err) {
-        log.error('memory', `Failed to create data directory: ${err}`);
+  private memoryFile(): string {
+    return path.join(this.configDir(), 'memory.json');
+  }
+
+  private ensureLoaded(): void {
+    if (this.loaded) return;
+    this.loaded = true;
+
+    const configDir = this.configDir();
+    const memoryFile = this.memoryFile();
+
+    try {
+      fs.mkdirSync(configDir, { recursive: true });
+      if (fs.existsSync(memoryFile)) {
+        this.memory = JSON.parse(fs.readFileSync(memoryFile, 'utf8'));
       }
+    } catch (error) {
+      log.error('memory', 'Failed to load memory: ' + String(error));
     }
   }
 
-  private loadMemory() {
-    if (fs.existsSync(MEMORY_FILE)) {
-      try {
-        const raw = fs.readFileSync(MEMORY_FILE, 'utf8');
-        this.memory = JSON.parse(raw);
-      } catch (err) {
-        log.error('memory', `Failed to load memory file: ${err}`);
-      }
-    }
-  }
-
-  private saveMemory() {
+  private saveMemory(): void {
+    this.ensureLoaded();
     try {
       this.memory.lastUpdated = new Date().toISOString();
-      fs.writeFileSync(MEMORY_FILE, JSON.stringify(this.memory, null, 2));
-    } catch (err) {
-      log.error('memory', `Failed to save memory file: ${err}`);
+      fs.writeFileSync(this.memoryFile(), JSON.stringify(this.memory, null, 2));
+    } catch (error) {
+      log.error('memory', 'Failed to save memory: ' + String(error));
     }
   }
 
   public getMemory(): UserMemory {
-    return { ...this.memory };
+    this.ensureLoaded();
+    return {
+      ...this.memory,
+      preferences: [...this.memory.preferences],
+      facts: [...this.memory.facts],
+    };
   }
 
-  public addPreference(pref: string) {
-    if (!this.memory.preferences.includes(pref)) {
-      this.memory.preferences.push(pref);
+  public addPreference(preference: string): void {
+    this.ensureLoaded();
+    if (!this.memory.preferences.includes(preference)) {
+      this.memory.preferences.push(preference);
       this.saveMemory();
     }
   }
 
-  public addFact(fact: string) {
+  public addFact(fact: string): void {
+    this.ensureLoaded();
     if (!this.memory.facts.includes(fact)) {
       this.memory.facts.push(fact);
       this.saveMemory();
     }
   }
 
-  public clearMemory() {
-    this.memory = { preferences: [], facts: [], lastUpdated: new Date().toISOString() };
+  public clearMemory(): void {
+    this.ensureLoaded();
+    this.memory = emptyMemory();
     this.saveMemory();
   }
 }

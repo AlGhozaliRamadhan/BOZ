@@ -255,7 +255,9 @@ export default function Sidebar() {
           )}
         </div>
         <div className="sidebar-version-row">
-          <span className="sidebar-version">v2.3.0</span>
+          <span className="sidebar-version">
+            v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.4.0'}
+          </span>
         </div>
       </div>
     </aside>

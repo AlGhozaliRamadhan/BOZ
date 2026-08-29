@@ -4,17 +4,28 @@ tests/
 scripts/test-marked.ts
 docs/
 .github/
+.agents/
+.claude/
+.playwright-mcp/
+.worktrees/
 
 # Configuration Files
 tsconfig.json
+tsconfig.launcher.json
+vitest.config.ts
+Dockerfile
+docker-compose.yml
 .editorconfig
 .gitignore
+.env
 
 # Output & Data
 data/
 *.tgz
 *.zip
 *.tar.gz
+*.tsbuildinfo
+dist/*.tsbuildinfo
 
 # OS and temp
 .DS_Store
@@ -23,3 +34,5 @@ Thumbs.db
 # allow dist/ and .env.build to ship
 !dist/
 !dist/.env.build
+dist/*.tsbuildinfo
+*.tsbuildinfo
