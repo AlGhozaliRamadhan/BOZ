@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "incremental": false,
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": [
+    "src/main.ts",
+    "src/cli/dev-web.ts",
+    "src/cli/mode.ts",
+    "src/cli/open-browser.ts",
+    "src/cli/start-web.ts",
+    "src/utils/env-dir.ts",
+    "src/utils/version.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "src/app"
+  ]
+}

@@ -1,8 +1,7 @@
 // ─── services/news.fetch.service.ts ──────────────────────────────────────────
 import axios            from 'axios';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { tmpdir }       from 'os';
-import { join }         from 'path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { dirname, join } from 'path';
 import Parser           from 'rss-parser';
 import { log }          from '../../utils/logger.js';
 
@@ -74,7 +73,7 @@ export class NewsFetchService {
   private readonly retryableCodes = new Set(['ECONNABORTED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND']);
 
   private cache: Record<string, { time: number; data: any }> = {};
-  private readonly cacheFile = join(tmpdir(), 'boz-news-cache.json');
+  private cacheLoaded = false;
   private readonly cacheTTL: Record<string, number> = {
     crypto_news:        300,
     stock_news:         300,
@@ -84,7 +83,19 @@ export class NewsFetchService {
     crowd_sentiment:    600,
   };
 
-  public constructor() {
+  private cacheFile(): string {
+    const cacheDir =
+      process.env.BOZ_CACHE_DIR?.trim() ||
+      process.env.TMPDIR ||
+      process.env.TEMP ||
+      process.env.TMP ||
+      process.cwd();
+    return join(cacheDir, 'boz-news-cache.json');
+  }
+
+  private ensureCacheLoaded(): void {
+    if (this.cacheLoaded) return;
+    this.cacheLoaded = true;
     this.cache = this.loadDiskCache();
   }
 
@@ -154,6 +165,7 @@ export class NewsFetchService {
     fetchFn:    () => Promise<T>,
     defaultTTL = 300,
   ): Promise<T> {
+    this.ensureCacheLoaded();
     const now = Date.now();
     const ttl = (this.cacheTTL[key] ?? defaultTTL) * 1000;
     if (this.cache[key] && now - this.cache[key].time < ttl) {
@@ -167,15 +179,19 @@ export class NewsFetchService {
 
   private loadDiskCache(): Record<string, { time: number; data: any }> {
     try {
-      if (existsSync(this.cacheFile))
-        return JSON.parse(readFileSync(this.cacheFile, 'utf8'));
+      const cacheFile = this.cacheFile();
+      if (existsSync(cacheFile)) {
+        return JSON.parse(readFileSync(cacheFile, 'utf8'));
+      }
     } catch {}
     return {};
   }
 
   private saveDiskCache(): void {
     try {
-      writeFileSync(this.cacheFile, JSON.stringify(this.cache), 'utf8');
+      const cacheFile = this.cacheFile();
+      mkdirSync(dirname(cacheFile), { recursive: true });
+      writeFileSync(cacheFile, JSON.stringify(this.cache), 'utf8');
     } catch {}
   }
 
