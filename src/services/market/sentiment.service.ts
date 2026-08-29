@@ -2,6 +2,7 @@ import axios from 'axios';
 import Parser from 'rss-parser';
 import https from 'https';
 import { log, clr } from '../../utils/logger.js';
+import { htmlToPlainText } from '../../utils/html.js';
 import { config } from '../../config/config.js';
 import { buildSocialSearchQuery, resolveStockTwitsSymbol } from '../../shared/market-constants.js';
 
@@ -182,7 +183,7 @@ export class SentimentService {
             .slice(0, 2)
             .map((m: any) => ({
               id: m.id,
-              body: m.body.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim(),
+              body: htmlToPlainText(m.body),
               sentiment: m.entities?.sentiment?.basic || null,
               username: m.user?.username || 'Trader',
               created_at: m.created_at,
