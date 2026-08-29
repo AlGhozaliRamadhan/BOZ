@@ -1,6 +1,6 @@
 // ─── chat.engine.ts ───────────────────────────────────────────────────────────
 // Server-side chat engine for BOZ web app.
-// Brings CLI-level intelligence to the browser: tool calling, evidence ledger,
+// Powers browser-native research with tool calling, an evidence ledger,
 // sub-agent delegation, effort-scaled refinement passes, model fallback, and SSE
 // streaming. Higher effort buys more VERIFICATION and more ANGLES (number audit,
 // logic review, breadth, independent scenario branches) — not more passes of the

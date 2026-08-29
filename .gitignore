@@ -70,8 +70,10 @@ src/data/
 .eslintcache
 *.log
 
-# Project documentation (local only, not for distribution)
+# Project documentation & agent configs (local only)
 CLAUDE.md
-docs/improvements.md
-
+AGENTS.md
+.agents/
+.claude/
 .worktrees/
+docs/improvements.md
