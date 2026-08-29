@@ -47,7 +47,7 @@ describe('SentimentService', () => {
       const hostnameIs = (h: string) => host === h;
       const hostnameEndsWith = (h: string) => host === h || host.endsWith(`.${h}`);
 
-      if (url.includes('production.dataviz.cnn.io')) throw new Error('cnn unavailable');
+      if (hostnameIs('production.dataviz.cnn.io')) throw new Error('cnn unavailable');
       if (hostnameIs('api.alternative.me')) {
         return {
           data: {

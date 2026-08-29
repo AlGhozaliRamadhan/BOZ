@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { yahooFinance } from '../market/yahoo.service.js';
 import { newsFetchService } from '../news/news.fetch.service.js';
+import { htmlToPlainText } from '../../utils/html.js';
 import { websiteRagService } from './website.rag.service.js';
 
 export interface WebSearchResult {
@@ -67,11 +68,11 @@ export class WebSearchService {
 
       let m: RegExpExecArray | null;
       while ((m = titleRe.exec(html)) !== null) {
-        const t = m[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x27;/g, "'").trim();
+        const t = htmlToPlainText(m[1]);
         if (t) titles.push(t);
       }
       while ((m = snippetRe.exec(html)) !== null) {
-        const s = m[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x27;/g, "'").trim();
+        const s = htmlToPlainText(m[1]);
         if (s) snippets.push(s);
       }
       while ((m = urlRe.exec(html)) !== null) {
