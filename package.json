@@ -1,18 +1,20 @@
 {
-  "name": "boz",
-  "version": "2.3.0",
-  "description": "Open-source AI market analyzer that combines real-time data, technical indicators, macro context, news, and sentiment into structured insights.",
+  "name": "@agr77/boz",
+  "version": "2.4.0",
+  "description": "Web-first AI market intelligence dashboard for technical, macro, news, sentiment, and risk-aware analysis.",
   "main": "dist/main.js",
   "bin": {
     "boz": "./dist/main.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "dist/",
     ".next/standalone/",
     ".next/static/",
     "public/",
-    "scripts/",
-    ".env.build",
+    "scripts/copy-static.js",
     "README.md"
   ],
   "engines": {
@@ -22,15 +24,14 @@
     "postinstall": "node scripts/copy-static.js",
     "dev": "cross-env BOZ_DEV=1 tsx src/main.ts",
     "dev:web": "next dev --webpack",
-    "build": "next build --webpack",
+    "build": "npm run build:web",
     "build:web": "next build --webpack",
+    "build:launcher": "node scripts/clean-dist.js && tsc -p tsconfig.launcher.json && node scripts/build-env.js",
+    "build:package": "npm run build:launcher && npm run build:web && node scripts/copy-static.js",
     "start": "next start",
-    "lint": "next lint",
-    "dev:cli": "tsx src/main.ts",
-    "ping": "node dist/utils/ping.js",
-    "build:cli": "tsc -p tsconfig.cli.json && node scripts/build-env.js",
-    "start:cli": "node dist/main.js",
-    "prepublishOnly": "npm run build:cli && npm run build:web",
+    "typecheck": "tsc --noEmit",
+    "prepack": "npm run build:package",
+    "prepublishOnly": "npm test && npm run typecheck",
     "test:install": "npm install -g . && boz --version && boz --help",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -39,7 +40,10 @@
   "keywords": [
     "ai",
     "market-analysis",
+    "web-dashboard",
     "stocks",
+    "idx",
+    "crypto",
     "trading",
     "technical-indicators",
     "sentiment",
@@ -62,14 +66,12 @@
     "dotenv": "^17.4.2",
     "isomorphic-dompurify": "^3.18.0",
     "marked": "^18.0.5",
-    "marked-terminal": "^7.3.0",
     "openai": "^6.46.0",
     "rss-parser": "^3.13.0",
     "technicalindicators": "^3.1.0",
     "yahoo-finance2": "^3.15.4"
   },
   "devDependencies": {
-    "@types/marked-terminal": "^6.1.1",
     "@types/node": "^26.1.1",
     "@types/react": "19.2.17",
     "@vitest/coverage-v8": "^4.1.10",
@@ -83,9 +85,6 @@
     "vitest": "^4.1.9"
   },
   "overrides": {
-    "postcss": "^8.5.15",
-    "marked-terminal": {
-      "marked": "$marked"
-    }
+    "postcss": "^8.5.15"
   }
 }
