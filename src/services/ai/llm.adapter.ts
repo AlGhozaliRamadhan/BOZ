@@ -4,6 +4,7 @@ import { config } from '../../config/config.js';
 import type { LLMMessage, RawToolCall } from '../../types/llm.types.js';
 import type { ValidateFunction } from 'ajv';
 import { formatSchemaErrors } from './llm.schemas.js';
+import { createCustomProviderClient } from './custom-provider.client.js';
 
 export type JsonCallResult<T> =
   | { type: 'ok'; value: T; raw: string; warnings: string[] }
@@ -32,10 +33,12 @@ export class LLMAdapter {
     return [...base, { role: 'assistant', content: assistantPrefill }];
   }
 
-  private customClient(): OpenAI {
-    const apiKey = config.custom.apiKey || 'not-needed';
-    const baseURL = config.custom.endpoint || 'http://localhost:20128/v1';
-    return new OpenAI({ apiKey, baseURL });
+  private customClient(): Promise<OpenAI> {
+    return createCustomProviderClient({
+      apiKey: config.custom.apiKey,
+      endpoint: config.custom.endpoint || 'http://localhost:20128/v1',
+      timeoutMs: this.timeoutMs,
+    });
   }
 
   async callText(options: {
@@ -66,7 +69,8 @@ export class LLMAdapter {
       if (options.responseFormat === 'json') {
         params.response_format = { type: 'json_object' };
       }
-      const res = await this.customClient().chat.completions.create(params as any);
+      const client = await this.customClient();
+      const res = await client.chat.completions.create(params as any);
       return LLMAdapter.stripThinking(res.choices?.[0]?.message?.content ?? '');
     }
 
@@ -160,7 +164,8 @@ export class LLMAdapter {
       if (options.responseFormat === 'json') {
         params.response_format = { type: 'json_object' };
       }
-      const stream = await this.customClient().chat.completions.create(params as any);
+      const client = await this.customClient();
+      const stream = await client.chat.completions.create(params as any);
       let inReasoning = false;
       for await (const chunk of stream as any) {
         const delta = chunk.choices?.[0]?.delta;
@@ -307,7 +312,8 @@ export class LLMAdapter {
         temperature,
         max_tokens: maxTokens,
       };
-      const res = await this.customClient().chat.completions.create(params as any);
+      const client = await this.customClient();
+      const res = await client.chat.completions.create(params as any);
       return LLMAdapter.normalizeOpenAIResponse(res.choices?.[0]?.message ?? {});
     }
 

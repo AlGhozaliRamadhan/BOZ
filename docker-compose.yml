@@ -8,7 +8,8 @@ services:
     container_name: boz-web
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      # Keep the unauthenticated local-first UI on the host loopback interface.
+      - "127.0.0.1:3000:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000

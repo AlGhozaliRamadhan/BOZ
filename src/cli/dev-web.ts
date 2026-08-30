@@ -1,7 +1,7 @@
 import { spawn } from 'child_process';
 import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import http from 'http';
+import { waitForServer } from './wait-for-server.js';
 
 const MODULE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 // Spawn `node <next-cli-js>` (not `node_modules/.bin/next`), which on Windows
@@ -20,32 +20,6 @@ export interface WebServerHandle {
   ready: Promise<void>;
   /** Stops the child process. Idempotent. */
   stop: () => void;
-}
-
-function waitForServer(port: number, timeoutMs: number): Promise<void> {
-  return new Promise((resolveP, rejectP) => {
-    const deadline = Date.now() + timeoutMs;
-    const attempt = () => {
-      const req = http.get({ host: '127.0.0.1', port, path: '/' }, (res) => {
-        res.resume();
-        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-          resolveP();
-        } else if (Date.now() > deadline) {
-          rejectP(new Error(`Server returned ${res.statusCode} on port ${port}`));
-        } else {
-          setTimeout(attempt, 200);
-        }
-      });
-      req.on('error', () => {
-        if (Date.now() > deadline) {
-          rejectP(new Error(`Server did not start on port ${port} within ${timeoutMs}ms`));
-        } else {
-          setTimeout(attempt, 200);
-        }
-      });
-    };
-    attempt();
-  });
 }
 
 export function startWebServer(
@@ -105,7 +79,7 @@ export function startWebServer(
       }
     });
 
-    waitForServer(port, readyTimeoutMs)
+    waitForServer({ port, timeoutMs: readyTimeoutMs })
       .then(() => settle(resolveP))
       .catch((err) => settle(() => rejectP(err)));
   });

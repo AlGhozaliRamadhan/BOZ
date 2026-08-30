@@ -12,5 +12,9 @@ export default defineConfig({
   },
   test: {
     testTimeout: 20000,
+    // Launcher suites start real Next.js processes and contend heavily with
+    // other files on Windows. Keep the canonical `npm test` gate deterministic;
+    // individual tests may still run concurrent work internally.
+    maxWorkers: 1,
   },
 });

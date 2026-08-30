@@ -1,6 +1,6 @@
 {
   "name": "@agr77/boz",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "description": "Web-first AI market intelligence dashboard for technical, macro, news, sentiment, and risk-aware analysis.",
   "main": "dist/main.js",
   "bin": {
@@ -36,7 +36,7 @@
     "test:install": "npm install -g . && boz --version && boz --help",
     "test": "vitest run",
     "test:watch": "vitest",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage --exclude tests/cli/*-web.test.ts"
   },
   "keywords": [
     "ai",

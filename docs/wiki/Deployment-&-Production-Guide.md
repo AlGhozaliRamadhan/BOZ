@@ -1,6 +1,6 @@
 ﻿# Deployment & Production Guide
 
-BOZ offers multiple deployment options tailored for local desktop use, remote servers, and containerized cloud environments.
+BOZ is currently designed for single-user, local-first deployment. Remote and multi-user deployment is unsupported until authentication, authorization, and tenant-safe credential storage are implemented.
 
 ---
 
@@ -42,6 +42,8 @@ docker compose up --build -d
 `
 
 The application will be accessible at http://localhost:3000.
+
+The Compose port is bound to `127.0.0.1` on the host. Do not change it to a public bind address unless BOZ is placed behind an authenticated gateway and the remaining network-deployment risks in `docs/CODEBASE_AUDIT.md` have been addressed.
 
 ---
 

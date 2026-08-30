@@ -1,59 +1,9 @@
 'use client';
 
 import { useEffect, useRef, memo } from 'react';
+import { toTradingViewSymbol } from '../../lib/tradingview-symbol';
 
-/**
- * Map Yahoo/BOZ tickers → TradingView EXCHANGE:SYMBOL form when we can.
- * Bare symbols still work for many US equities (TV auto-resolves).
- */
-export function toTradingViewSymbol(ticker: string): string {
-  const raw = ticker.trim().toUpperCase();
-  if (!raw) return 'NASDAQ:AAPL';
-
-  // Already prefixed (NASDAQ:AAPL, BINANCE:BTCUSDT, …)
-  if (raw.includes(':')) return raw;
-
-  // Crypto — Yahoo style BTC-USD / ETH-USDT
-  const cryptoDash = raw.match(/^([A-Z0-9]{2,10})-(USD|USDT|EUR|BTC)$/);
-  if (cryptoDash) {
-    const [, base, quote] = cryptoDash;
-    if (quote === 'USDT') return `BINANCE:${base}USDT`;
-    if (quote === 'USD') return `BINANCE:${base}USDT`;
-    if (quote === 'EUR') return `BINANCE:${base}EUR`;
-    if (quote === 'BTC') return `BINANCE:${base}BTC`;
-  }
-
-  // Compact crypto (BTCUSD)
-  if (/^(BTC|ETH|SOL|XRP|DOGE|ADA|AVAX|DOT|LINK|MATIC|BNB)USD$/.test(raw)) {
-    return `BINANCE:${raw.replace(/USD$/, 'USDT')}`;
-  }
-
-  // Indonesia (Yahoo: BBCA.JK)
-  if (raw.endsWith('.JK')) {
-    return `IDX:${raw.slice(0, -3)}`;
-  }
-
-  // Common index aliases
-  const indices: Record<string, string> = {
-    SPX: 'SP:SPX',
-    '^GSPC': 'SP:SPX',
-    NDX: 'NASDAQ:NDX',
-    '^IXIC': 'NASDAQ:IXIC',
-    DJI: 'DJ:DJI',
-    '^DJI': 'DJ:DJI',
-    VIX: 'CBOE:VIX',
-    '^VIX': 'CBOE:VIX',
-    DXY: 'TVC:DXY',
-    GOLD: 'TVC:GOLD',
-    WTI: 'TVC:USOIL',
-  };
-  if (indices[raw]) return indices[raw];
-
-  // ETFs / futures-ish aliases used on the tape
-  if (raw === 'BRK.B') return 'NYSE:BRK.B';
-
-  return raw;
-}
+export { toTradingViewSymbol } from '../../lib/tradingview-symbol';
 
 export type TradingViewInterval =
   | '1'
@@ -104,7 +54,7 @@ function TradingViewChart({
     if (!container || !tvSymbol) return;
 
     // Full remount on symbol/interval change — the embed script only inits once.
-    container.innerHTML = '';
+    container.replaceChildren();
 
     const widgetHost = document.createElement('div');
     widgetHost.className = 'tradingview-widget-container__widget';
@@ -117,10 +67,23 @@ function TradingViewChart({
     const credit = document.createElement('div');
     credit.className = 'tradingview-widget-copyright tv-credit';
     const href = `https://www.tradingview.com/symbols/${encodeURIComponent(tvSymbol)}/`;
-    credit.innerHTML =
-      `<a href="${href}" rel="noopener nofollow" target="_blank" style="color:#555;text-decoration:none;">` +
-      `<span style="color:#888">${tvSymbol.replace(':', ' · ')}</span></a>` +
-      `<span style="color:#444;margin-left:6px;">chart by TradingView</span>`;
+    const link = document.createElement('a');
+    link.href = href;
+    link.rel = 'noopener nofollow';
+    link.target = '_blank';
+    link.style.color = '#555';
+    link.style.textDecoration = 'none';
+
+    const symbolLabel = document.createElement('span');
+    symbolLabel.style.color = '#888';
+    symbolLabel.textContent = tvSymbol.replace(':', ' · ');
+    link.appendChild(symbolLabel);
+
+    const attribution = document.createElement('span');
+    attribution.style.color = '#444';
+    attribution.style.marginLeft = '6px';
+    attribution.textContent = 'chart by TradingView';
+    credit.append(link, attribution);
     container.appendChild(credit);
 
     const script = document.createElement('script');
@@ -181,7 +144,7 @@ function TradingViewChart({
     container.appendChild(script);
 
     return () => {
-      container.innerHTML = '';
+      container.replaceChildren();
     };
   }, [tvSymbol, interval, hideTopToolbar, style]);
 
