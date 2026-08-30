@@ -1,0 +1,5 @@
+﻿blank_issues_enabled: true
+contact_links:
+  - name: Security Advisories
+    url: https://github.com/AlGhozaliRamadhan/BOZ/security/advisories/new
+    about: Please report security vulnerabilities privately here.
