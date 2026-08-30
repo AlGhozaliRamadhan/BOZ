@@ -1,4 +1,4 @@
-﻿# Security Policy
+# Security Policy
 
 ## Supported Versions
 
@@ -16,7 +16,7 @@ If you discover a security vulnerability in BOZ, please report it responsibly:
 1. **GitHub Private Vulnerability Reporting (Recommended)**:
    Navigate to the [Security Advisories](https://github.com/AlGhozaliRamadhan/BOZ/security/advisories/new) tab on GitHub and submit a private report.
 2. **Direct Email**:
-   If you cannot use GitHub Advisories, email **[ozatelko@gmail.com](mailto:ozatelko@gmail.com)** with:
+   If you cannot use GitHub Advisories, email **[alghozali.business@gmail.com](mailto:alghozali.business@gmail.com)** with:
    - A description of the vulnerability and its potential impact.
    - Step-by-step instructions or a proof-of-concept to reproduce the issue.
    - Any relevant logs or code snippets.
