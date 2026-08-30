@@ -132,7 +132,6 @@ BOZ/
 ├── docs/
 │   ├── ARCHITECTURE.md            This source-of-truth system map
 │   ├── CODEBASE_AUDIT.md          Current risks and remediation priorities
-│   ├── adr/                       Architecture Decision Records
 │   └── wiki/                      User-facing product and deployment guides
 ├── public/                        Logos, screenshots, and public web assets
 ├── scripts/                       Build, packaging, sanitization, and install helpers
@@ -306,13 +305,13 @@ tests/
 └── e2e/                             Packaged launcher and critical user journeys
 ```
 
-Migrate by vertical slice. Do not perform a repository-wide rename without compatibility tests and a clear ADR.
+Migrate by vertical slice. Do not perform a repository-wide rename without compatibility tests and a documented decision record.
 
 ## AI Agent Instructions
 
 Future AI agents must use this sequence:
 
-1. Read repository `AGENTS.md`, this document, the relevant ADRs, and `git status` before editing.
+1. Read repository `AGENTS.md`, this document, any authorized local decision records, and `git status` before editing.
 2. Identify whether the change belongs to transport, application orchestration, domain calculation, infrastructure I/O, or presentation. Keep it in that boundary.
 3. Trace the complete caller/callee path and locate duplicated contracts before changing behavior.
 4. For Next.js changes, read the relevant installed Next.js 16 guide under `node_modules/next/dist/docs/` first.
@@ -321,6 +320,6 @@ Future AI agents must use this sequence:
 7. Add runtime validation and typed DTOs at every changed boundary; avoid new `any` and unchecked casts.
 8. Add or update focused tests for changed behavior, including failure, timeout, empty-data, malformed-provider, and concurrent-request cases.
 9. Run the canonical validation commands. Do not bypass the repository's serialized process-test configuration or present a narrower diagnostic command as proof that the required gate passed.
-10. Update this document or create an ADR when a change alters a boundary, persistence model, trust assumption, packaging contract, provider strategy, or release process.
+10. Update this document and create or update the approved local decision record when a change alters a boundary, persistence model, trust assumption, packaging contract, provider strategy, or release process.
 
-Major recorded decisions are indexed in [docs/adr/README.md](./adr/README.md).
+Architecture decision records are intentionally maintained outside the public repository.
