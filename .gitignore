@@ -69,6 +69,7 @@ src/data/
 *.log
 
 # Local agent configs
+AGENTS.md
 CLAUDE.md
 .agents/
 .claude/
