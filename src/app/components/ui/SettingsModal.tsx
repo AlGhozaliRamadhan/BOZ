@@ -17,12 +17,12 @@ interface SettingsConfig {
   hasGithubToken: boolean;
   hasNvidiaKey: boolean;
   hasCustomKey: boolean;
-  nvidiaKey: string;
-  githubToken: string;
-  customKey: string;
   customUrl: string;
   availableModels: { id: string; label: string }[];
+  allModels?: { id: string; label: string; provider?: string }[];
 }
+
+type CredentialProviderId = 'github' | 'nvidia' | 'custom';
 
 interface ConnectionResult {
   success: boolean;
@@ -172,10 +172,11 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
   const [customModels, setCustomModels] = useState<{ id: string; label: string }[]>([]);
   const [customModelDraft, setCustomModelDraft] = useState('');
   const [fetchingCustomModels, setFetchingCustomModels] = useState(false);
-
-  // Local state for storing multiple keys per provider
-  // Format: { providerId: [ { id: string, name: string, value: string, active: boolean } ] }
-  const [providerKeys, setProviderKeys] = useState<Record<string, any[]>>({});
+  const [credentialDrafts, setCredentialDrafts] = useState<Record<CredentialProviderId, string>>({
+    github: '',
+    nvidia: '',
+    custom: '',
+  });
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
@@ -186,34 +187,11 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
       const data = await res.json();
       setConfig(data);
       setCustomUrl(data.customUrl || 'http://localhost:20128/v1');
-      setCustomKey(data.customKey || '');
+      setCustomKey('');
       setCustomModels(Array.isArray(data.availableModels) && data.provider === 'custom'
         ? data.availableModels
         : (data.allModels || []).filter((m: { provider?: string }) => m.provider === 'custom'));
-
-      // Initialize local multi-key storage with the backend's active key
-      const localKeys = localStorage.getItem('boz_provider_keys');
-      let parsedKeys = localKeys ? JSON.parse(localKeys) : {
-        nvidia: [],
-        github: [],
-        custom: []
-      };
-
-      // Ensure the backend key is synced as the active one
-      if (data.hasNvidiaKey || data.nvidiaKey) {
-        if (!parsedKeys.nvidia) parsedKeys.nvidia = [];
-        if (parsedKeys.nvidia.length === 0) {
-          parsedKeys.nvidia.push({ id: 'default', name: 'Default Key', value: data.nvidiaKey || '***', active: true });
-        }
-      }
-      if (data.hasGithubToken || data.githubToken) {
-        if (!parsedKeys.github) parsedKeys.github = [];
-        if (parsedKeys.github.length === 0) {
-          parsedKeys.github.push({ id: 'default', name: 'Default Key', value: data.githubToken || '***', active: true });
-        }
-      }
-      
-      setProviderKeys(parsedKeys);
+      setCredentialDrafts({ github: '', nvidia: '', custom: '' });
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -229,6 +207,11 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
     }
   }, [isOpen, fetchSettings]);
 
+  useEffect(() => {
+    // Remove credentials persisted by releases before the write-only settings API.
+    localStorage.removeItem('boz_provider_keys');
+  }, []);
+
   // Reflect effort changes made elsewhere (TopBar Deep Think / effort pill).
   useEffect(() => {
     const sync = () => setEffortLocal(getEffort());
@@ -236,51 +219,12 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
     return () => window.removeEventListener(CHAT_OPTIONS_EVENT, sync);
   }, []);
 
-  const saveLocalKeys = (newKeys: any) => {
-    setProviderKeys(newKeys);
-    localStorage.setItem('boz_provider_keys', JSON.stringify(newKeys));
-  };
-
-  const addKey = (providerId: string) => {
-    const newKeys = { ...providerKeys };
-    if (!newKeys[providerId]) newKeys[providerId] = [];
-    
-    const isFirst = newKeys[providerId].length === 0;
-    newKeys[providerId].push({
-      id: Date.now().toString(),
-      name: `Key ${newKeys[providerId].length + 1}`,
-      value: '',
-      active: isFirst
-    });
-    saveLocalKeys(newKeys);
-  };
-
-  const updateKey = (providerId: string, keyId: string, field: string, value: string) => {
-    const newKeys = { ...providerKeys };
-    const key = newKeys[providerId].find(k => k.id === keyId);
-    if (key) {
-      key[field] = value;
-      saveLocalKeys(newKeys);
-    }
-  };
-
-  const deleteKey = (providerId: string, keyId: string) => {
-    const newKeys = { ...providerKeys };
-    const wasActive = newKeys[providerId].find(k => k.id === keyId)?.active;
-    newKeys[providerId] = newKeys[providerId].filter(k => k.id !== keyId);
-    
-    if (wasActive && newKeys[providerId].length > 0) {
-      newKeys[providerId][0].active = true;
-    }
-    saveLocalKeys(newKeys);
-  };
-
   const showToast = (msg: string) => {
     setSaveMessage(msg);
     setTimeout(() => setSaveMessage(null), 3000);
   };
 
-  const updateConfig = async (payload: any, successMsg: string) => {
+  const updateConfig = async (payload: Record<string, unknown>, successMsg: string) => {
     setSaving(true);
     try {
       const res = await fetch('/api/settings', {
@@ -288,8 +232,8 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error('Failed to update');
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update');
       setConfig(data);
       window.dispatchEvent(new Event('boz_settings_updated'));
       showToast(successMsg);
@@ -300,25 +244,34 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
     }
   };
 
-  const applyActiveKey = async (providerId: string, keyId: string) => {
-    // 1. Update local state
-    const newKeys = { ...providerKeys };
-    newKeys[providerId].forEach(k => k.active = (k.id === keyId));
-    saveLocalKeys(newKeys);
+  const credentialField = (providerId: CredentialProviderId) =>
+    providerId === 'nvidia' ? 'nvidiaKey' :
+    providerId === 'custom' ? 'customKey' : 'githubToken';
 
-    // 2. Sync with backend
-    const activeKey = newKeys[providerId].find(k => k.id === keyId);
-    if (activeKey && activeKey.value && activeKey.value !== '***') {
-      const payloadKey =
-        providerId === 'nvidia' ? 'nvidiaKey' :
-        providerId === 'custom' ? 'customKey' : 'githubToken';
-      await updateConfig({ [payloadKey]: activeKey.value }, 'Active key applied to backend');
+  const credentialConfigured = (providerId: CredentialProviderId) =>
+    providerId === 'nvidia' ? Boolean(config?.hasNvidiaKey) :
+    providerId === 'custom' ? Boolean(config?.hasCustomKey) : Boolean(config?.hasGithubToken);
+
+  const saveCredential = async (providerId: CredentialProviderId) => {
+    const value = providerId === 'custom' ? customKey.trim() : credentialDrafts[providerId].trim();
+    if (!value) {
+      setError('Enter a credential before saving it.');
+      return;
     }
+    await updateConfig({ [credentialField(providerId)]: value }, 'Credential saved securely on the server');
+    if (providerId === 'custom') setCustomKey('');
+    else setCredentialDrafts((current) => ({ ...current, [providerId]: '' }));
+  };
+
+  const clearCredential = async (providerId: CredentialProviderId) => {
+    await updateConfig({ [credentialField(providerId)]: '' }, 'Credential removed');
+    if (providerId === 'custom') setCustomKey('');
+    else setCredentialDrafts((current) => ({ ...current, [providerId]: '' }));
   };
 
   const saveCustomEndpoint = async () => {
     const url = customUrl.trim() || 'http://localhost:20128/v1';
-    await updateConfig({ customUrl: url, customKey }, '9router endpoint saved');
+    await updateConfig({ customUrl: url }, 'Custom endpoint saved');
   };
 
   const fetchCustomModels = async () => {
@@ -492,7 +445,6 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                         {filteredProviders.map(p => {
                           const isExpanded = expandedProvider === p.id;
                           const isActiveProvider = config?.provider === p.id;
-                          const keys = providerKeys[p.id] || [];
                           
                           return (
                             <div 
@@ -549,15 +501,35 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                                           </div>
                                         </div>
                                         <div>
-                                          <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '8px' }}>API Key (optional)</label>
-                                          <input
-                                            type="password"
-                                            value={customKey}
-                                            onChange={(e) => setCustomKey(e.target.value)}
-                                            onBlur={saveCustomEndpoint}
-                                            placeholder="Leave blank if 9router does not require a key"
-                                            style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '8px 10px', borderRadius: '6px', fontSize: '12px', fontFamily: 'monospace', outline: 'none' }}
-                                          />
+                                          <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '8px' }}>
+                                            API Key (optional) · {credentialConfigured('custom') ? 'configured' : 'not configured'}
+                                          </label>
+                                          <div style={{ display: 'flex', gap: '8px' }}>
+                                            <input
+                                              type="password"
+                                              value={customKey}
+                                              onChange={(e) => setCustomKey(e.target.value)}
+                                              autoComplete="new-password"
+                                              placeholder={credentialConfigured('custom') ? 'Enter a replacement key' : 'Leave blank if the provider does not require a key'}
+                                              style={{ flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '8px 10px', borderRadius: '6px', fontSize: '12px', fontFamily: 'monospace', outline: 'none' }}
+                                            />
+                                            <button
+                                              onClick={() => saveCredential('custom')}
+                                              disabled={saving || !customKey.trim()}
+                                              style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
+                                            >
+                                              Save Key
+                                            </button>
+                                            {credentialConfigured('custom') && (
+                                              <button
+                                                onClick={() => clearCredential('custom')}
+                                                disabled={saving}
+                                                style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--danger)', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
+                                              >
+                                                Clear
+                                              </button>
+                                            )}
+                                          </div>
                                         </div>
                                         <div>
                                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -616,56 +588,44 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                                       </div>
                                     )}
 
-                                    {/* Multiple API Keys Manager */}
+                                    {/* Credentials are write-only and remain server-side. */}
                                     {p.id !== 'custom' && (
                                     <div>
                                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, margin: 0 }}>API Keys</label>
-                                        <button 
-                                          onClick={() => addKey(p.id)}
-                                          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-                                        >
-                                          <i className="fa-solid fa-plus"></i> Add Key
-                                        </button>
+                                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, margin: 0 }}>
+                                          API Credential · {credentialConfigured(p.id as CredentialProviderId) ? 'configured' : 'not configured'}
+                                        </label>
                                       </div>
-
-                                      {keys.length === 0 ? (
-                                        <div style={{ padding: '16px', textAlign: 'center', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: '8px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                                          No API keys configured.
-                                        </div>
-                                      ) : (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                          {keys.map((k) => (
-                                            <div key={k.id} style={{ display: 'flex', gap: '8px', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '8px', borderRadius: '8px', border: k.active ? '1px solid var(--text-primary)' : '1px solid rgba(255,255,255,0.05)' }}>
-                                              <input
-                                                type="text"
-                                                value={k.name}
-                                                onChange={(e) => updateKey(p.id, k.id, 'name', e.target.value)}
-                                                placeholder="Key Name"
-                                                style={{ width: '100px', background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '12px', outline: 'none' }}
-                                              />
-                                              <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.1)' }}></div>
-                                              <input
-                                                type="password"
-                                                value={k.value}
-                                                onChange={(e) => updateKey(p.id, k.id, 'value', e.target.value)}
-                                                placeholder="sk-..."
-                                                style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '12px', outline: 'none', fontFamily: 'monospace' }}
-                                              />
-                                              {k.active ? (
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                  <button onClick={() => applyActiveKey(p.id, k.id)} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', fontSize: '11px', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer' }} title="Save any changes to this key">Save</button>
-                                                </div>
-                                              ) : (
-                                                <button onClick={() => applyActiveKey(p.id, k.id)} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', fontSize: '11px', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer' }}>Save & Use</button>
-                                              )}
-                                              <button onClick={() => deleteKey(p.id, k.id)} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '4px' }} title="Delete Key">
-                                                <i className="fa-solid fa-trash-can"></i>
-                                              </button>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      )}
+                                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '8px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                        <input
+                                          type="password"
+                                          value={credentialDrafts[p.id as CredentialProviderId]}
+                                          onChange={(e) => setCredentialDrafts((current) => ({ ...current, [p.id]: e.target.value }))}
+                                          autoComplete="new-password"
+                                          placeholder={credentialConfigured(p.id as CredentialProviderId) ? 'Enter a replacement credential' : 'Enter API credential'}
+                                          style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '12px', outline: 'none', fontFamily: 'monospace' }}
+                                        />
+                                        <button
+                                          onClick={() => saveCredential(p.id as CredentialProviderId)}
+                                          disabled={saving || !credentialDrafts[p.id as CredentialProviderId].trim()}
+                                          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', fontSize: '11px', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer' }}
+                                        >
+                                          Save
+                                        </button>
+                                        {credentialConfigured(p.id as CredentialProviderId) && (
+                                          <button
+                                            onClick={() => clearCredential(p.id as CredentialProviderId)}
+                                            disabled={saving}
+                                            style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '4px' }}
+                                            title="Remove credential"
+                                          >
+                                            <i className="fa-solid fa-trash-can"></i>
+                                          </button>
+                                        )}
+                                      </div>
+                                      <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: '8px 0 0' }}>
+                                        Saved credentials are never returned to or persisted by the browser.
+                                      </p>
                                     </div>
                                     )}
 

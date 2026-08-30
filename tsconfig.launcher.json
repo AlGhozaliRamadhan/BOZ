@@ -12,6 +12,7 @@
     "src/cli/mode.ts",
     "src/cli/open-browser.ts",
     "src/cli/start-web.ts",
+    "src/cli/wait-for-server.ts",
     "src/utils/env-dir.ts",
     "src/utils/version.ts"
   ],

@@ -5,22 +5,27 @@
 // Strategy:
 //   1. Fetch sector-specific CSV lists from the Dataset-Saham-IDX repository
 //   2. Parse and map them to BOZ sectors
-//   3. Cache to data/idx-universe-cache.json for 24h
+//   3. Cache to the per-user BOZ configuration directory for 24h
 //   4. Fall back to data/idx-universe.json if the fetch fails
 
 import axios                         from 'axios';
 import { readFileSync, writeFileSync,
-         existsSync, mkdirSync }     from 'fs';
+         existsSync, renameSync,
+         rmSync }                    from 'fs';
 import { join, dirname }             from 'path';
 import { fileURLToPath }             from 'url';
 import { log }                       from '../../utils/logger.js';
+import { ensureConfigDir }           from '../../utils/env-dir.js';
 import { StockEntry }                from './idx.scanner.service.js';
 
 // ─── Cache ────────────────────────────────────────────────────────────────────
 
 const __dir      = dirname(fileURLToPath(import.meta.url));
-const CACHE_PATH = join(__dir, '../../data/idx-universe-cache.json');
 const CACHE_TTL  = 24 * 60 * 60 * 1000; // 24 hours
+
+export function idxUniverseCachePath(): string {
+  return join(ensureConfigDir(), 'idx-universe-cache.json');
+}
 
 interface CacheFile {
   fetchedAt: number;
@@ -48,7 +53,12 @@ const SECTOR_MAPPING: Record<string, string> = {
 async function fetchSector(sectorFile: string, bozSector: string): Promise<StockEntry[]> {
   try {
     const url = `${GITHUB_BASE_URL}/${encodeURIComponent(sectorFile)}.csv`;
-    const res = await axios.get(url, { timeout: 10000 });
+    const res = await axios.get<string>(url, {
+      timeout: 10_000,
+      maxContentLength: 2_000_000,
+      responseType: 'text',
+    });
+    if (typeof res.data !== 'string') return [];
     const lines = (res.data as string).split('\n');
     
     const stocks: StockEntry[] = [];
@@ -59,7 +69,9 @@ async function fetchSector(sectorFile: string, bozSector: string): Promise<Stock
       // CSV format: code,name,listingDate,shares,listingBoard
       const parts = line.split(',');
       if (parts.length >= 2) {
-        const ticker = parts[0].trim() + '.JK';
+        const symbol = parts[0].trim().toUpperCase();
+        if (!/^[A-Z0-9]{1,12}$/.test(symbol)) continue;
+        const ticker = symbol + '.JK';
         const name = parts[1].trim();
         stocks.push({ ticker, name, sector: bozSector });
       }
@@ -77,8 +89,9 @@ export class IdxUniverseService {
 
   private loadCache(): StockEntry[] | null {
     try {
-      if (!existsSync(CACHE_PATH)) return null;
-      const raw  = readFileSync(CACHE_PATH, 'utf8');
+      const cachePath = idxUniverseCachePath();
+      if (!existsSync(cachePath)) return null;
+      const raw  = readFileSync(cachePath, 'utf8');
       const data = JSON.parse(raw) as CacheFile;
       if (Date.now() - data.fetchedAt > CACHE_TTL) return null;
       if (!Array.isArray(data.stocks) || data.stocks.length < 20) return null;
@@ -91,12 +104,19 @@ export class IdxUniverseService {
   }
 
   private saveCache(stocks: StockEntry[]): void {
+    if (stocks.length === 0) return;
+    const cachePath = idxUniverseCachePath();
+    const temporaryPath = `${cachePath}.${process.pid}.tmp`;
     try {
-      const dir = dirname(CACHE_PATH);
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      writeFileSync(CACHE_PATH, JSON.stringify({ fetchedAt: Date.now(), stocks }, null, 2), 'utf8');
+      writeFileSync(
+        temporaryPath,
+        JSON.stringify({ fetchedAt: Date.now(), stocks }, null, 2),
+        { encoding: 'utf8', mode: 0o600, flag: 'w' },
+      );
+      renameSync(temporaryPath, cachePath);
       log.info('idx-universe', `cache saved — ${stocks.length} stocks`);
     } catch (e) {
+      rmSync(temporaryPath, { force: true });
       log.warn('idx-universe', `cache write failed: ${(e as Error).message}`);
     }
   }

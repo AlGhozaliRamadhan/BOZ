@@ -15,8 +15,8 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/@agr77/boz"><img src="https://img.shields.io/npm/v/@agr77/boz?style=flat-square&color=00c853" alt="npm version" /></a>
   <a href="https://www.npmjs.com/package/@agr77/boz"><img src="https://img.shields.io/npm/dm/@agr77/boz?style=flat-square&color=00c853" alt="npm downloads" /></a>
-  <img src="https://img.shields.io/badge/Node.js-18%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white" alt="Node.js 18 or newer" />
-  <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Node.js-22.22.2%20%7C%2024.15.0%20%7C%2026%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white" alt="Supported Node.js versions: 22.22.2, 24.15.0, or 26 and newer" />
+  <img src="https://img.shields.io/badge/TypeScript-7.x-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 7" />
   <img src="https://img.shields.io/badge/license-ISC-7c3aed?style=flat-square" alt="ISC license" />
 </p>
 
@@ -82,7 +82,7 @@ flowchart LR
 
 ## Quick start
 
-BOZ requires **Node.js 18 or newer**.
+BOZ requires **Node.js `^22.22.2`, `^24.15.0`, or `>=26.0.0`**.
 
 Run the packaged web app immediately without installing:
 
@@ -114,6 +114,8 @@ The npm release includes the compiled launcher, Next.js standalone server, stati
 ## Configuration
 
 Configure BOZ from **Settings** in the web interface or with environment variables. Installed settings are stored in `~/.boz/.env`; local development can also use a `.env` file in the project root.
+
+Credentials entered through Settings are write-only: the browser sends a replacement value to BOZ but cannot read saved values back. They are stored in the per-user server configuration file and are never persisted in browser storage. Set `BOZ_CONFIG_DIR` to use a different per-user configuration directory.
 
 ```dotenv
 # github | nvidia | offline | custom
@@ -152,7 +154,7 @@ FRED_API_KEY=<api-key>
 | **Offline / Ollama** | Private local inference | No key by default |
 | **Custom** | OpenAI-compatible routers and gateways | Provider-dependent |
 
-Never commit `.env` files or API keys. They are excluded by the repository's `.gitignore`.
+Never commit `.env` files or API keys. They are excluded by the repository's `.gitignore`. Remote custom-provider endpoints must use HTTPS; explicit loopback endpoints remain available for local OpenAI-compatible routers.
 
 ## Development
 
@@ -181,13 +183,15 @@ npm run dev:web
 
 ### Docker
 
-The included Compose setup runs the production web dashboard on port `3000`:
+The included Compose setup runs the dashboard on host loopback port `3000`:
 
 ```bash
 docker compose up --build
 ```
 
 Then open [http://localhost:3000](http://localhost:3000).
+
+BOZ currently has no multi-user authentication. Keep the service bound to loopback; do not expose the container port to a LAN or the public internet.
 
 ## Contributing
 

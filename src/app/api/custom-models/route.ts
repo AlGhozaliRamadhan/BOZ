@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { config } from '@/config/config';
 import { parseCustomModels, CUSTOM_DEFAULT_URL } from '@/config/custom.config';
+import { fetchCustomProviderModels } from '@/services/ai/custom-provider.client';
 
 function persistedModels() {
   const list = parseCustomModels(process.env.CUSTOM_AI_MODELS);
@@ -17,37 +18,37 @@ export async function GET() {
   const fallback = persistedModels();
 
   try {
-    const headers: Record<string, string> = { Accept: 'application/json' };
-    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-
-    const res = await fetch(`${endpoint}/models`, {
-      headers,
-      signal: AbortSignal.timeout(4000),
-    });
-
-    if (!res.ok) {
-      return NextResponse.json({ models: fallback, source: 'persisted', endpoint });
-    }
-
-    const data = await res.json();
+    const data = await fetchCustomProviderModels({ endpoint, apiKey, timeoutMs: 4_000 });
     const unique = new Map<string, { id: string; label: string }>();
 
-    const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+    const rows = Array.isArray(data)
+      ? data
+      : data && typeof data === 'object' && 'data' in data && Array.isArray(data.data)
+        ? data.data
+        : [];
     for (const row of rows) {
       const id = typeof row === 'string' ? row : row?.id;
-      if (!id || typeof id !== 'string') continue;
+      if (
+        !id ||
+        typeof id !== 'string' ||
+        id.length > 200 ||
+        /\r|\n|\0|,/.test(id)
+      ) continue;
       unique.set(id, { id, label: id });
+      if (unique.size >= 100) break;
     }
 
-    for (const m of fallback) unique.set(m.id, m);
+    for (const model of fallback) {
+      if (unique.size >= 100) break;
+      unique.set(model.id, model);
+    }
 
     const models = Array.from(unique.values());
     return NextResponse.json({
       models: models.length > 0 ? models : fallback,
       source: models.length > 0 ? 'live' : 'persisted',
-      endpoint,
     });
   } catch {
-    return NextResponse.json({ models: fallback, source: 'persisted', endpoint });
+    return NextResponse.json({ models: fallback, source: 'persisted' });
   }
 }

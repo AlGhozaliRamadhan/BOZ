@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { config } from '@/config/config';
 import { CUSTOM_DEFAULT_URL } from '@/config/custom.config';
+import { fetchCustomProviderModels } from '@/services/ai/custom-provider.client';
 
 export async function POST() {
   try {
@@ -9,33 +10,23 @@ export async function POST() {
     if (provider === 'custom') {
       const endpoint = (config.custom.endpoint || CUSTOM_DEFAULT_URL).replace(/\/+$/, '');
       const start = Date.now();
-      const headers: Record<string, string> = { Accept: 'application/json' };
-      if (config.custom.apiKey) headers.Authorization = `Bearer ${config.custom.apiKey}`;
 
       try {
-        const res = await fetch(`${endpoint}/models`, {
-          headers,
-          signal: AbortSignal.timeout(5000),
+        await fetchCustomProviderModels({
+          endpoint,
+          apiKey: config.custom.apiKey,
+          timeoutMs: 5_000,
         });
         const latencyMs = Date.now() - start;
-        if (!res.ok) {
-          return NextResponse.json({
-            success: false,
-            message: `9router returned HTTP ${res.status} from ${endpoint}/models`,
-            latencyMs,
-          });
-        }
         return NextResponse.json({
           success: true,
-          message: `9router reachable at ${endpoint}`,
+          message: 'Custom provider is reachable.',
           latencyMs,
         });
-      } catch (err) {
+      } catch {
         return NextResponse.json({
           success: false,
-          message: err instanceof Error
-            ? `Cannot reach 9router at ${endpoint}: ${err.message}`
-            : `Cannot reach 9router at ${endpoint}`,
+          message: 'Custom provider could not be reached.',
         });
       }
     }
@@ -81,10 +72,10 @@ export async function POST() {
       message: 'API keys are present and ready for use.',
       latencyMs: Math.floor(Math.random() * 20) + 10,
     });
-  } catch (err: unknown) {
+  } catch {
     return NextResponse.json({
       success: false,
-      message: err instanceof Error ? err.message : 'Unknown error',
+      message: 'Unable to test the provider connection.',
     });
   }
 }

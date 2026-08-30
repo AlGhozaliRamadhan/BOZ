@@ -9,7 +9,11 @@ const packageJson = JSON.parse(readFileSync(path.join(__dirname, 'package.json')
 const nextConfig = {
   output: 'standalone',
   outputFileTracingExcludes: {
-    '/*': ['./.env', './.env.*'],
+    '/*': [
+      './.env',
+      './.env.*',
+      './src/data/idx-universe-cache.json',
+    ],
   },
   env: {
     NEXT_PUBLIC_BOZ_VERSION: packageJson.version,

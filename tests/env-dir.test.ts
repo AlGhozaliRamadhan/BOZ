@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Hoisted mocks must be declared before importing the SUT.
 vi.mock('os', async (importOriginal) => {
@@ -27,6 +27,7 @@ const homedirMock = vi.mocked(homedir);
 const mkdirSyncMock = vi.mocked(mkdirSync);
 
 beforeEach(() => {
+  delete process.env.BOZ_CONFIG_DIR;
   homedirMock.mockReset();
   mkdirSyncMock.mockReset();
   // Default: mkdirSync is a no-op (returns undefined).
@@ -49,4 +50,16 @@ describe('env-dir', () => {
     homedirMock.mockReturnValue('');
     expect(configEnvPath()).toMatch(/\.boz[\\/]\.env$/);
   });
+
+  it('honors an explicit BOZ_CONFIG_DIR', () => {
+    homedirMock.mockReturnValue('/ignored');
+    process.env.BOZ_CONFIG_DIR = join(process.cwd(), 'test-config');
+
+    expect(ensureConfigDir()).toBe(join(process.cwd(), 'test-config'));
+    expect(configEnvPath()).toBe(join(process.cwd(), 'test-config', '.env'));
+  });
+});
+
+afterEach(() => {
+  delete process.env.BOZ_CONFIG_DIR;
 });
