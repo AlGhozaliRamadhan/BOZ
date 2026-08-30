@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, cpSync } from 'fs';
+import { existsSync, mkdirSync, cpSync, readdirSync, rmSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -11,15 +11,27 @@ const __dirname = dirname(__filename);
  * Returns which destinations were copied to and which sources were skipped.
  *
  * @param {{ moduleRoot: string }} opts
- * @returns {Promise<{ copied: string[]; skipped: string[] }>}
+ * @returns {Promise<{ copied: string[]; skipped: string[]; removed: string[] }>}
  */
 export async function run({ moduleRoot }) {
   const src = join(moduleRoot, '.next', 'static');
-  const destA = join(moduleRoot, '.next', 'standalone', '.next', 'static');
-  const destB = join(moduleRoot, '.next', 'standalone', 'public', '_next', 'static');
+  const standaloneRoot = join(moduleRoot, '.next', 'standalone');
+  const destA = join(standaloneRoot, '.next', 'static');
+  const destB = join(standaloneRoot, 'public', '_next', 'static');
+  const removed = [];
+
+  if (existsSync(standaloneRoot)) {
+    for (const entry of readdirSync(standaloneRoot, { withFileTypes: true })) {
+      if (entry.isFile() && /^\.env(?:\.|$)/.test(entry.name)) {
+        const envPath = join(standaloneRoot, entry.name);
+        rmSync(envPath, { force: true });
+        removed.push(envPath);
+      }
+    }
+  }
 
   if (!existsSync(src)) {
-    return { copied: [], skipped: ['.next/static'] };
+    return { copied: [], skipped: ['.next/static'], removed };
   }
 
   const copied = [];
@@ -29,7 +41,7 @@ export async function run({ moduleRoot }) {
     copied.push(dest);
   }
 
-  return { copied, skipped: [] };
+  return { copied, skipped: [], removed };
 }
 
 // CLI wrapper: run when invoked directly (`node scripts/copy-static.js`).
@@ -38,7 +50,10 @@ const isCli = process.argv[1] && resolve(process.argv[1]) === __filename;
 if (isCli) {
   const moduleRoot = resolve(__dirname, '..');
   try {
-    const { copied, skipped } = await run({ moduleRoot });
+    const { copied, skipped, removed } = await run({ moduleRoot });
+    for (const envPath of removed) {
+      console.log(`✓ sanitize-standalone: ${envPath}`);
+    }
     for (const dest of copied) {
       console.log(`✓ copy-static: ${dest}`);
     }
@@ -47,7 +62,7 @@ if (isCli) {
     }
     process.exit(0);
   } catch (err) {
-    console.warn(`⚠ copy-static: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(0);
+    console.error(`✗ copy-static: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
   }
 }

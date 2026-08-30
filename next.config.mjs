@@ -8,6 +8,9 @@ const packageJson = JSON.parse(readFileSync(path.join(__dirname, 'package.json')
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  outputFileTracingExcludes: {
+    '/*': ['./.env', './.env.*'],
+  },
   env: {
     NEXT_PUBLIC_BOZ_VERSION: packageJson.version,
   },
