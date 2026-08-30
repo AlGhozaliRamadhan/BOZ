@@ -34,11 +34,26 @@ describe('copy-static run()', () => {
     expect(readFileSync(join(destB, 'app.css'), 'utf8')).toBe('body { color: red; }');
     expect(result.copied).toEqual([destA, destB]);
     expect(result.skipped).toEqual([]);
+    expect(result.removed).toEqual([]);
   });
 
-  it('returns skipped when source is missing and does not throw', async () => {
+  it('removes traced environment files even when static assets are missing', async () => {
+    const standalone = join(root, '.next', 'standalone');
+    mkdirSync(standalone, { recursive: true });
+    const envFiles = ['.env', '.env.local', '.env.production'];
+    for (const name of envFiles) {
+      writeFileSync(join(standalone, name), 'SECRET=do-not-package');
+    }
+    writeFileSync(join(standalone, 'server.js'), 'console.log("safe")');
+
     const result = await run({ moduleRoot: root });
+
     expect(result.copied).toEqual([]);
     expect(result.skipped).toEqual(['.next/static']);
+    expect(result.removed).toEqual(envFiles.map(name => join(standalone, name)));
+    for (const name of envFiles) {
+      expect(existsSync(join(standalone, name))).toBe(false);
+    }
+    expect(existsSync(join(standalone, 'server.js'))).toBe(true);
   });
 });
