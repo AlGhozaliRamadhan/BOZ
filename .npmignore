@@ -21,6 +21,7 @@ docker-compose.yml
 
 # Output & Data
 data/
+artifacts/
 *.tgz
 *.zip
 *.tar.gz

@@ -61,18 +61,15 @@ tmp/
 # Runtime data caches
 src/data/
 
-# Archives and Tarballs
-*.tgz
-*.tar.gz
-*.zip
+# Generated release artifacts (the only allowed archive location)
+/artifacts/releases/
 
 # Local Developer Caches
 .eslintcache
 *.log
 
-# Project documentation & agent configs (local only)
+# Local agent configs
 CLAUDE.md
-AGENTS.md
 .agents/
 .claude/
 .worktrees/
