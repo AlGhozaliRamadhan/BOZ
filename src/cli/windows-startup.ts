@@ -1,12 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { win32 } from 'node:path';
 import { ensureWindowsBackgroundRunner } from './background-launcher.js';
 
 const SHORTCUT_NAME = 'BOZ.lnk';
 
 export function getStartupShortcutPath(appData = process.env.APPDATA): string | undefined {
-  return appData ? join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', SHORTCUT_NAME) : undefined;
+  return appData ? win32.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', SHORTCUT_NAME) : undefined;
 }
 
 export function isStartupAvailable(platform: NodeJS.Platform = process.platform): boolean {

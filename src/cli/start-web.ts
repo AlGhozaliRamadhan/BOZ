@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { resolve, join, dirname } from 'path';
+import { resolve, join, dirname, win32 } from 'path';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { waitForServer } from './wait-for-server.js';
@@ -9,7 +9,8 @@ const MODULE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
 
 export function packagedServerPath(moduleRoot = MODULE_ROOT): string {
-  return join(moduleRoot, '.next', 'standalone', 'server.js');
+  const pathJoin = /^[A-Za-z]:[\\/]/.test(moduleRoot) ? win32.join : join;
+  return pathJoin(moduleRoot, '.next', 'standalone', 'server.js');
 }
 
 export interface WebServerHandle {
