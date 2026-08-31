@@ -1,5 +1,6 @@
 import readline from 'node:readline';
 import { getBuildVersion } from '../utils/version.js';
+import type { UpdateCheckResult } from '../utils/update-check.js';
 
 export type LauncherAction = 'web' | 'background' | 'exit';
 export type ExistingSessionAction = 'open-existing' | 'restart' | 'leave-running';
@@ -8,6 +9,7 @@ export interface LauncherInfo {
   port: number;
   version: string;
   providerStatus: string;
+  updateInfo?: UpdateCheckResult | null;
 }
 
 function hasProviderConfiguration(env: NodeJS.ProcessEnv): boolean {
@@ -19,11 +21,16 @@ function hasProviderConfiguration(env: NodeJS.ProcessEnv): boolean {
   return Boolean(env.GITHUB_TOKEN || env.NVIDIA_API_KEY || env.CUSTOM_AI_URL || env.OFFLINE_AI_URL);
 }
 
-export function createLauncherInfo(port: number, env: NodeJS.ProcessEnv = process.env): LauncherInfo {
+export function createLauncherInfo(
+  port: number,
+  env: NodeJS.ProcessEnv = process.env,
+  updateInfo: UpdateCheckResult | null = null,
+): LauncherInfo {
   return {
     port,
     version: getBuildVersion(),
     providerStatus: hasProviderConfiguration(env) ? 'Configured' : 'Needs setup',
+    updateInfo,
   };
 }
 
@@ -52,11 +59,17 @@ export function renderLauncher(info: LauncherInfo, selected: number): string {
     const body = `  ${index === selected ? '›' : ' '} [${key}] ${label.padEnd(29)}${description}`;
     return boxLine(body, index === selected ? 97 : 90);
   });
+  const updateBanner = info.updateInfo?.updateAvailable ? [
+    boxLine(`  ★ UPDATE AVAILABLE: v${info.updateInfo.latestVersion} (current: v${info.version})`, 93),
+    boxLine(`    Run '${info.updateInfo.updateCommand}' to update`, 96),
+    `├${line}┤`,
+  ] : [];
   return [
     `┌${line}┐`,
     boxLine(`  BOZ  BEHAVIORAL OUTLOOK ZONE  v${info.version}`, 97),
     boxLine('  Local AI market intelligence • private by default', 90),
     `├${line}┤`,
+    ...updateBanner,
     row('Dashboard', `http://127.0.0.1:${info.port}`),
     row('AI setup', info.providerStatus),
     row('Runtime', `${process.version}  •  ${process.env.NODE_ENV === 'production' ? 'Production' : 'Local'}`),
