@@ -3,7 +3,10 @@ import { getBuildVersion } from '../utils/version.js';
 export const DEFAULT_WEB_PORT = 21526;
 
 export type ModeResult =
+  | { mode: 'menu'; port: number }
   | { mode: 'web'; port: number }
+  | { mode: 'background'; port: number }
+  | { mode: 'background-child'; port: number }
   | { mode: 'version' }
   | { mode: 'help' };
 
@@ -29,8 +32,20 @@ export function resolveMode(
 ): ModeResult {
   const first = args[0];
 
-  if (!first || first === 'web' || first === '--port') {
+  if (!first || first === '--port') {
+    return { mode: 'menu', port: resolvePort(args, env) };
+  }
+
+  if (first === 'web') {
     return { mode: 'web', port: resolvePort(args, env) };
+  }
+
+  if (first === 'background' || first === '--background') {
+    return { mode: 'background', port: resolvePort(args, env) };
+  }
+
+  if (first === '--background-child') {
+    return { mode: 'background-child', port: resolvePort(args, env) };
   }
 
   if (first === '--version' || first === '-v') {
@@ -42,10 +57,11 @@ export function resolveMode(
 
 export function printUsage(): void {
   process.stdout.write(
-    'BOZ v' + getBuildVersion() + ' — web market intelligence\n' +
-    'Usage: boz [web] [--port N]\n\n' +
-    '  boz              start the web dashboard and open a browser\n' +
-    '  boz web          alias for the default web launch\n' +
+    'BOZ v' + getBuildVersion() + ' — local AI market intelligence\n' +
+    'Usage: boz [command] [--port N]\n\n' +
+    '  boz              show the BOZ launcher\n' +
+    '  boz web          start the dashboard and open a browser\n' +
+    '  boz background   run BOZ in the Windows system tray\n' +
     '  boz --port N     use port N (default ' + DEFAULT_WEB_PORT + ')\n' +
     '  boz --version    print version\n' +
     '  boz --help       show this help\n\n',

@@ -2,11 +2,17 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
 import http from 'http';
-import { startWebServer } from '../../src/cli/start-web.js';
+import { packagedServerPath, startWebServer } from '../../src/cli/start-web.js';
 
 const STANDALONE_SERVER = resolve(process.cwd(), '.next', 'standalone', 'server.js');
 
 const describeIfBuilt = existsSync(STANDALONE_SERVER) ? describe : describe.skip;
+
+describe('packaged server path', () => {
+  it('points to the standalone server inside a package root', () => {
+    expect(packagedServerPath('C:\\boz')).toBe('C:\\boz\\.next\\standalone\\server.js');
+  });
+});
 
 describeIfBuilt('startWebServer (requires `npm run build` first)', () => {
   const port = 21527;
