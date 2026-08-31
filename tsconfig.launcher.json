@@ -9,9 +9,14 @@
   "include": [
     "src/main.ts",
     "src/cli/dev-web.ts",
+    "src/cli/background-launcher.ts",
+    "src/cli/launcher-ui.ts",
     "src/cli/mode.ts",
     "src/cli/open-browser.ts",
+    "src/cli/single-instance.ts",
     "src/cli/start-web.ts",
+    "src/cli/system-tray.ts",
+    "src/cli/windows-startup.ts",
     "src/cli/wait-for-server.ts",
     "src/utils/env-dir.ts",
     "src/utils/version.ts"

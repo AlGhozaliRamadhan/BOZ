@@ -24,7 +24,7 @@ export interface WebServerHandle {
 
 export function startWebServer(
   port: number,
-  opts: { readyTimeoutMs?: number } = {},
+  opts: { readyTimeoutMs?: number; silent?: boolean } = {},
 ): WebServerHandle {
   const readyTimeoutMs = opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
   const url = `http://127.0.0.1:${port}`;
@@ -34,7 +34,8 @@ export function startWebServer(
     [NEXT_CLI, 'dev', '--webpack', '--port', String(port), '--hostname', '127.0.0.1'],
     {
       env: { ...process.env, PORT: String(port), HOSTNAME: '127.0.0.1' },
-      stdio: ['ignore', 'inherit', 'inherit'],
+      stdio: opts.silent ? ['ignore', 'ignore', 'ignore'] : ['ignore', 'inherit', 'inherit'],
+      windowsHide: opts.silent === true,
     },
   );
 

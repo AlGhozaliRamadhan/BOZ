@@ -1,11 +1,17 @@
 import { spawn } from 'child_process';
-import { resolve, join, dirname } from 'path';
+import { resolve, join, dirname, win32 } from 'path';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { waitForServer } from './wait-for-server.js';
 
 const MODULE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
+
+export function packagedServerPath(moduleRoot = MODULE_ROOT): string {
+  const pathJoin = /^[A-Za-z]:[\\/]/.test(moduleRoot) ? win32.join : join;
+  return pathJoin(moduleRoot, '.next', 'standalone', 'server.js');
+}
 
 export interface WebServerHandle {
   url: string;
@@ -18,15 +24,27 @@ export interface WebServerHandle {
 
 export function startWebServer(
   port: number,
-  opts: { readyTimeoutMs?: number } = {},
+  opts: { readyTimeoutMs?: number; silent?: boolean } = {},
 ): WebServerHandle {
-  const serverPath = join(MODULE_ROOT, '.next', 'standalone', 'server.js');
+  const serverPath = packagedServerPath();
   const readyTimeoutMs = opts.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
   const url = `http://127.0.0.1:${port}`;
 
+  if (!existsSync(serverPath)) {
+    const ready = Promise.reject(new Error(
+      'BOZ dashboard files are missing. From this source checkout, close any running BOZ instance and run `npm run build:package`. ' +
+      'For an installed package, reinstall BOZ.',
+    ));
+    // The caller immediately awaits `ready`; attach a handler so a direct
+    // handle consumer does not produce an unhandled-rejection warning.
+    void ready.catch(() => undefined);
+    return { url, port, ready, stop: () => undefined };
+  }
+
   const child = spawn('node', [serverPath], {
     env: { ...process.env, PORT: String(port), HOSTNAME: '127.0.0.1' },
-    stdio: ['ignore', 'inherit', 'inherit'],
+    stdio: opts.silent ? ['ignore', 'ignore', 'ignore'] : ['ignore', 'inherit', 'inherit'],
+    windowsHide: opts.silent === true,
   });
 
   let stopped = false;
