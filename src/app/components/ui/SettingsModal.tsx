@@ -177,6 +177,30 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
     nvidia: '',
     custom: '',
   });
+  const [updateInfo, setUpdateInfo] = useState<{
+    currentVersion: string;
+    latestVersion: string;
+    updateAvailable: boolean;
+    packageUrl: string;
+    updateCommand: string;
+  } | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [copiedUpdateCommand, setCopiedUpdateCommand] = useState(false);
+
+  const fetchUpdateInfo = useCallback(async (force = false) => {
+    setCheckingUpdate(true);
+    try {
+      const res = await fetch(`/api/version${force ? '?force=true' : ''}`);
+      if (res.ok) {
+        const data = await res.json();
+        setUpdateInfo(data);
+      }
+    } catch {
+      // Ignore background error
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }, []);
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
@@ -203,9 +227,10 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
   useEffect(() => {
     if (isOpen) {
       fetchSettings();
+      fetchUpdateInfo(false);
       setSearchQuery('');
     }
-  }, [isOpen, fetchSettings]);
+  }, [isOpen, fetchSettings, fetchUpdateInfo]);
 
   useEffect(() => {
     // Remove credentials persisted by releases before the write-only settings API.
@@ -768,6 +793,135 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                           <option value="Extra">Extra (multi-perspective)</option>
                           <option value="Max">Max (exhaustive 6-step)</option>
                         </select>
+                      </div>
+                    </div>
+
+                    {/* Version & Updates Section */}
+                    <div>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Version & Updates</h3>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>Manage BOZ application updates and npm package releases.</p>
+
+                      <div style={{
+                        padding: '16px',
+                        borderRadius: '10px',
+                        background: 'rgba(255, 255, 255, 0.02)',
+                        border: '1px solid rgba(255, 255, 255, 0.06)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '16px',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div>
+                            <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
+                              BOZ v{updateInfo?.currentVersion || '2.4.31'}
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              {checkingUpdate ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                  <i className="fa-solid fa-spinner fa-spin"></i> Checking npm registry...
+                                </span>
+                              ) : updateInfo?.updateAvailable ? (
+                                <span style={{ color: 'var(--accent-cyan)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                  <i className="fa-solid fa-arrow-up"></i> Update available: v{updateInfo.latestVersion}
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--bull, #00d2ff)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                  <i className="fa-solid fa-check"></i> Running the latest version
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => fetchUpdateInfo(true)}
+                            disabled={checkingUpdate}
+                            style={{
+                              background: 'rgba(255, 255, 255, 0.05)',
+                              border: '1px solid rgba(255, 255, 255, 0.1)',
+                              color: 'var(--text-primary)',
+                              padding: '6px 12px',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              fontWeight: 500,
+                              cursor: checkingUpdate ? 'not-allowed' : 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                            }}
+                          >
+                            <i className={`fa-solid fa-rotate-right ${checkingUpdate ? 'fa-spin' : ''}`}></i>
+                            <span>Check for Updates</span>
+                          </button>
+                        </div>
+
+                        {updateInfo?.updateAvailable && (
+                          <div style={{
+                            padding: '12px 14px',
+                            background: 'rgba(0, 210, 255, 0.06)',
+                            border: '1px solid rgba(0, 210, 255, 0.2)',
+                            borderRadius: '8px',
+                          }}>
+                            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
+                              Install Update via Terminal:
+                            </div>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '10px',
+                              background: 'rgba(0, 0, 0, 0.4)',
+                              border: '1px solid rgba(255, 255, 255, 0.1)',
+                              borderRadius: '6px',
+                              padding: '8px 12px',
+                              fontFamily: 'var(--font-mono, monospace)',
+                              fontSize: '12px',
+                              color: 'var(--accent-cyan)',
+                            }}>
+                              <code>{updateInfo.updateCommand}</code>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(updateInfo.updateCommand);
+                                  setCopiedUpdateCommand(true);
+                                  setTimeout(() => setCopiedUpdateCommand(false), 2500);
+                                }}
+                                style={{
+                                  background: copiedUpdateCommand ? 'rgba(0, 210, 255, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+                                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                                  color: copiedUpdateCommand ? 'var(--accent-cyan)' : 'var(--text-primary)',
+                                  borderRadius: '4px',
+                                  padding: '4px 8px',
+                                  fontSize: '11px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}
+                              >
+                                <i className={`fa-solid ${copiedUpdateCommand ? 'fa-check' : 'fa-copy'}`}></i>
+                                <span>{copiedUpdateCommand ? 'Copied' : 'Copy'}</span>
+                              </button>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                              <a
+                                href={updateInfo.packageUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  color: 'var(--text-muted)',
+                                  fontSize: '11px',
+                                  textDecoration: 'underline',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}
+                              >
+                                <i className="fa-brands fa-npm"></i> View @agr77/boz on npm
+                              </a>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

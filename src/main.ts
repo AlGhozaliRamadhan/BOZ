@@ -119,7 +119,18 @@ async function main(): Promise<void> {
   const result = resolveMode(process.argv.slice(2));
   if (result.mode === 'version') {
     const { getBuildVersion } = await import('./utils/version.js');
-    console.log('BOZ v' + getBuildVersion());
+    const { checkForUpdates } = await import('./utils/update-check.js');
+    const version = getBuildVersion();
+    console.log('BOZ v' + version);
+    try {
+      const update = await checkForUpdates({ currentVersion: version, timeoutMs: 1500 });
+      if (update.updateAvailable) {
+        console.log(`\nUpdate available: v${version} → v${update.latestVersion}`);
+        console.log(`Run '${update.updateCommand}' to update.\n`);
+      }
+    } catch {
+      // Keep --version fast and non-fatal
+    }
     return;
   }
   if (result.mode === 'help') return printUsage();
@@ -129,8 +140,17 @@ async function main(): Promise<void> {
   const { createLauncherInfo, selectExistingSessionAction, selectLauncherAction } = await import('./cli/launcher-ui.js');
   const { getRunningInstance, requestInstanceRestart, waitForInstanceRestart } = await import('./cli/single-instance.js');
   const { openBrowser } = await import('./cli/open-browser.js');
+  const { checkForUpdates, getCachedUpdateResult } = await import('./utils/update-check.js');
+  let updateInfo = getCachedUpdateResult();
+  if (!updateInfo) {
+    try {
+      updateInfo = await checkForUpdates({ timeoutMs: 1200 });
+    } catch {
+      // Keep launcher prompt instant even if offline
+    }
+  }
   const existing = getRunningInstance();
-  const action = await selectLauncherAction(createLauncherInfo(result.port));
+  const action = await selectLauncherAction(createLauncherInfo(result.port, process.env, updateInfo));
   if (action === 'exit') return;
   if (existing) {
     const sessionAction = await selectExistingSessionAction(existing.url);

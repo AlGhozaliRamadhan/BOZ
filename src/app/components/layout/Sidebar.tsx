@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 
@@ -8,6 +8,14 @@ interface NavItem {
   label: string;
   href: string;
   icon: React.ReactNode;
+}
+
+interface UpdateInfo {
+  currentVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+  packageUrl: string;
+  updateCommand: string;
 }
 
 const navItems: NavItem[] = [
@@ -33,6 +41,9 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [chatSessions, setChatSessions] = useState<{id: string, title: string}[]>([]);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
 
@@ -111,6 +122,25 @@ export default function Sidebar() {
       document.body.classList.remove('sidebar-collapsed');
     }
   }, [collapsed]);
+
+  const checkUpdates = useCallback(async (force = false) => {
+    try {
+      const res = await fetch(`/api/version${force ? '?force=true' : ''}`);
+      if (res.ok) {
+        const data = await res.json();
+        setUpdateInfo(data);
+      }
+    } catch {
+      // Ignore background network error
+    }
+  }, []);
+
+  useEffect(() => {
+    checkUpdates();
+    const handleCheckUpdates = () => checkUpdates(true);
+    window.addEventListener('boz_check_updates', handleCheckUpdates);
+    return () => window.removeEventListener('boz_check_updates', handleCheckUpdates);
+  }, [checkUpdates]);
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -222,12 +252,26 @@ export default function Sidebar() {
                 className="profile-popover-item"
                 onClick={() => {
                   setIsProfileMenuOpen(false);
+                  setIsUpdateModalOpen(true);
                 }}
               >
                 <div className="profile-popover-item-left">
                   <i className="fa-solid fa-circle-info"></i>
                   <span>About BOZ</span>
                 </div>
+                {updateInfo?.updateAvailable && (
+                  <span style={{
+                    background: 'rgba(0, 210, 255, 0.15)',
+                    border: '1px solid rgba(0, 210, 255, 0.3)',
+                    color: 'var(--accent-cyan)',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                  }}>
+                    v{updateInfo.latestVersion}
+                  </span>
+                )}
               </button>
             </div>
           </div>
@@ -238,8 +282,9 @@ export default function Sidebar() {
           role="button"
           tabIndex={0}
         >
-          <div className="sidebar-profile-avatar" aria-hidden="true">
+          <div className="sidebar-profile-avatar" style={{ position: 'relative' }} aria-hidden="true">
             <i className="fa-solid fa-user" style={{ fontSize: '13px', opacity: 0.85 }}></i>
+            {updateInfo?.updateAvailable && <span className="sidebar-update-dot" title={`Update available: v${updateInfo.latestVersion}`} />}
           </div>
           {!collapsed && (
             <div className="sidebar-profile-meta">
@@ -255,11 +300,189 @@ export default function Sidebar() {
           )}
         </div>
         <div className="sidebar-version-row">
+          {updateInfo?.updateAvailable && (
+            <button
+              type="button"
+              className="sidebar-update-badge animate-fadeIn"
+              onClick={() => setIsUpdateModalOpen(true)}
+              title={`Update available: v${updateInfo.latestVersion} • Click for details`}
+            >
+              <i className="fa-solid fa-arrow-up" style={{ fontSize: '10px' }}></i>
+              <span>Update v{updateInfo.latestVersion}</span>
+            </button>
+          )}
           <span className="sidebar-version">
-            v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.4.3'}
+            v{updateInfo?.currentVersion ?? process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.4.31'}
           </span>
         </div>
       </div>
+
+      {/* Update & About Modal */}
+      {isUpdateModalOpen && (
+        <div className="update-modal-overlay" onClick={() => setIsUpdateModalOpen(false)}>
+          <div className="update-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="update-modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <img src="/logo-boz.png" alt="BOZ" style={{ width: '24px', height: '24px', borderRadius: '4px' }} />
+                <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
+                  {updateInfo?.updateAvailable ? 'New Update Available!' : 'About BOZ'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsUpdateModalOpen(false)}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '14px' }}
+                aria-label="Close"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+            <div className="update-modal-body">
+              {updateInfo?.updateAvailable ? (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(0, 210, 255, 0.08)', border: '1px solid rgba(0, 210, 255, 0.25)', borderRadius: '8px' }}>
+                    <div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Installed version</div>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>v{updateInfo.currentVersion}</div>
+                    </div>
+                    <i className="fa-solid fa-arrow-right" style={{ color: 'var(--accent-cyan)' }}></i>
+                    <div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Latest release</div>
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--accent-cyan)' }}>v{updateInfo.latestVersion}</div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '8px' }}>
+                      Update via Terminal
+                    </label>
+                    <div className="update-command-box">
+                      <code>{updateInfo.updateCommand}</code>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(updateInfo.updateCommand);
+                          setCopiedCommand(true);
+                          setTimeout(() => setCopiedCommand(false), 2500);
+                        }}
+                        style={{
+                          background: copiedCommand ? 'rgba(0, 210, 255, 0.2)' : 'rgba(255, 255, 255, 0.08)',
+                          border: '1px solid rgba(255, 255, 255, 0.15)',
+                          color: copiedCommand ? 'var(--accent-cyan)' : 'var(--text-primary)',
+                          borderRadius: '6px',
+                          padding: '6px 12px',
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <i className={`fa-solid ${copiedCommand ? 'fa-check' : 'fa-copy'}`}></i>
+                        <span>{copiedCommand ? 'Copied!' : 'Copy'}</span>
+                      </button>
+                    </div>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px', marginBottom: 0 }}>
+                      Run this command in your terminal, then restart BOZ to apply the update.
+                    </p>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <a
+                      href={updateInfo.packageUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: '6px',
+                        background: 'rgba(255, 255, 255, 0.06)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        color: 'var(--text-primary)',
+                        fontSize: '13px',
+                        textDecoration: 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <i className="fa-brands fa-npm" style={{ fontSize: '14px' }}></i>
+                      <span>View on npm</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => setIsUpdateModalOpen(false)}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: '6px',
+                        background: 'var(--text-primary)',
+                        color: 'var(--bg-primary)',
+                        border: 'none',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', textAlign: 'center', padding: '10px 0' }}>
+                    <div style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      BOZ Intelligence
+                    </div>
+                    <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                      Version v{updateInfo?.currentVersion ?? process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.4.31'}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--bull, #00d2ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginTop: '4px' }}>
+                      <i className="fa-solid fa-circle-check"></i>
+                      <span>You are running the latest version</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <button
+                      type="button"
+                      onClick={() => checkUpdates(true)}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: '6px',
+                        background: 'rgba(255, 255, 255, 0.06)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        color: 'var(--text-primary)',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <i className="fa-solid fa-rotate-right" style={{ marginRight: '6px' }}></i>
+                      Check Again
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsUpdateModalOpen(false)}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: '6px',
+                        background: 'var(--text-primary)',
+                        color: 'var(--bg-primary)',
+                        border: 'none',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Close
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
