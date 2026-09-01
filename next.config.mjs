@@ -8,6 +8,9 @@ const packageJson = JSON.parse(readFileSync(path.join(__dirname, 'package.json')
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  experimental: {
+    proxyClientMaxBodySize: 262144,
+  },
   outputFileTracingExcludes: {
     '/*': [
       './.env',

@@ -6,8 +6,8 @@ We actively provide security updates for the following versions of BOZ:
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 2.4.x   | :white_check_mark: |
-| < 2.4.0 | :x:                |
+| 2.5.x   | :white_check_mark: |
+| < 2.5.0 | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -32,4 +32,4 @@ Please **do not** report security vulnerabilities via public GitHub issues or di
 ## Security Best Practices for Users
 
 - **API Keys & Credentials**: Always store AI backend keys (e.g., OpenAI, GitHub Models, NVIDIA NIM) in your local .env file. Never commit .env or sensitive tokens into Git.
-- **Local Network**: By default, oz binds to 127.0.0.1. Do not expose the development or local launcher ports publicly without proper authentication or reverse proxy protection.
+- **Local Network**: By default, `boz` binds to `127.0.0.1`. Do not expose the development or local launcher ports publicly without proper authentication or reverse proxy protection.

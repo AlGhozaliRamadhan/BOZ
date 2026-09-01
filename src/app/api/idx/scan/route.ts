@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { jsonResponse, errorResponse } from '@/app/lib/api-helpers';
 import { IdxScannerService } from '@/services/market/idx.scanner.service';
 import type { IdxSector, SignalFilter, SetupFilter, ScanMode } from '@/services/market/idx.scanner.service';
+import { WorkloadBusyError } from '@/services/security/workload-gate';
 
 const VALID_SECTORS: IdxSector[] = [
   'all', 'banking', 'consumer', 'mining', 'energy',
@@ -55,6 +56,7 @@ export async function GET(request: NextRequest) {
       skippedCount: result.skipped.length,
     });
   } catch (err: unknown) {
+    if (err instanceof WorkloadBusyError) return errorResponse(err.message, 429);
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return errorResponse(msg);
   }

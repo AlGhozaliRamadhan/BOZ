@@ -10,7 +10,14 @@ export type HostResolver = (hostname: string) => Promise<ResolvedAddress[]>;
 
 export interface OutboundUrlPolicyOptions {
   allowLoopback?: boolean;
+  allowQuery?: boolean;
+  allowFragment?: boolean;
   resolveHost?: HostResolver;
+}
+
+export interface ValidatedOutboundUrl {
+  url: URL;
+  addresses: ResolvedAddress[];
 }
 
 export class UnsafeOutboundUrlError extends Error {
@@ -54,6 +61,21 @@ function normalizedIpv6(address: string): string {
   return address.toLowerCase().replace(/^\[|\]$/g, '');
 }
 
+function parseIpv6Words(address: string): number[] | null {
+  const normalized = normalizedIpv6(address);
+  if (normalized.includes('.')) return null;
+  const halves = normalized.split('::');
+  if (halves.length > 2) return null;
+  const left = halves[0] ? halves[0].split(':') : [];
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const missing = 8 - left.length - right.length;
+  if ((halves.length === 1 && missing !== 0) || missing < 0) return null;
+  const words = [...left, ...Array(missing).fill('0'), ...right].map((word) => Number.parseInt(word || '0', 16));
+  return words.length === 8 && words.every((word) => Number.isInteger(word) && word >= 0 && word <= 0xffff)
+    ? words
+    : null;
+}
+
 function isIpv6Loopback(address: string): boolean {
   return normalizedIpv6(address) === '::1';
 }
@@ -62,18 +84,20 @@ function isBlockedIpv6(address: string): boolean {
   const normalized = normalizedIpv6(address);
   if (normalized === '::' || normalized === '::1') return true;
 
-  const mappedIpv4 = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mappedIpv4) return isBlockedIpv4(mappedIpv4[1]);
-
-  const mappedHex = normalized.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (mappedHex) {
-    const high = Number.parseInt(mappedHex[1], 16);
-    const low = Number.parseInt(mappedHex[2], 16);
-    const ipv4 = `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
-    return isBlockedIpv4(ipv4);
+  const words = parseIpv6Words(normalized);
+  if (!words) return true;
+  const isIpv4Compatible = words.slice(0, 6).every((word) => word === 0);
+  const isIpv4Mapped = words.slice(0, 5).every((word) => word === 0) && words[5] === 0xffff;
+  const isIpv4Translated = words.slice(0, 4).every((word) => word === 0) && words[4] === 0xffff && words[5] === 0;
+  const isNat64WellKnown = words[0] === 0x64 && words[1] === 0xff9b && words.slice(2, 6).every((word) => word === 0);
+  const isNat64LocalUse = words[0] === 0x64 && words[1] === 0xff9b && words[2] === 1;
+  const isSixToFour = words[0] === 0x2002;
+  const isTeredo = words[0] === 0x2001 && words[1] === 0;
+  if (isIpv4Compatible || isIpv4Mapped || isIpv4Translated || isNat64WellKnown || isNat64LocalUse || isSixToFour || isTeredo) {
+    return true;
   }
 
-  const firstGroup = Number.parseInt(normalized.split(':')[0] || '0', 16);
+  const firstGroup = words[0];
   return (
     (firstGroup & 0xfe00) === 0xfc00 ||
     (firstGroup & 0xffc0) === 0xfe80 ||
@@ -95,10 +119,10 @@ function assertAddressAllowed(address: string, allowLoopback: boolean): void {
   throw new UnsafeOutboundUrlError('Endpoint resolves to a private, reserved, or local network address');
 }
 
-export async function validateOutboundHttpUrl(
+export async function resolveAndValidateOutboundHttpUrl(
   raw: string,
   options: OutboundUrlPolicyOptions = {},
-): Promise<URL> {
+): Promise<ValidatedOutboundUrl> {
   let url: URL;
   try {
     url = new URL(raw);
@@ -112,22 +136,23 @@ export async function validateOutboundHttpUrl(
   if (url.username || url.password) {
     throw new UnsafeOutboundUrlError('Endpoint URL must not contain credentials');
   }
-  if (url.search || url.hash) {
-    throw new UnsafeOutboundUrlError('Endpoint URL must not contain a query string or fragment');
-  }
+  if (url.search && options.allowQuery !== true) throw new UnsafeOutboundUrlError('Endpoint URL must not contain a query string');
+  if (url.hash && options.allowFragment !== true) throw new UnsafeOutboundUrlError('Endpoint URL must not contain a fragment');
 
   const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
   const allowLoopback = options.allowLoopback === true;
   const literalFamily = isIP(hostname);
+  let addresses: ResolvedAddress[];
 
   if (hostname === 'localhost') {
     if (!allowLoopback) {
       throw new UnsafeOutboundUrlError('Loopback endpoints are not allowed');
     }
+    addresses = [{ address: '127.0.0.1', family: 4 }];
   } else if (literalFamily !== 0) {
     assertAddressAllowed(hostname, allowLoopback);
+    addresses = [{ address: hostname, family: literalFamily }];
   } else {
-    let addresses: ResolvedAddress[];
     try {
       addresses = await (options.resolveHost ?? defaultResolver)(hostname);
     } catch {
@@ -145,7 +170,14 @@ export async function validateOutboundHttpUrl(
     throw new UnsafeOutboundUrlError('Remote custom endpoints must use HTTPS');
   }
 
-  return url;
+  return { url, addresses };
+}
+
+export async function validateOutboundHttpUrl(
+  raw: string,
+  options: OutboundUrlPolicyOptions = {},
+): Promise<URL> {
+  return (await resolveAndValidateOutboundHttpUrl(raw, options)).url;
 }
 
 export async function validateCustomProviderEndpoint(raw: string): Promise<string> {

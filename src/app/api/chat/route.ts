@@ -1,7 +1,14 @@
 import { NextRequest } from 'next/server';
-import { jsonResponse, errorResponse, parseBody } from '@/app/lib/api-helpers';
+import {
+  jsonResponse,
+  errorResponse,
+  parseBody,
+  requestBodyErrorResponse,
+  validateChatRequestBody,
+} from '@/app/lib/api-helpers';
 import { config } from '@/config/config';
 import { LLMAdapter } from '@/services/ai/llm.adapter';
+import { chatWorkloadGate } from '@/services/security/workload-gate';
 
 const SYSTEM_PROMPT = `You are BOZ (Behavioral Outlook Zone), an elite AI market assistant and quantitative analyst.
 You think like a hedge fund analyst — skeptical, data-driven, always asking "is this enough?"
@@ -21,14 +28,12 @@ OUTPUT FORMAT:
 - Rarely use emojis (minimize emoji usage).`;
 
 export async function POST(request: NextRequest) {
+  let release: (() => void) | null = null;
   try {
-    const { message, history, model } = await parseBody<{
-      message: string;
-      history?: Array<{ role: 'user' | 'assistant'; content: string }>;
-      model?: string;
-    }>(request);
-
-    if (!message?.trim()) return errorResponse('Message is required', 400);
+    const body = await parseBody<unknown>(request);
+    const { message, history, model } = validateChatRequestBody(body);
+    release = chatWorkloadGate.tryAcquire();
+    if (!release) return errorResponse('Too many chat requests are already running', 429);
 
     const llm = new LLMAdapter();
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -57,12 +62,16 @@ export async function POST(request: NextRequest) {
     return jsonResponse({
       response,
       provider: config.aiProvider,
-      model: config.aiModel,
+      model: model ?? config.aiModel,
       timestamp: new Date().toISOString(),
     });
   } catch (err: unknown) {
+    const bodyError = requestBodyErrorResponse(err);
+    if (bodyError) return bodyError;
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return errorResponse(msg);
+  } finally {
+    release?.();
   }
 }
 

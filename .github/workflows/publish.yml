@@ -4,14 +4,11 @@ on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
-  release:
-    types: [published]
   workflow_dispatch:
 
 jobs:
   publish:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -19,6 +16,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -45,7 +44,7 @@ jobs:
           echo "Local version: $LOCAL_VERSION"
           echo "NPM published version: $REMOTE_VERSION"
 
-          if [ "$LOCAL_VERSION" != "$REMOTE_VERSION" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$LOCAL_VERSION" != "$REMOTE_VERSION" ]; then
             echo "Publishing @agr77/boz@$LOCAL_VERSION to NPM via OIDC..."
             npm publish --provenance --access public
           else

@@ -37,7 +37,7 @@
 
 BOZ is an open-source market intelligence web app that combines price data, technical indicators, macro context, news, and crowd sentiment. Its job is to turn scattered signals into a structured view: market bias, conviction, entry conditions, targets, stop levels, invalidation criteria, and risks.
 
-Version 2.4 is web-only: install it, run `boz`, and the complete dashboard opens in your browser.
+Version 2.5 is web-only: install it, run `boz`, and the complete dashboard opens in your browser.
 
 > [!IMPORTANT]
 > BOZ is a research and educational tool, not financial advice. Market data can be delayed or incomplete; verify important information independently before acting.

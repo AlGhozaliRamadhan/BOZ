@@ -1,4 +1,5 @@
 import { NextResponse, NextRequest } from 'next/server';
+import { readBoundedFetchText } from '@/services/security/public-http-client';
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,7 +17,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ models: [] });
     }
 
-    const html = await res.text();
+    const html = await readBoundedFetchText(res);
     const prefix = '<script type="application/json" data-target="react-app.embeddedData">';
     const startIdx = html.indexOf(prefix);
     

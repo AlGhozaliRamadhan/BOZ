@@ -67,12 +67,14 @@ describe.sequential('settings route security boundary', () => {
   it('rejects unknown fields and metadata-service endpoints', async () => {
     const unknownResponse = await PUT(new Request('http://localhost/api/settings', {
       method: 'PUT',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ surprise: true }),
     }) as never);
     expect(unknownResponse.status).toBe(400);
 
     const unsafeResponse = await PUT(new Request('http://localhost/api/settings', {
       method: 'PUT',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ customUrl: 'http://169.254.169.254/latest' }),
     }) as never);
     expect(unsafeResponse.status).toBe(400);
@@ -81,10 +83,25 @@ describe.sequential('settings route security boundary', () => {
   it('returns a client error for malformed JSON', async () => {
     const response = await PUT(new Request('http://localhost/api/settings', {
       method: 'PUT',
+      headers: { 'content-type': 'application/json' },
       body: '{not-json',
     }) as never);
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: 'Invalid JSON body' });
+  });
+
+  it('clears a retained custom key when the endpoint changes', async () => {
+    process.env.CUSTOM_AI_KEY = 'custom-secret-value';
+    const response = await PUT(new Request('http://localhost/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ customUrl: 'http://localhost:20128/v2' }),
+    }) as never);
+
+    expect(response.status).toBe(200);
+    expect(process.env.CUSTOM_AI_KEY).toBeUndefined();
+    expect(await readFile(join(configDirectory, '.env'), 'utf8')).toContain('CUSTOM_AI_URL=http://localhost:20128/v2');
+    expect(await readFile(join(configDirectory, '.env'), 'utf8')).not.toContain('CUSTOM_AI_KEY=');
   });
 });

@@ -11,7 +11,7 @@
 import axios                         from 'axios';
 import { readFileSync, writeFileSync,
          existsSync, renameSync,
-         rmSync }                    from 'fs';
+         rmSync, statSync }          from 'fs';
 import { join, dirname }             from 'path';
 import { fileURLToPath }             from 'url';
 import { log }                       from '../../utils/logger.js';
@@ -22,6 +22,9 @@ import { StockEntry }                from './idx.scanner.service.js';
 
 const __dir      = dirname(fileURLToPath(import.meta.url));
 const CACHE_TTL  = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_CACHE_BYTES = 1_000_000;
+const MAX_STOCKS_PER_SECTOR = 300;
+export const MAX_IDX_UNIVERSE_SIZE = 1_200;
 
 export function idxUniverseCachePath(): string {
   return join(ensureConfigDir(), 'idx-universe-cache.json');
@@ -74,6 +77,7 @@ async function fetchSector(sectorFile: string, bozSector: string): Promise<Stock
         const ticker = symbol + '.JK';
         const name = parts[1].trim();
         stocks.push({ ticker, name, sector: bozSector });
+        if (stocks.length >= MAX_STOCKS_PER_SECTOR) break;
       }
     }
     return stocks;
@@ -91,10 +95,12 @@ export class IdxUniverseService {
     try {
       const cachePath = idxUniverseCachePath();
       if (!existsSync(cachePath)) return null;
+      if (statSync(cachePath).size > MAX_CACHE_BYTES) return null;
       const raw  = readFileSync(cachePath, 'utf8');
       const data = JSON.parse(raw) as CacheFile;
       if (Date.now() - data.fetchedAt > CACHE_TTL) return null;
-      if (!Array.isArray(data.stocks) || data.stocks.length < 20) return null;
+      if (!Array.isArray(data.stocks) || data.stocks.length < 20 || data.stocks.length > MAX_IDX_UNIVERSE_SIZE) return null;
+      if (!data.stocks.every((stock) => stock && typeof stock.ticker === 'string' && /^[A-Z0-9]{1,12}\.JK$/.test(stock.ticker) && typeof stock.name === 'string' && stock.name.length <= 200 && typeof stock.sector === 'string' && stock.sector.length <= 40)) return null;
       const ageMin = Math.round((Date.now() - data.fetchedAt) / 60_000);
       log.info('idx-universe', `cache hit — ${data.stocks.length} stocks (${ageMin}m ago)`);
       return data.stocks;
@@ -132,7 +138,7 @@ export class IdxUniverseService {
         if (seen.has(s.ticker)) return false;
         seen.add(s.ticker);
         return true;
-      });
+      }).slice(0, MAX_IDX_UNIVERSE_SIZE);
     } catch (e) {
       log.warn('idx-universe', `fallback load failed: ${(e as Error).message}`);
       return [];
@@ -158,7 +164,7 @@ export class IdxUniverseService {
     const fetchPromises = Object.entries(SECTOR_MAPPING).map(([file, sector]) => fetchSector(file, sector));
     const results = await Promise.all(fetchPromises);
     
-    const merged: StockEntry[] = results.flat();
+    const merged: StockEntry[] = results.flat().slice(0, MAX_IDX_UNIVERSE_SIZE);
     log.info('idx-universe', `fetched ${merged.length} stocks across all sectors`);
 
     if (merged.length < 20) {
@@ -173,8 +179,8 @@ export class IdxUniverseService {
   }
 
   filterBySector(stocks: StockEntry[], sector: string): StockEntry[] {
-    if (sector === 'all') return stocks;
-    return stocks.filter(s => s.sector === sector);
+    if (sector === 'all') return stocks.slice(0, MAX_IDX_UNIVERSE_SIZE);
+    return stocks.filter(s => s.sector === sector).slice(0, MAX_IDX_UNIVERSE_SIZE);
   }
 }
 

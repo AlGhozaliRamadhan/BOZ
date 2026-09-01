@@ -5,6 +5,7 @@ import { log, clr } from '../../utils/logger.js';
 import { htmlToPlainText } from '../../utils/html.js';
 import { config } from '../../config/config.js';
 import { buildSocialSearchQuery, resolveStockTwitsSymbol } from '../../shared/market-constants.js';
+import { readBoundedFetchText } from '../security/public-http-client.js';
 
 // axios TLS agent for CNN / StockTwits / alternative.me (standard servers, no JA3 issues)
 const tlsAgent = new https.Agent({
@@ -231,7 +232,7 @@ export class SentimentService {
       });
 
       if (res.ok) {
-        const xml = await res.text();
+        const xml = await readBoundedFetchText(res);
         const parser = new Parser();
         const feed = await parser.parseString(xml);
         const posts = feed.items || [];

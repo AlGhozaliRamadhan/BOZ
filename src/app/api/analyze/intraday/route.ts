@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { jsonResponse, errorResponse, parseBody } from '@/app/lib/api-helpers';
+import { jsonResponse, errorResponse, parseBody, requestBodyErrorResponse } from '@/app/lib/api-helpers';
 import { config } from '@/config/config';
 import { YahooService } from '@/services/market/yahoo.service';
 import { IndicatorsService } from '@/services/market/indicators.service';
@@ -8,15 +8,15 @@ import { SentimentService } from '@/services/market/sentiment.service';
 import { ChartAnalyzer } from '@/analyzers/chart.analyzer';
 import { AIService } from '@/services/ai/ai.service';
 import { buildTradeLevels } from '@/shared/trade-levels';
+import { resolveSymbol } from '@/shared/market-constants';
 
 export async function POST(request: NextRequest) {
   try {
     const { ticker } = await parseBody<{ ticker: string }>(request);
     if (!ticker) return errorResponse('Ticker is required', 400);
 
-    try {
-      config.setTicker(ticker);
-    } catch {
+    const symbol = resolveSymbol(ticker);
+    if (!symbol) {
       return errorResponse(`Unknown ticker: ${ticker}`, 400);
     }
 
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     // Fetch 1h candles (5 days)
     const date = new Date();
     date.setDate(date.getDate() - 5);
-    let candles = await yahoo.getHistoricalData(config.ticker, date, '1h', false);
+    let candles = await yahoo.getHistoricalData(symbol, date, '1h', false);
     if (!candles.length) return errorResponse('No market data available', 404);
     candles = indicators.calculateAll(candles);
 
@@ -36,8 +36,8 @@ export async function POST(request: NextRequest) {
     const chartAnalyzer = new ChartAnalyzer();
 
     const [macro, sentiment, chartPatterns] = await Promise.all([
-      macroService.getMacroContext(),
-      sentimentService.fetchCrowdSentiment(),
+      macroService.getMacroContext(symbol),
+      sentimentService.fetchCrowdSentiment(symbol),
       Promise.resolve(chartAnalyzer.analyzeChartPatterns(candles)),
     ]);
 
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
 
     // Run AI analysis
     const aiService = new AIService();
-    const prompt = buildIntradayPrompt(config.ticker, last, macro, sentiment, chartPatterns);
+    const prompt = buildIntradayPrompt(symbol, last, macro, sentiment, chartPatterns);
     const verdict = await aiService.analyze(prompt);
 
     // Build trade levels if verdict is ok
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     }
 
     return jsonResponse({
-      ticker: config.ticker,
+      ticker: symbol,
       timestamp: new Date().toISOString(),
       verdict,
       marketData,
@@ -81,6 +81,8 @@ export async function POST(request: NextRequest) {
       tradeLevels,
     });
   } catch (err: unknown) {
+    const bodyError = requestBodyErrorResponse(err);
+    if (bodyError) return bodyError;
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return errorResponse(msg);
   }

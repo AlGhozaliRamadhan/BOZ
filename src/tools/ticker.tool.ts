@@ -77,7 +77,7 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
       yahoo.getHistoricalData(symbol, fromHourly, '1h', false, { adjustPrices: true }).catch(() => []),
       yahoo.getHistoricalData(symbol, fromWeekly, '1wk', false, { adjustPrices: true }).catch(() => []),
       yahooFinance.quote(symbol).catch(() => null),
-      macroService.getMacroContext().catch(() => null),
+      macroService.getMacroContext(symbol).catch(() => null),
       sentimentService.fetchCrowdSentiment(symbol).catch(() => null),
       newsService.getStockNews(symbol).catch(() => [] as string[]),
     ]);

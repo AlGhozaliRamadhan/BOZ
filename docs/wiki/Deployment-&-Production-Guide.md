@@ -8,9 +8,9 @@ BOZ is currently designed for single-user, local-first deployment. Remote and mu
 
 Run the latest published version of BOZ instantly without permanent installation:
 
-`ash
+```bash
 npx @agr77/boz
-`
+```
 
 ---
 
@@ -18,13 +18,13 @@ npx @agr77/boz
 
 Install the `boz` binary globally across your system:
 
-`ash
+```bash
 # Install globally
 npm install --global @agr77/boz
 
 # Launch anytime from any terminal
 boz
-`
+```
 
 ---
 
@@ -32,14 +32,14 @@ boz
 
 Deploy the complete Next.js dashboard in an isolated container:
 
-`ash
+```bash
 # Clone repository
 git clone https://github.com/AlGhozaliRamadhan/BOZ.git
 cd BOZ
 
 # Build and start container
 docker compose up --build -d
-`
+```
 
 The application will be accessible at http://localhost:3000.
 
@@ -51,16 +51,16 @@ The Compose port is bound to `127.0.0.1` on the host. Do not change it to a publ
 
 To build and run from source:
 
-`ash
+```bash
 # 1. Install dependencies
-npm install
+npm ci
 
 # 2. Build full package bundle
 npm run build:package
 
 # 3. Start production server
 npm start
-`
+```
 
 ---
 

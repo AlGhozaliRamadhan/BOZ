@@ -2,23 +2,19 @@ import { NextRequest } from 'next/server';
 import { jsonResponse, errorResponse } from '@/app/lib/api-helpers';
 import { config } from '@/config/config';
 import { MacroService } from '@/services/market/macro.service';
+import { resolveSymbol } from '@/shared/market-constants';
 
 export async function GET(request: NextRequest) {
   try {
-    const ticker = request.nextUrl.searchParams.get('ticker');
-    if (ticker) {
-      try {
-        config.setTicker(ticker);
-      } catch {
-        return errorResponse(`Unknown ticker: ${ticker}`, 400);
-      }
-    }
+    const requestedTicker = request.nextUrl.searchParams.get('ticker');
+    const ticker = requestedTicker ? resolveSymbol(requestedTicker) : config.ticker;
+    if (!ticker) return errorResponse(`Unknown ticker: ${requestedTicker}`, 400);
 
     const macroService = new MacroService();
-    const macro = await macroService.getMacroContext();
+    const macro = await macroService.getMacroContext(ticker);
 
     return jsonResponse({
-      ticker: config.ticker,
+      ticker,
       timestamp: new Date().toISOString(),
       ...macro,
     });

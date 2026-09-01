@@ -16,7 +16,8 @@ export class MacroService {
     this.yahooService = new YahooService();
   }
 
-  async getMacroContext(): Promise<MacroContext> {
+  async getMacroContext(tickerOverride?: string): Promise<MacroContext> {
+    const ticker = tickerOverride ?? config.ticker;
     const macroData: MacroContext = {
       market_regime:           'UNKNOWN',
       sp500_correlation:       'N/A',
@@ -106,7 +107,7 @@ export class MacroService {
     } else {
       try {
         const [assetData, spyData, qqqData, vixData, tnxData, xlkData] = await Promise.all([
-          this.yahooService.getHistoricalData(config.ticker, date, '1d', false, { adjustPrices: true }),
+          this.yahooService.getHistoricalData(ticker, date, '1d', false, { adjustPrices: true }),
           this.yahooService.getHistoricalData('SPY', date, '1d', false, { adjustPrices: true }),
           this.yahooService.getHistoricalData('QQQ', date, '1d', false, { adjustPrices: true }),
           this.yahooService.getHistoricalData('^VIX', date, '1d', false),
@@ -160,7 +161,7 @@ export class MacroService {
         const spyReturns   = buildReturnMap(spyData);
         const qqqReturns   = buildReturnMap(qqqData);
 
-        if (config.ticker === 'SPY') {
+        if (ticker === 'SPY') {
           macroData.sp500_corr = 1;
           macroData.sp500_beta = 1;
           macroData.sp500_correlation = 'SELF (corr 1.00, beta 1.00)';
@@ -175,7 +176,7 @@ export class MacroService {
           }
         }
 
-        if (config.ticker === 'QQQ') {
+        if (ticker === 'QQQ') {
           macroData.nasdaq_corr = 1;
           macroData.nasdaq_beta = 1;
           macroData.nasdaq_correlation = 'SELF (corr 1.00, beta 1.00)';

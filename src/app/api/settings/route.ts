@@ -1,5 +1,12 @@
 import { NextRequest } from 'next/server';
-import { InvalidJsonBodyError, jsonResponse, errorResponse, parseBody } from '@/app/lib/api-helpers';
+import {
+  InvalidJsonBodyError,
+  PayloadTooLargeError,
+  UnsupportedMediaTypeError,
+  jsonResponse,
+  errorResponse,
+  parseBody,
+} from '@/app/lib/api-helpers';
 import { config } from '@/config/config';
 import type { AIProvider, RiskMode } from '@/config/config';
 import { GITHUB_MODELS } from '@/config/github.config';
@@ -159,6 +166,8 @@ function setProcessEnv(key: SettingsEnvKey, value: string | null): void {
 }
 
 function publicSettingsError(error: unknown): { message: string; status: number } {
+  if (error instanceof PayloadTooLargeError) return { message: error.message, status: 413 };
+  if (error instanceof UnsupportedMediaTypeError) return { message: error.message, status: 415 };
   if (
     error instanceof SettingsInputError ||
     error instanceof InvalidJsonBodyError ||
@@ -189,6 +198,12 @@ export async function PUT(request: NextRequest) {
     if (body.customUrl !== undefined) {
       customEndpoint = await validateCustomProviderEndpoint(body.customUrl || 'http://localhost:20128/v1');
       envUpdates.CUSTOM_AI_URL = customEndpoint;
+      if (customEndpoint !== config.custom.endpoint && body.customKey === undefined) {
+        // Provider credentials are bound to the endpoint the user entered them for.
+        // Moving the endpoint requires re-entering the key, preventing silent reuse
+        // of a retained credential at a newly selected server.
+        envUpdates.CUSTOM_AI_KEY = null;
+      }
     }
 
     let customModelIds = body.customModels ?? parseCustomModels(process.env.CUSTOM_AI_MODELS).map((model) => model.id);
