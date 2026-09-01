@@ -12,19 +12,17 @@ import {
   scoreHeadlines,
   type QuoteSnapshot,
 } from '@/shared/dashboard-analysis';
+import { resolveSymbol } from '@/shared/market-constants';
 
 export async function GET(request: NextRequest) {
   try {
     const ticker = request.nextUrl.searchParams.get('ticker');
     if (!ticker) return errorResponse('Missing ?ticker query parameter', 400);
 
-    try {
-      config.setTicker(ticker);
-    } catch {
+    const symbol = resolveSymbol(ticker);
+    if (!symbol) {
       return errorResponse(`Unknown ticker: ${ticker}`, 400);
     }
-
-    const symbol = config.ticker;
     const yahoo = new YahooService();
     const indicators = new IndicatorsService();
     const chartAnalyzer = new ChartAnalyzer();
@@ -38,7 +36,7 @@ export async function GET(request: NextRequest) {
     const [candlesRaw, quoteRaw, macro, sentiment, headlines] = await Promise.all([
       yahoo.getHistoricalData(symbol, from, '1d', false, { adjustPrices: true }),
       yahooFinance.quote(symbol).catch(() => null),
-      macroService.getMacroContext().catch(() => null),
+      macroService.getMacroContext(symbol).catch(() => null),
       sentimentService.fetchCrowdSentiment(symbol).catch(() => null),
       newsService.getStockNews(symbol).catch(() => [] as string[]),
     ]);

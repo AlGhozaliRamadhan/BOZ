@@ -9,6 +9,7 @@
 import { yahooFinance } from './yahoo.service.js';
 import { idxUniverseService } from './idx.universe.service.js';
 import { log } from '../../utils/logger.js';
+import { deepScanWorkloadGate, WorkloadBusyError } from '../security/workload-gate.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -336,6 +337,9 @@ export class IdxScannerService {
     setup: SetupFilter = 'momentum',
     mode: ScanMode = 'fast',
   ): Promise<ScanResult> {
+    const release = mode === 'deep' ? deepScanWorkloadGate.tryAcquire() : () => undefined;
+    if (!release) throw new WorkloadBusyError('A deep IDX scan is already running');
+    try {
     const universe = await this.getUniverse(sector);
     const results:  StockResult[] = [];
     const skipped:  string[] = [];
@@ -486,6 +490,9 @@ export class IdxScannerService {
       buys, watches, avoids, skipped,
       formatted,
     };
+    } finally {
+      release();
+    }
   }
 
   // ─── Pre-rendered text for agent observations ─────────────────────────────

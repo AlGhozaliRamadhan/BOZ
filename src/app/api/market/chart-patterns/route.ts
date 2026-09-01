@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { jsonResponse, errorResponse, parseBody } from '@/app/lib/api-helpers';
+import { jsonResponse, errorResponse, parseBody, requestBodyErrorResponse } from '@/app/lib/api-helpers';
 import { YahooService } from '@/services/market/yahoo.service';
 import { IndicatorsService } from '@/services/market/indicators.service';
 import { ChartAnalyzer } from '@/analyzers/chart.analyzer';
@@ -29,6 +29,8 @@ export async function POST(request: NextRequest) {
       ...chartPatterns,
     });
   } catch (err: unknown) {
+    const bodyError = requestBodyErrorResponse(err);
+    if (bodyError) return bodyError;
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return errorResponse(msg);
   }

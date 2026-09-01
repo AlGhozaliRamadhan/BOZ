@@ -203,6 +203,8 @@ export class NewsFetchService {
         headers:        { ...this.headers, Accept: 'application/rss+xml, application/xml, text/xml, */*' },
         timeout:        8000,
         responseType:   'text',
+        maxContentLength: 1_000_000,
+        maxBodyLength:  1_000_000,
         validateStatus: s => s >= 200 && s < 300,
       }),
     );

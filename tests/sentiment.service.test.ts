@@ -71,10 +71,10 @@ describe('SentimentService', () => {
       throw new Error(`Unexpected URL: ${url}`);
     });
 
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ data: { children: [] } }),
-    })) as unknown as typeof fetch;
+    const fetchMock = vi.fn(async () => new Response(
+      '<?xml version="1.0"?><rss version="2.0"><channel><title>Reddit</title></channel></rss>',
+      { status: 200, headers: { 'content-type': 'application/rss+xml' } },
+    )) as unknown as typeof fetch;
     vi.stubGlobal('fetch', fetchMock);
 
     const { SentimentService } = await import('../src/services/market/sentiment.service.js');

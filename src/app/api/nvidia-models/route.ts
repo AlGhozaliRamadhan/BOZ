@@ -1,5 +1,6 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { nvidiaConfig, NVIDIA_MODELS } from '@/config/nvidia.config';
+import { readBoundedFetchText } from '@/services/security/public-http-client';
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,11 +19,11 @@ export async function GET(request: NextRequest) {
     });
 
     if (!res.ok) {
-       console.warn('NVIDIA models fetch failed:', res.status, await res.text());
+       console.warn('NVIDIA models fetch failed:', res.status);
        return NextResponse.json({ models: NVIDIA_MODELS });
     }
 
-    const data = await res.json();
+    const data = JSON.parse(await readBoundedFetchText(res));
     const unique = new Map();
     
     // The NVIDIA API returns a "data" array containing model objects

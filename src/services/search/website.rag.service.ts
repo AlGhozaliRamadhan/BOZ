@@ -1,5 +1,5 @@
-import axios from 'axios';
 import DOMPurify from 'isomorphic-dompurify';
+import { fetchPublicText } from '../security/public-http-client.js';
 
 export class WebsiteRagService {
   /**
@@ -9,16 +9,16 @@ export class WebsiteRagService {
   public async readAndExtract(url: string, query: string, topK: number = 3): Promise<string> {
     try {
       // 1. Fetch website
-      const res = await axios.get(url, {
+      const res = await fetchPublicText(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml',
           'Accept-Language': 'en-US,en;q=0.9',
         },
-        timeout: 10000,
+        timeoutMs: 10000,
       });
 
-      const html = res.data;
+      const html = res.text;
       if (!html || typeof html !== 'string') {
         return `Failed to read ${url}: Invalid HTML response.`;
       }

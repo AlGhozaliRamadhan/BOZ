@@ -51,6 +51,8 @@ export class WebSearchService {
           },
           timeout: 10000,
           responseType: 'text',
+          maxContentLength: 1_000_000,
+          maxBodyLength: 1_000_000,
         },
       );
       const html: string = res.data ?? '';
@@ -107,7 +109,7 @@ export class WebSearchService {
       const encoded = encodeURIComponent(query);
       const res = await axios.get(
         `https://api.duckduckgo.com/?q=${encoded}&format=json&no_html=1&skip_disambig=1`,
-        { headers: { 'User-Agent': UA }, timeout: 8000 },
+        { headers: { 'User-Agent': UA }, timeout: 8000, maxContentLength: 1_000_000, maxBodyLength: 1_000_000 },
       );
       const data = res.data;
       const results: string[] = [];

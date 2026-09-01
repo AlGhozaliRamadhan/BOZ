@@ -1,26 +1,18 @@
 import { NextRequest } from 'next/server';
-import { jsonResponse, errorResponse } from '@/app/lib/api-helpers';
+import { jsonResponse, errorResponse, parseBody, requestBodyErrorResponse } from '@/app/lib/api-helpers';
 import { NewsFetchService } from '@/services/news/news.fetch.service';
 import { SentimentService } from '@/services/market/sentiment.service';
 import { config } from '@/config/config';
+import { resolveSymbol } from '@/shared/market-constants';
 
 export async function POST(request: NextRequest) {
   try {
-    let ticker: string | undefined;
-    try {
-      const body = await request.json();
-      ticker = body?.ticker;
-    } catch {
-      // No body or invalid JSON — proceed without ticker
-    }
-
-    if (ticker) {
-      try {
-        config.setTicker(ticker);
-      } catch {
-        return errorResponse(`Unknown ticker: ${ticker}`, 400);
-      }
-    }
+    const body = request.body ? await parseBody<unknown>(request) : {};
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return errorResponse('Request body must be an object', 400);
+    const requestedTicker = (body as Record<string, unknown>).ticker;
+    if (requestedTicker !== undefined && typeof requestedTicker !== 'string') return errorResponse('Ticker must be a string', 400);
+    const ticker = typeof requestedTicker === 'string' ? resolveSymbol(requestedTicker) : config.ticker;
+    if (!ticker) return errorResponse(`Unknown ticker: ${requestedTicker}`, 400);
 
     const newsService = new NewsFetchService();
     const sentimentService = new SentimentService();
@@ -28,7 +20,7 @@ export async function POST(request: NextRequest) {
     // Fetch news and sentiment in parallel
     const [newsData, sentiment] = await Promise.all([
       newsService.fetchAll(false).catch(() => null),
-      sentimentService.fetchCrowdSentiment().catch(() => null),
+      sentimentService.fetchCrowdSentiment(ticker).catch(() => null),
     ]);
 
     // Extract headline summaries
@@ -72,7 +64,7 @@ export async function POST(request: NextRequest) {
     }
 
     return jsonResponse({
-      ticker: config.ticker,
+      ticker,
       timestamp: new Date().toISOString(),
       totalHeadlines: newsData?.all?.length ?? 0,
       categories,
@@ -82,6 +74,8 @@ export async function POST(request: NextRequest) {
       thought: thoughts.join('\n\n'),
     });
   } catch (err: unknown) {
+    const bodyError = requestBodyErrorResponse(err);
+    if (bodyError) return bodyError;
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return errorResponse(msg);
   }

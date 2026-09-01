@@ -1,6 +1,6 @@
 import { homedir } from 'os';
 import { isAbsolute, join, resolve } from 'path';
-import { mkdirSync } from 'fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync } from 'fs';
 
 export const CONFIG_DIR_NAME = '.boz';
 
@@ -12,10 +12,17 @@ export function ensureConfigDir(): string {
     ? (isAbsolute(configured) ? configured : resolve(configured))
     : join(base, CONFIG_DIR_NAME);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try { chmodSync(dir, 0o700); } catch { /* Windows and restricted filesystems may not expose POSIX modes. */ }
   return dir;
 }
 
 /** Absolute path to the per-user .env file inside the config dir. */
 export function configEnvPath(): string {
-  return join(ensureConfigDir(), '.env');
+  const target = join(ensureConfigDir(), '.env');
+  if (existsSync(target)) {
+    const stat = lstatSync(target);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('BOZ config .env must be a regular file');
+    try { chmodSync(target, 0o600); } catch { /* Best effort on non-POSIX filesystems. */ }
+  }
+  return target;
 }

@@ -1,11 +1,12 @@
 import { NextRequest } from 'next/server';
-import { jsonResponse, errorResponse, parseBody } from '@/app/lib/api-helpers';
+import { jsonResponse, errorResponse, parseBody, requestBodyErrorResponse } from '@/app/lib/api-helpers';
 import { config } from '@/config/config';
 import { YahooService, yahooFinance } from '@/services/market/yahoo.service';
 import { IndicatorsService } from '@/services/market/indicators.service';
 import { MacroService } from '@/services/market/macro.service';
 import { SentimentService } from '@/services/market/sentiment.service';
 import { ChartAnalyzer } from '@/analyzers/chart.analyzer';
+import { resolveSymbol } from '@/shared/market-constants';
 
 const findSuggestions = async (t: string) => {
   try {
@@ -30,9 +31,8 @@ export async function POST(request: NextRequest) {
     const { ticker } = await parseBody<{ ticker: string }>(request);
     if (!ticker) return errorResponse('Ticker is required', 400);
 
-    try {
-      config.setTicker(ticker);
-    } catch {
+    const symbol = resolveSymbol(ticker);
+    if (!symbol) {
       const suggestions = await findSuggestions(ticker);
       return jsonResponse({
         error: 'ticker_not_found',
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     // Fetch 2 years of daily candles for long-term analysis
     const date = new Date();
     date.setFullYear(date.getFullYear() - 2);
-    let candles = await yahoo.getHistoricalData(config.ticker, date, '1d', false, { adjustPrices: true });
+    let candles = await yahoo.getHistoricalData(symbol, date, '1d', false, { adjustPrices: true });
     if (!candles.length) {
       const suggestions = await findSuggestions(ticker);
       return jsonResponse({
@@ -70,8 +70,8 @@ export async function POST(request: NextRequest) {
     const chartAnalyzer = new ChartAnalyzer();
 
     const [macro, sentiment, chartPatterns] = await Promise.all([
-      macroService.getMacroContext(),
-      sentimentService.fetchCrowdSentiment(),
+      macroService.getMacroContext(symbol),
+      sentimentService.fetchCrowdSentiment(symbol),
       Promise.resolve(chartAnalyzer.analyzeChartPatterns(candles)),
     ]);
 
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
     };
 
     return jsonResponse({
-      ticker: config.ticker,
+      ticker: symbol,
       timestamp: new Date().toISOString(),
       marketData,
       macro,
@@ -111,6 +111,8 @@ export async function POST(request: NextRequest) {
       chartPatterns,
     });
   } catch (err: unknown) {
+    const bodyError = requestBodyErrorResponse(err);
+    if (bodyError) return bodyError;
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return errorResponse(msg);
   }

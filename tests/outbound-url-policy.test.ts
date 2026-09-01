@@ -21,6 +21,9 @@ describe('outbound URL policy', () => {
     'http://[::1]:11434/v1',
     'https://[::ffff:7f00:1]/v1',
     'https://[::ffff:c0a8:1]/v1',
+    'https://[::7f00:1]/v1',
+    'https://[::ffff:0:7f00:1]/v1',
+    'https://[64:ff9b::7f00:1]/v1',
     'file:///etc/passwd',
     'https://user:password@example.test/v1',
   ])('rejects unsafe endpoint %s', async (endpoint) => {
@@ -37,6 +40,14 @@ describe('outbound URL policy', () => {
     const resolveHost = async () => [{ address: '93.184.216.34', family: 4 }];
     const result = await validateOutboundHttpUrl('https://models.example.test/v1', { resolveHost });
     expect(result.toString()).toBe('https://models.example.test/v1');
+  });
+
+  it('allows ordinary public-page query strings only under the explicit web policy', async () => {
+    const resolveHost = async () => [{ address: '93.184.216.34', family: 4 }];
+    await expect(validateOutboundHttpUrl('https://pages.example.test/report?q=boz', { resolveHost }))
+      .rejects.toBeInstanceOf(UnsafeOutboundUrlError);
+    await expect(validateOutboundHttpUrl('https://pages.example.test/report?q=boz', { resolveHost, allowQuery: true }))
+      .resolves.toBeInstanceOf(URL);
   });
 
   it('rejects a hostname if any resolved address is private', async () => {
