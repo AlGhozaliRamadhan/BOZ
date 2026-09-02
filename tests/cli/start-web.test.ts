@@ -5,8 +5,9 @@ import http from 'http';
 import { packagedServerPath, startWebServer } from '../../src/cli/start-web.js';
 
 const STANDALONE_SERVER = resolve(process.cwd(), '.next', 'standalone', 'server.js');
+const REQUIRED_SERVER_FILES = resolve(process.cwd(), '.next', 'standalone', '.next', 'required-server-files.json');
 
-const describeIfBuilt = existsSync(STANDALONE_SERVER) ? describe : describe.skip;
+const describeIfBuilt = (existsSync(STANDALONE_SERVER) && existsSync(REQUIRED_SERVER_FILES)) ? describe : describe.skip;
 
 describe('packaged server path', () => {
   it('points to the standalone server inside a package root', () => {

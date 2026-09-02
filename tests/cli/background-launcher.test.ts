@@ -22,7 +22,7 @@ describe('background launcher', () => {
   });
 
   it('uses the original black-and-white BOZ artwork', () => {
-    expect(existsSync(resolve(process.cwd(), 'public', 'logo-boz-solid.png'))).toBe(true);
+    expect(existsSync(resolve(process.cwd(), 'public', 'logo-boz-transparant-white.png'))).toBe(true);
   });
 
 });

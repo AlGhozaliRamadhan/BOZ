@@ -11,7 +11,7 @@ describe('system-tray', () => {
   });
 
   it('verifies the original BOZ artwork exists for tray icon generation', () => {
-    const defaultLogo = resolve(process.cwd(), 'public', 'logo-boz-solid.png');
+    const defaultLogo = resolve(process.cwd(), 'public', 'logo-boz-transparant-white.png');
     expect(existsSync(defaultLogo)).toBe(true);
   });
 

@@ -768,9 +768,9 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
 
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
                         <div>
-                          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>Thinking Effort</div>
+                          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>Analysis Effort</div>
                           <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                            Depth of chain-of-thought reasoning. Higher = more tokens, slower, more thorough.
+                            Depth of private verification. Higher is slower and more thorough; answers stay concise by default.
                           </div>
                         </div>
                         <select
@@ -787,11 +787,11 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                             cursor: 'pointer',
                           }}
                         >
-                          <option value="Low">Low (1-2 sentences)</option>
-                          <option value="Medium">Medium (step-by-step)</option>
+                          <option value="Low">Low (quick check)</option>
+                          <option value="Medium">Medium (balanced)</option>
                           <option value="High">High (rigorous)</option>
-                          <option value="Extra">Extra (multi-perspective)</option>
-                          <option value="Max">Max (exhaustive 6-step)</option>
+                          <option value="Extra">Extra (cross-checked)</option>
+                          <option value="Max">Max (deep verification)</option>
                         </select>
                       </div>
                     </div>
@@ -813,7 +813,7 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <div>
                             <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
-                              BOZ v{updateInfo?.currentVersion || '2.5.1'}
+                              BOZ v{updateInfo?.currentVersion || '2.5.2'}
                             </div>
                             <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
                               {checkingUpdate ? (

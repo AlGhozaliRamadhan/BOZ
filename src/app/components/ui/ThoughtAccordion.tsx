@@ -29,7 +29,7 @@ export interface ThoughtAccordionProps {
    */
   timeline?: ThoughtTimelineStep[];
   /**
-   * Title shown in header (e.g. "Thought process")
+   * Title shown in header (e.g. "AI analysis")
    */
   title?: string;
   /**
@@ -63,16 +63,16 @@ export interface ThoughtAccordionProps {
 }
 
 const LABEL_OVERRIDES: Record<string, string> = {
-  'AI Thinking Process': 'Thought process',
-  'Live AI Thinking Process': 'Thought process',
-  'Intraday AI Reasoning Process': 'Intraday reasoning',
-  'Long-Term Fundamental Thesis & Reasoning': 'Long-term reasoning',
-  'News Intel AI Synthesis & Macro Deductions': 'News reasoning',
+  'AI Thinking Process': 'AI analysis',
+  'Live AI Thinking Process': 'AI analysis',
+  'Intraday AI Reasoning Process': 'Intraday analysis',
+  'Long-Term Fundamental Thesis & Reasoning': 'Long-term analysis',
+  'News Intel AI Synthesis & Macro Deductions': 'News analysis',
 };
 
 function shortTitle(t: string): string {
   if (LABEL_OVERRIDES[t]) return LABEL_OVERRIDES[t];
-  if (/^Market AI Reasoning/i.test(t)) return 'Thought process';
+  if (/^Market AI Reasoning/i.test(t)) return 'AI analysis';
   if (t.length > 28) return t.slice(0, 28).trimEnd() + '…';
   return t;
 }
@@ -131,18 +131,12 @@ export function ThoughtAccordion({
   }
 
   const hasThoughts = steps.length > 0 || isStreaming;
-  const initialOpen = defaultOpen !== undefined ? defaultOpen : isStreaming;
+  const initialOpen = defaultOpen !== undefined ? defaultOpen : false;
 
   const [isOpen, setIsOpen] = useState(initialOpen);
   const [copied, setCopied] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
-
-  useEffect(() => {
-    if (isStreaming && defaultOpen === undefined) {
-      setIsOpen(true);
-    }
-  }, [isStreaming, defaultOpen]);
 
   useEffect(() => {
     if (isStreaming && isOpen && contentRef.current) {
@@ -165,7 +159,7 @@ export function ThoughtAccordion({
 
   const formatThoughtHtml = (content: string): string => {
     try {
-      const rawHtml = marked.parse(content, { breaks: true, async: false }) as string;
+      const rawHtml = marked.parse(content, { breaks: true, async: false });
       return DOMPurify.sanitize(rawHtml);
     } catch {
       return DOMPurify.sanitize(content);
@@ -197,7 +191,7 @@ export function ThoughtAccordion({
   const stepCount = steps.length;
 
   const label = isStreaming
-    ? 'Thinking…'
+    ? 'Thinking...'
     : title
       ? shortTitle(title)
       : formattedDuration
@@ -273,8 +267,8 @@ export function ThoughtAccordion({
               type="button"
               className={`thought-action-btn ${copied ? 'is-copied' : ''}`}
               onClick={handleCopy}
-              title="Copy thought process"
-              aria-label={copied ? 'Copied' : 'Copy thought process'}
+              title="Copy analysis activity"
+              aria-label={copied ? 'Copied' : 'Copy analysis activity'}
             >
               {copied ? (
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -340,9 +334,6 @@ export function ThoughtAccordion({
               <div className="thought-timeline-item is-running">
                 <div className="thought-timeline-node">
                   <span className="thought-timeline-pulse" />
-                </div>
-                <div className="thought-timeline-content">
-                  <span className="thought-cursor" aria-hidden="true" />
                 </div>
               </div>
             )}

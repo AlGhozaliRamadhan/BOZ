@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, cpSync, readdirSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, cpSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -20,6 +20,8 @@ export async function run({ moduleRoot }) {
   const destB = join(standaloneRoot, 'public', '_next', 'static');
   const removed = [];
 
+  mkdirSync(standaloneRoot, { recursive: true });
+
   if (existsSync(standaloneRoot)) {
     for (const entry of readdirSync(standaloneRoot, { withFileTypes: true })) {
       if (entry.isFile() && /^\.env(?:\.|$)/.test(entry.name)) {
@@ -30,18 +32,20 @@ export async function run({ moduleRoot }) {
     }
   }
 
-  if (!existsSync(src)) {
-    return { copied: [], skipped: ['.next/static'], removed };
-  }
-
   const copied = [];
-  for (const dest of [destA, destB]) {
-    mkdirSync(dirname(dest), { recursive: true });
-    cpSync(src, dest, { recursive: true, force: true });
-    copied.push(dest);
+  const skipped = [];
+
+  if (existsSync(src)) {
+    for (const dest of [destA, destB]) {
+      mkdirSync(dirname(dest), { recursive: true });
+      cpSync(src, dest, { recursive: true, force: true });
+      copied.push(dest);
+    }
+  } else {
+    skipped.push('.next/static');
   }
 
-  return { copied, skipped: [], removed };
+  return { copied, skipped, removed };
 }
 
 // CLI wrapper: run when invoked directly (`node scripts/copy-static.js`).
