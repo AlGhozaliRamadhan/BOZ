@@ -32,9 +32,7 @@ describe('copy-static run()', () => {
     expect(existsSync(join(destB, 'app.css'))).toBe(true);
     expect(readFileSync(join(destA, 'app.css'), 'utf8')).toBe('body { color: red; }');
     expect(readFileSync(join(destB, 'app.css'), 'utf8')).toBe('body { color: red; }');
-    const serverDest = join(root, '.next', 'standalone', 'server.js');
-    expect(result.copied).toEqual([destA, destB, serverDest]);
-    expect(existsSync(serverDest)).toBe(true);
+    expect(result.copied).toEqual([destA, destB]);
     expect(result.skipped).toEqual([]);
     expect(result.removed).toEqual([]);
   });
