@@ -7,6 +7,7 @@ import DOMPurify from 'isomorphic-dompurify';
 import { ThoughtAccordion } from '../components/ui/ThoughtAccordion';
 import { getEffort, getThinkingEnabled } from '../../shared/chat-options';
 import ChatModelPicker from './ChatModelPicker';
+import ChatEffortPicker from './ChatEffortPicker';
 import type { ToolResult } from './ToolResultCards';
 
 export interface TickerSuggestion {
@@ -165,6 +166,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setGreeting(getRandomGreeting());
@@ -285,146 +287,177 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     return () => window.removeEventListener('boz_settings_updated', loadModel);
   }, []);
 
-  const executeStreamChat = async (command: string, updatedMessages: ChatMessage[]): Promise<ChatMessage> => {
-    const res = await fetch('/api/chat/stream', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: command,
-        history: updatedMessages.map(({ role, content }) => ({ role, content })),
-        effort: getEffort(),
-        thinking: getThinkingEnabled(),
-        model: activeModel || undefined,
-      }),
-    });
+  const stopStreaming = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  };
 
-    if (!res.ok) throw new Error('Failed to start stream');
-    const reader = res.body?.getReader();
-    if (!reader) throw new Error('No readable stream');
+  const executeStreamChat = async (command: string, historyMessages: ChatMessage[]): Promise<ChatMessage> => {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     let accumulatedContent = '';
     let accumulatedThoughts: string[] = [];
     const collectedTools: ToolResult[] = [];
-    const decoder = new TextDecoder();
-    let buffer = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+    try {
+      const res = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          message: command,
+          history: historyMessages.map(({ role, content }) => ({ role, content })),
+          effort: getEffort(),
+          thinking: getThinkingEnabled(),
+          model: activeModel || undefined,
+        }),
+      });
 
-      let currentEvent = '';
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.substring(7).trim();
-        } else if (line.startsWith('data: ')) {
-          const dataStr = line.substring(6).trim();
-          if (!dataStr) continue;
+      if (!res.ok) throw new Error('Failed to start stream');
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No readable stream');
 
-          if (currentEvent === 'token') {
-            let token: any = dataStr;
-            try { token = JSON.parse(dataStr); } catch {}
-            
-            if (typeof token === 'string') {
-              accumulatedContent += token.replace(/\\n/g, '\n');
-            } else if (token && typeof token === 'object' && token.message) {
-              accumulatedContent += token.message;
-            } else {
-              accumulatedContent += String(token);
-            }
-            setStreamingContent(accumulatedContent);
-          } else if (currentEvent === 'tool_start') {
-            try {
-              const data = JSON.parse(dataStr);
-              collectedTools.push({ tool: data.tool, status: 'running', args: data.args });
-              setToolStatuses([...collectedTools]);
-              const toolArgStr = data.args && Object.keys(data.args).length > 0 ? ` (${Object.values(data.args).join(', ')})` : '';
-              accumulatedThoughts.push(`tool used: ${data.tool}${toolArgStr}`);
-              setStreamingThoughts([...accumulatedThoughts]);
-            } catch (e) {}
-          } else if (currentEvent === 'tool_result') {
-            try {
-              const data = JSON.parse(dataStr);
-              const idx = collectedTools.findIndex(t => t.tool === data.tool && t.status === 'running');
-              const next: ToolResult = {
-                tool: data.tool,
-                status: 'done',
-                fact: data.fact,
-                quality: data.quality,
-                success: data.success,
-                preview: data.preview,
-                args: data.args ?? (idx !== -1 ? collectedTools[idx].args : undefined),
-              };
-              if (idx !== -1) collectedTools[idx] = next;
-              else collectedTools.push(next);
-              setToolStatuses([...collectedTools]);
-              const toolLabel = data.tool;
-              const toolArgStr = data.args && Object.keys(data.args).length > 0 ? ` (${Object.values(data.args).join(', ')})` : '';
-              const resultText = data.fact ? ` — ${data.fact.substring(0, 140)}${data.fact.length > 140 ? '…' : ''}` : '';
-              const marker = `tool used: ${toolLabel}`;
-              const thoughtIdx = accumulatedThoughts.findIndex(t => t.startsWith(marker));
-              if (thoughtIdx !== -1) {
-                accumulatedThoughts[thoughtIdx] = `${marker}${toolArgStr}${resultText}`;
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        if (controller.signal.aborted) {
+          try { await reader.cancel(); } catch {}
+          break;
+        }
+
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        let currentEvent = '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.substring(7).trim();
+          } else if (line.startsWith('data: ')) {
+            const dataStr = line.substring(6).trim();
+            if (!dataStr) continue;
+
+            if (currentEvent === 'token') {
+              let token: any = dataStr;
+              try { token = JSON.parse(dataStr); } catch {}
+              
+              if (typeof token === 'string') {
+                accumulatedContent += token.replace(/\\n/g, '\n');
+              } else if (token && typeof token === 'object' && token.message) {
+                accumulatedContent += token.message;
               } else {
-                accumulatedThoughts.push(`${marker}${toolArgStr}${resultText}`);
+                accumulatedContent += String(token);
               }
-              setStreamingThoughts([...accumulatedThoughts]);
-            } catch (e) {}
-          } else if (currentEvent === 'thought_new') {
-            try {
-              let data = JSON.parse(dataStr);
-              if (typeof data !== 'string') {
-                data = typeof data === 'object' && data.text ? data.text : JSON.stringify(data);
+              setStreamingContent(accumulatedContent);
+            } else if (currentEvent === 'tool_start') {
+              try {
+                const data = JSON.parse(dataStr);
+                collectedTools.push({ tool: data.tool, status: 'running', args: data.args });
+                setToolStatuses([...collectedTools]);
+                const toolArgStr = data.args && Object.keys(data.args).length > 0 ? ` (${Object.values(data.args).join(', ')})` : '';
+                accumulatedThoughts.push(`tool used: ${data.tool}${toolArgStr}`);
+                setStreamingThoughts([...accumulatedThoughts]);
+              } catch (e) {}
+            } else if (currentEvent === 'tool_result') {
+              try {
+                const data = JSON.parse(dataStr);
+                const idx = collectedTools.findIndex(t => t.tool === data.tool && t.status === 'running');
+                const next: ToolResult = {
+                  tool: data.tool,
+                  status: 'done',
+                  fact: data.fact,
+                  quality: data.quality,
+                  success: data.success,
+                  preview: data.preview,
+                  args: data.args ?? (idx !== -1 ? collectedTools[idx].args : undefined),
+                };
+                if (idx !== -1) collectedTools[idx] = next;
+                else collectedTools.push(next);
+                setToolStatuses([...collectedTools]);
+                const toolLabel = data.tool;
+                const toolArgStr = data.args && Object.keys(data.args).length > 0 ? ` (${Object.values(data.args).join(', ')})` : '';
+                const resultText = data.fact ? ` — ${data.fact.substring(0, 140)}${data.fact.length > 140 ? '…' : ''}` : '';
+                const marker = `tool used: ${toolLabel}`;
+                const thoughtIdx = accumulatedThoughts.findIndex(t => t.startsWith(marker));
+                if (thoughtIdx !== -1) {
+                  accumulatedThoughts[thoughtIdx] = `${marker}${toolArgStr}${resultText}`;
+                } else {
+                  accumulatedThoughts.push(`${marker}${toolArgStr}${resultText}`);
+                }
+                setStreamingThoughts([...accumulatedThoughts]);
+              } catch (e) {}
+            } else if (currentEvent === 'thought_new') {
+              try {
+                let data = JSON.parse(dataStr);
+                if (typeof data !== 'string') {
+                  data = typeof data === 'object' && data.text ? data.text : JSON.stringify(data);
+                }
+                accumulatedThoughts.push(data);
+                setStreamingThoughts([...accumulatedThoughts]);
+              } catch {
+                accumulatedThoughts.push(dataStr);
+                setStreamingThoughts([...accumulatedThoughts]);
               }
-              accumulatedThoughts.push(data);
-              setStreamingThoughts([...accumulatedThoughts]);
-            } catch {
-              accumulatedThoughts.push(dataStr);
-              setStreamingThoughts([...accumulatedThoughts]);
-            }
-          } else if (currentEvent === 'thought') {
-            let dataText = dataStr;
-            try {
-              let parsed = JSON.parse(dataStr);
-              if (typeof parsed !== 'string') {
-                parsed = typeof parsed === 'object' && parsed.text ? parsed.text : JSON.stringify(parsed);
-              }
-              dataText = parsed;
-            } catch {}
+            } else if (currentEvent === 'thought') {
+              let dataText = dataStr;
+              try {
+                let parsed = JSON.parse(dataStr);
+                if (typeof parsed !== 'string') {
+                  parsed = typeof parsed === 'object' && parsed.text ? parsed.text : JSON.stringify(parsed);
+                }
+                dataText = parsed;
+              } catch {}
 
-            const lastIdx = accumulatedThoughts.length - 1;
-            const lastItem = lastIdx >= 0 ? accumulatedThoughts[lastIdx] : null;
-            const isLastItemToolOrHeader = lastItem && (
-              lastItem.startsWith('tool used: ') ||
-              lastItem.startsWith('• tool_call: ') ||
-              lastItem.startsWith('Searched: ') ||
-              lastItem.startsWith('Branching off:') ||
-              lastItem.startsWith('Branches are in') ||
-              lastItem.startsWith('Before answering')
-            );
+              const lastIdx = accumulatedThoughts.length - 1;
+              const lastItem = lastIdx >= 0 ? accumulatedThoughts[lastIdx] : null;
+              const isLastItemToolOrHeader = lastItem && (
+                lastItem.startsWith('tool used: ') ||
+                lastItem.startsWith('• tool_call: ') ||
+                lastItem.startsWith('Searched: ') ||
+                lastItem.startsWith('Branching off:') ||
+                lastItem.startsWith('Branches are in') ||
+                lastItem.startsWith('Before answering')
+              );
 
-            if (accumulatedThoughts.length === 0 || isLastItemToolOrHeader) {
-              accumulatedThoughts.push(dataText);
-            } else {
-              accumulatedThoughts[lastIdx] += dataText;
+              if (accumulatedThoughts.length === 0 || isLastItemToolOrHeader) {
+                accumulatedThoughts.push(dataText);
+              } else {
+                accumulatedThoughts[lastIdx] += dataText;
+              }
+              setStreamingThoughts([...accumulatedThoughts]);
+            } else if (currentEvent === 'error') {
+              throw new Error(JSON.parse(dataStr).message || 'Stream error');
             }
-            setStreamingThoughts([...accumulatedThoughts]);
-          } else if (currentEvent === 'error') {
-            throw new Error(JSON.parse(dataStr).message || 'Stream error');
           }
         }
       }
+
+      return {
+        role: 'assistant',
+        content: accumulatedContent || (controller.signal.aborted ? '[Generation stopped]' : 'No response received.'),
+        thoughts: accumulatedThoughts.length > 0 ? [...accumulatedThoughts] : undefined,
+        tools: collectedTools.filter((t) => t.status === 'done'),
+      };
+    } catch (err: any) {
+      if (controller.signal.aborted || err?.name === 'AbortError') {
+        return {
+          role: 'assistant',
+          content: accumulatedContent || '[Generation stopped]',
+          thoughts: accumulatedThoughts.length > 0 ? [...accumulatedThoughts] : undefined,
+          tools: collectedTools.filter((t) => t.status === 'done'),
+        };
+      }
+      throw err;
+    } finally {
+      abortControllerRef.current = null;
     }
-    
-    return {
-      role: 'assistant',
-      content: accumulatedContent || 'No response received.',
-      thoughts: accumulatedThoughts.length > 0 ? [...accumulatedThoughts] : undefined,
-      tools: collectedTools.filter((t) => t.status === 'done'),
-    };
   };
 
   const sendMessage = async (override?: string) => {
@@ -450,7 +483,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     }
 
     try {
-      const reply = await executeStreamChat(command, updatedMessages);
+      const reply = await executeStreamChat(command, messages);
 
       const finalMessages = [...updatedMessages, reply];
       setMessages(finalMessages);
@@ -485,7 +518,9 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      sendMessage();
+      if (!loading) {
+        sendMessage();
+      }
     }
   };
 
@@ -507,7 +542,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
             {messages.length === 0 && !loading ? (
               <div className="empty-state" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                 <div style={{ width: 80, height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
-                  <img src="/logo-boz-solid.png" alt="BOZ" style={{ width: 80, height: 80, objectFit: 'contain', borderRadius: '16px' }} />
+                  <img src="/logo-boz-transparant-white.png" alt="BOZ" style={{ width: 80, height: 80, objectFit: 'contain', borderRadius: '16px' }} />
                 </div>
                 <h2 className="chat-empty-title">{greeting}</h2>
 
@@ -544,8 +579,8 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                   <div key={i} className={`chat-bubble ${msg.role}`}>
                     {msg.role === 'assistant' ? (
                       <div className="flex-row gap-3" style={{ width: '100%' }}>
-                        <div className="chat-assistant-avatar" style={{ flexShrink: 0, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                          <img src="/logo-boz-solid.png" alt="BOZ" style={{ width: 22, height: 22, objectFit: 'contain' }} />
+                        <div className="chat-assistant-avatar" style={{ flexShrink: 0, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <img src="/logo-boz-transparant-white.png" alt="BOZ" style={{ width: 24, height: 24, objectFit: 'contain' }} />
                         </div>
                         <div style={{ width: '100%', paddingTop: '2px' }}>
                           {msg.thoughts && msg.thoughts.length > 0 && (
@@ -610,15 +645,15 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                 {loading && (
                   <div className={`chat-bubble assistant`}>
                     <div className="flex-row gap-3" style={{ width: '100%' }}>
-                      <div className="chat-assistant-avatar" style={{ flexShrink: 0, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                        <img src="/logo-boz-solid.png" alt="BOZ" style={{ width: 22, height: 22, objectFit: 'contain' }} />
+                      <div className="chat-assistant-avatar" style={{ flexShrink: 0, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <img src="/logo-boz-transparant-white.png" alt="BOZ" style={{ width: 24, height: 24, objectFit: 'contain' }} />
                       </div>
                       <div style={{ width: '100%', paddingTop: '2px' }}>
                         {streamingThoughts.length > 0 && (
                           <ThoughtAccordion
                             thoughts={streamingThoughts}
                             isStreaming={true}
-                            defaultOpen={true}
+                            defaultOpen={false}
                             title="Thought process"
                           />
                         )}
@@ -627,8 +662,8 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                         ) : streamingThoughts.length > 0 ? null : (
                           <div className="flex-row gap-2 items-center" style={{ height: '28px' }}>
                             <span className="spinner spinner-sm"></span>
-                            <span className="page-subtitle animate-fadeIn" key={loadingStep} style={{ margin: 0, transition: 'all 0.3s ease' }}>
-                              Analyzing market intelligence...
+                            <span className="page-subtitle animate-fadeIn" style={{ margin: 0, transition: 'all 0.3s ease' }}>
+                              Thinking...
                             </span>
                           </div>
                         )}
@@ -679,7 +714,6 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
               rows={1}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={loading}
             />
 
             <div className="chat-composer-footer">
@@ -699,14 +733,21 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
               </div>
 
               <div className="chat-composer-footer-right">
+                <ChatEffortPicker />
                 <ChatModelPicker />
                 <button
                   type="button"
-                  className={`chat-composer-send-btn${input.trim() ? ' active' : ''}`}
-                  onClick={() => sendMessage()}
-                  disabled={loading || !input.trim()}
+                  className={`chat-composer-send-btn ${loading ? 'active is-stop' : input.trim() ? 'active' : ''}`}
+                  onClick={() => {
+                    if (loading) {
+                      stopStreaming();
+                    } else {
+                      sendMessage();
+                    }
+                  }}
+                  disabled={!loading && !input.trim()}
                   title={loading ? 'Stop generation' : 'Send message (Enter)'}
-                  aria-label="Send message"
+                  aria-label={loading ? 'Stop generation' : 'Send message'}
                 >
                   {loading ? (
                     <i className="fa-solid fa-stop" style={{ fontSize: '12px' }}></i>

@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const MODULE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const ORIGINAL_BOZ_LOGO = join(MODULE_ROOT, 'public', 'logo-boz-solid.png');
+const ORIGINAL_BOZ_LOGO = join(MODULE_ROOT, 'public', 'logo-boz-transparant-white.png');
 const READY_MARKER = 'BOZ_TRAY_READY';
 const EXIT_MARKER = 'BOZ_TRAY_EXIT';
 const TOGGLE_STARTUP_MARKER = 'BOZ_TRAY_TOGGLE_STARTUP';
@@ -307,12 +307,13 @@ $temporaryIcon.Dispose()
 [void][BozNativeMethods]::DestroyIcon($iconHandle)
 
 $menuLogo = [BozNativeMethods]::CreateCrispTrayIcon($iconPath, 30)
+$menuWidth = 220
 $menu = [System.Windows.Forms.ContextMenuStrip]::new()
 $menu.Renderer = [BozMenuRenderer]::new($menuLogo)
 $menu.BackColor = [System.Drawing.Color]::FromArgb(28, 28, 30)
 $menu.ForeColor = [System.Drawing.Color]::FromArgb(236, 236, 237)
 $menu.Padding = [System.Windows.Forms.Padding]::new(4, 4, 4, 4)
-$menu.MinimumSize = [System.Drawing.Size]::new(240, 0)
+$menu.MinimumSize = [System.Drawing.Size]::new($menuWidth, 0)
 $menu.ShowImageMargin = $false
 $menu.ShowCheckMargin = $false
 $menu.Font = [System.Drawing.Font]::new('Segoe UI', 9.5, [System.Drawing.FontStyle]::Regular)
@@ -323,7 +324,7 @@ $header = [System.Windows.Forms.ToolStripMenuItem]::new('BOZ')
 $header.Tag = 'header'
 $header.Enabled = $false
 $header.AutoSize = $false
-$header.Size = [System.Drawing.Size]::new(240, 52)
+$header.Size = [System.Drawing.Size]::new($menuWidth, 52)
 [void]$menu.Items.Add($header)
 [void]$menu.Items.Add([System.Windows.Forms.ToolStripSeparator]::new())
 

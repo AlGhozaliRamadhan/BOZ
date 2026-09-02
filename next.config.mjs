@@ -12,10 +12,21 @@ const nextConfig = {
     proxyClientMaxBodySize: 262144,
   },
   outputFileTracingExcludes: {
+    '*': [
+      './.env',
+      './.env.*',
+      './src/data/idx-universe-cache.json',
+      '**/.boz/**',
+      '**/Users/**',
+      '**/*.vbs',
+    ],
     '/*': [
       './.env',
       './.env.*',
       './src/data/idx-universe-cache.json',
+      '**/.boz/**',
+      '**/Users/**',
+      '**/*.vbs',
     ],
   },
   env: {

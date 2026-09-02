@@ -77,7 +77,7 @@ function buildSystemPrompt(): string {
     `ANALYTICAL DIRECTIVE:\n` +
     `1. STRATEGIC THESIS: Provide a rich, professional thesis explaining what is fundamentally and technically driving this asset. ` +
     `   Cover secular growth trends, business moat, revenue catalysts, institutional order flow, and macro cycle positioning.\n` +
-    `2. CONVICTION & STRATEGY: Synthesize technical levels, ATR volatility, and macro regime into a clear risk-managed game plan.\n` +
+    `2. CONVICTION & DIRECTIONAL STANCE: Synthesize technical levels, ATR volatility, and macro regime into a clear risk-managed game plan. Even when presenting dual Long and Short setups, clearly convey what the quantitative data intelligence indicates and which side has the statistical edge.\n` +
     `3. CATALYST DRIVERS (reasons): Do NOT merely repeat technical formulas (like "SMA20 is X"). Instead, distill the 3-4 decisive strategic reasons ` +
     `   (e.g., "Secular AI datacenter capital expenditure expansion", "Bullish momentum continuation above multi-month accumulation base", "Contrarian retail sentiment reset with institutional accumulation").\n` +
     `4. RUTHLESS OBJECTIVITY: Both bullish and bearish calls are equally respected. Always specify the primary invalidation risk.\n\n` +

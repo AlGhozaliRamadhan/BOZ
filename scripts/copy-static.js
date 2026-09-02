@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, cpSync, readdirSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, cpSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -20,6 +20,8 @@ export async function run({ moduleRoot }) {
   const destB = join(standaloneRoot, 'public', '_next', 'static');
   const removed = [];
 
+  mkdirSync(standaloneRoot, { recursive: true });
+
   if (existsSync(standaloneRoot)) {
     for (const entry of readdirSync(standaloneRoot, { withFileTypes: true })) {
       if (entry.isFile() && /^\.env(?:\.|$)/.test(entry.name)) {
@@ -30,18 +32,62 @@ export async function run({ moduleRoot }) {
     }
   }
 
-  if (!existsSync(src)) {
-    return { copied: [], skipped: ['.next/static'], removed };
-  }
-
   const copied = [];
-  for (const dest of [destA, destB]) {
-    mkdirSync(dirname(dest), { recursive: true });
-    cpSync(src, dest, { recursive: true, force: true });
-    copied.push(dest);
+  const skipped = [];
+
+  if (existsSync(src)) {
+    for (const dest of [destA, destB]) {
+      mkdirSync(dirname(dest), { recursive: true });
+      cpSync(src, dest, { recursive: true, force: true });
+      copied.push(dest);
+    }
+  } else {
+    skipped.push('.next/static');
   }
 
-  return { copied, skipped: [], removed };
+  const serverJsPath = join(standaloneRoot, 'server.js');
+  if (!existsSync(serverJsPath)) {
+    const serverCode = `process.env.NODE_ENV = 'production';
+const path = require('path');
+const fs = require('fs');
+
+process.chdir(__dirname);
+
+const currentPort = parseInt(process.env.PORT, 10) || 3000;
+const hostname = process.env.HOSTNAME || '127.0.0.1';
+
+const requiredServerFilesPath = fs.existsSync(path.join(__dirname, '.next', 'required-server-files.json'))
+  ? path.join(__dirname, '.next', 'required-server-files.json')
+  : fs.existsSync(path.join(__dirname, '..', 'required-server-files.json'))
+  ? path.join(__dirname, '..', 'required-server-files.json')
+  : path.join(__dirname, 'required-server-files.json');
+
+const nextConfig = fs.existsSync(requiredServerFilesPath) ? require(requiredServerFilesPath).config : {};
+process.env.__NEXT_PRIVATE_STANDALONE_CONFIG = JSON.stringify(nextConfig);
+
+const rootDir = fs.existsSync(path.join(__dirname, '..', '..', '.next'))
+  ? path.resolve(__dirname, '..', '..')
+  : __dirname;
+
+const { startServer } = require('next/dist/server/lib/start-server');
+
+startServer({
+  dir: rootDir,
+  isDev: false,
+  config: nextConfig,
+  hostname,
+  port: currentPort,
+  allowRetry: false,
+}).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+`;
+    writeFileSync(serverJsPath, serverCode, 'utf8');
+    copied.push(serverJsPath);
+  }
+
+  return { copied, skipped, removed };
 }
 
 // CLI wrapper: run when invoked directly (`node scripts/copy-static.js`).

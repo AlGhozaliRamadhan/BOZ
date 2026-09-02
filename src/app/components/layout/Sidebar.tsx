@@ -150,7 +150,6 @@ export default function Sidebar() {
   return (
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
       <div className="sidebar-logo" style={{ justifyContent: collapsed ? 'center' : 'space-between' }}>
-        <img src="/logo-boz.png" alt="BOZ" />
         {!collapsed && <span className="sidebar-logo-text">BOZ.</span>}
         <button
           className="sidebar-collapse-btn"
@@ -312,7 +311,7 @@ export default function Sidebar() {
             </button>
           )}
           <span className="sidebar-version">
-            v{updateInfo?.currentVersion ?? process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.5.1'}
+            v{updateInfo?.currentVersion ?? process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.5.2'}
           </span>
         </div>
       </div>
@@ -323,7 +322,7 @@ export default function Sidebar() {
           <div className="update-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="update-modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <img src="/logo-boz.png" alt="BOZ" style={{ width: '24px', height: '24px', borderRadius: '4px' }} />
+                <img src="/logo-boz-transparant-white.png" alt="BOZ" style={{ width: '24px', height: '24px', borderRadius: '4px' }} />
                 <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
                   {updateInfo?.updateAvailable ? 'New Update Available!' : 'About BOZ'}
                 </h3>
@@ -435,7 +434,7 @@ export default function Sidebar() {
                       BOZ Intelligence
                     </div>
                     <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                      Version v{updateInfo?.currentVersion ?? process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.5.1'}
+                      Version v{updateInfo?.currentVersion ?? process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.5.2'}
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--bull, #00d2ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginTop: '4px' }}>
                       <i className="fa-solid fa-circle-check"></i>

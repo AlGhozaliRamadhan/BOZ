@@ -5,6 +5,7 @@ import type { LLMMessage, RawToolCall } from '../../types/llm.types.js';
 import type { ValidateFunction } from 'ajv';
 import { formatSchemaErrors } from './llm.schemas.js';
 import { createCustomProviderClient } from './custom-provider.client.js';
+import { sanitizeAssistantOutput } from '../../shared/assistant-output.js';
 
 export type JsonCallResult<T> =
   | { type: 'ok'; value: T; raw: string; warnings: string[] }
@@ -25,14 +26,6 @@ const DEFAULT_TIMEOUT_MS = 90_000;
 export class LLMAdapter {
   constructor(private readonly timeoutMs = DEFAULT_TIMEOUT_MS) {}
 
-  private buildMessages(
-    base: LLMMessage[],
-    assistantPrefill?: string,
-  ): LLMMessage[] {
-    if (!assistantPrefill) return base;
-    return [...base, { role: 'assistant', content: assistantPrefill }];
-  }
-
   private customClient(): Promise<OpenAI> {
     return createCustomProviderClient({
       apiKey: config.custom.apiKey,
@@ -49,13 +42,12 @@ export class LLMAdapter {
     responseFormat?: 'json';
     nvidiaMode?: NvidiaMode;
     reasoningEffort?: ReasoningEffort;
-    assistantPrefill?: string;
   }): Promise<string> {
     const provider = config.aiProvider ?? 'github';
     const temperature = options.temperature ?? 0.4;
     const maxTokens = options.maxTokens ?? 1500;
     const model = options.model;
-    const messages = this.buildMessages(options.messages, options.assistantPrefill);
+    const messages = options.messages;
 
     if (provider === 'custom') {
       const modelName = model ?? config.custom.model;
@@ -143,13 +135,12 @@ export class LLMAdapter {
     responseFormat?: 'json';
     nvidiaMode?: NvidiaMode;
     reasoningEffort?: ReasoningEffort;
-    assistantPrefill?: string;
   }): AsyncGenerator<string, void, unknown> {
     const provider = config.aiProvider ?? 'github';
     const temperature = options.temperature ?? 0.4;
     const maxTokens = options.maxTokens ?? 1500;
     const model = options.model;
-    const messages = this.buildMessages(options.messages, options.assistantPrefill);
+    const messages = options.messages;
 
     if (provider === 'custom') {
       const modelName = model ?? config.custom.model;
@@ -166,26 +157,11 @@ export class LLMAdapter {
       }
       const client = await this.customClient();
       const stream = await client.chat.completions.create(params as any);
-      let inReasoning = false;
       for await (const chunk of stream as any) {
         const delta = chunk.choices?.[0]?.delta;
-        if (delta?.reasoning_content) {
-          if (!inReasoning) {
-            yield '<think>';
-            inReasoning = true;
-          }
-          yield delta.reasoning_content;
-        }
         if (delta?.content) {
-          if (inReasoning) {
-            yield '</think>';
-            inReasoning = false;
-          }
           yield delta.content;
         }
-      }
-      if (inReasoning) {
-        yield '</think>';
       }
       return;
     }
@@ -214,26 +190,11 @@ export class LLMAdapter {
         }
       }
       const stream = await client.chat.completions.create(params as any);
-      let inReasoning = false;
       for await (const chunk of stream as any) {
         const delta = chunk.choices?.[0]?.delta;
-        if (delta?.reasoning_content) {
-          if (!inReasoning) {
-            yield '<think>';
-            inReasoning = true;
-          }
-          yield delta.reasoning_content;
-        }
         if (delta?.content) {
-          if (inReasoning) {
-            yield '</think>';
-            inReasoning = false;
-          }
           yield delta.content;
         }
-      }
-      if (inReasoning) {
-        yield '</think>';
       }
       return;
     }
@@ -263,26 +224,11 @@ export class LLMAdapter {
       params.reasoning_effort = options.reasoningEffort;
     }
     const stream = await client.chat.completions.create(params as any);
-    let inReasoning = false;
     for await (const chunk of stream as any) {
       const delta = chunk.choices?.[0]?.delta;
-      if (delta?.reasoning_content) {
-        if (!inReasoning) {
-          yield '<think>';
-          inReasoning = true;
-        }
-        yield delta.reasoning_content;
-      }
       if (delta?.content) {
-        if (inReasoning) {
-          yield '</think>';
-          inReasoning = false;
-        }
         yield delta.content;
       }
-    }
-    if (inReasoning) {
-      yield '</think>';
     }
   }
 
@@ -293,13 +239,12 @@ export class LLMAdapter {
     maxTokens?: number;
     model?: string;
     reasoningEffort?: ReasoningEffort;
-    assistantPrefill?: string;
   }): Promise<LLMMessage> {
     const provider = config.aiProvider ?? 'github';
     const temperature = options.temperature ?? 0.3;
     const maxTokens = options.maxTokens ?? 4096;
     const model = options.model;
-    const messages = this.buildMessages(options.messages, options.assistantPrefill);
+    const messages = options.messages;
 
     if (provider === 'custom') {
       const modelName = model ?? config.custom.model;
@@ -505,56 +450,13 @@ export class LLMAdapter {
   }
 
   private static normalizeOpenAIResponse(msg: any): LLMMessage {
-    let rawContent = msg.content ?? '';
-
-    // Strip the assistant prefill echo if the model repeated it at the start
-    // of its response (e.g. "<think>\nThinking Process:\n1. " or just
-    // "Thinking Process:\n1. ").
-    rawContent = rawContent.replace(/^<think>\s*\n?\s*Thinking Process:\s*\n?\s*1\.\s*/i, '');
-    rawContent = rawContent.replace(/^Thinking Process:\s*\n?\s*1\.\s*/i, '');
-
+    const rawContent = (msg.content ?? '').toString();
     let content = LLMAdapter.stripThinking(rawContent) || null;
-
-    // Native reasoning models (Nemotron, DeepSeek, QwQ on NVIDIA) return
-    // their reasoning in a separate `reasoning_content` field. Capture it so
-    // the engine can surface it as a thought block even when no <think>
-    // tags are present in `content`.
-    const nativeReasoning = (msg.reasoning_content ?? msg.reasoning ?? '').toString().trim();
-
-    let thought: string | null = null;
-    if (nativeReasoning) {
-      thought = nativeReasoning;
-    } else {
-      const thinkingMatch = rawContent.match(/<think(?:ing)?>(.*?)<\/think(?:ing)?>/s);
-      if (thinkingMatch) {
-        thought = thinkingMatch[1].trim();
-      } else if (rawContent.length > 0 && rawContent !== (content ?? '')) {
-        const thinkingEnd = rawContent.indexOf('</thinking>');
-        if (thinkingEnd !== -1) {
-            const thinkStart = rawContent.indexOf('<thinking>');
-            thought = rawContent.substring(thinkStart !== -1 ? thinkStart + 10 : 0, thinkingEnd).trim();
-        } else {
-            const thinkEnd = rawContent.indexOf('</think>');
-            if (thinkEnd !== -1) {
-                const thinkStart = rawContent.indexOf('<think>');
-                thought = rawContent.substring(thinkStart !== -1 ? thinkStart + 7 : 0, thinkEnd).trim();
-            }
-        }
-      }
-    }
+    const thought: string | null = null;
 
     const hasTools = msg.tool_calls && msg.tool_calls.length > 0;
 
-    if (!thought && rawContent.trim().length > 0) {
-      if (hasTools) {
-        // Discard mechanical planning chatter before tool calls
-        const isMechanicalChatter = /^(?:We need to|According to|The user|The instruction|Let's|We must|We'll call|Then we need|I should|Let me call)/i.test(rawContent.trim());
-        if (!isMechanicalChatter) {
-          thought = rawContent.trim();
-        }
-        content = null; // In OpenAI tool protocol, content must be null when tool_calls is present
-      }
-    }
+    if (hasTools) content = null;
 
     return {
       role: 'assistant',
@@ -565,16 +467,6 @@ export class LLMAdapter {
   }
 
   private static stripThinking(text: string): string {
-    if (!text) return '';
-    // Prefer </thinking> (models like DeepSeek, QwQ) with fallback to </think>
-    const thinkingEnd = text.indexOf('</thinking>');
-    if (thinkingEnd !== -1) {
-      return text.slice(thinkingEnd + '</thinking>'.length).trim();
-    }
-    const thinkEnd = text.indexOf('</think>');
-    if (thinkEnd !== -1) {
-      return text.slice(thinkEnd + '</think>'.length).trim();
-    }
-    return text.trim();
+    return sanitizeAssistantOutput(text);
   }
 }

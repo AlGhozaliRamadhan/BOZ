@@ -369,7 +369,7 @@ export default function TopBar() {
                     minWidth: '190px', padding: '6px',
                   }}>
                     <div style={{ padding: '6px 10px 4px', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)' }}>
-                      Thinking Effort
+                      Analysis Effort
                     </div>
                     {EFFORT_OPTIONS.map(opt => (
                       <button
@@ -388,7 +388,7 @@ export default function TopBar() {
                           {opt === 'Medium' && (
                             <span className="effort-info">
                               <span className="effort-info-icon">ⓘ</span>
-                              <span className="effort-tooltip">Default thinking effort</span>
+                              <span className="effort-tooltip">Default analysis effort</span>
                             </span>
                           )}
                         </span>
@@ -398,7 +398,7 @@ export default function TopBar() {
 
                     <div style={{ height: '1px', background: 'var(--border-glass)', margin: '6px 8px' }} />
 
-                    {/* Think Longer left-right switch */}
+                    {/* Deeper private analysis left-right switch */}
                     <button
                       onClick={() => setThinkingEnabled(!thinkingEnabled)}
                       style={{
@@ -407,7 +407,7 @@ export default function TopBar() {
                         background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '13px', cursor: 'pointer',
                       }}
                     >
-                      <span>Think Longer</span>
+                      <span>Analyze Deeper</span>
                       {/* switch track */}
                       <span style={{
                         position: 'relative', width: '36px', height: '20px', borderRadius: '999px',

@@ -1557,6 +1557,11 @@
   height: 13px;
   color: var(--accent-cyan, #00e5ff);
   flex-shrink: 0;
+  animation: spin 0.9s linear infinite;
+}
+
+.spinner-spin {
+  animation: spin 0.9s linear infinite;
 }
 
 .thought-actions {
@@ -1607,11 +1612,12 @@
 .thought-timeline-track::before {
   content: '';
   position: absolute;
-  left: 5.5px;
+  left: 6px;
   top: 6px;
   bottom: 8px;
   width: 1.5px;
   background: rgba(255, 255, 255, 0.1);
+  z-index: 0;
 }
 
 .thought-timeline-item {
@@ -1625,23 +1631,30 @@
   position: absolute;
   left: -22px;
   top: 1px;
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1;
+  z-index: 2;
+  background: var(--bg-primary, #000000);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--bg-primary, #000000);
 }
 
 .thought-node-clock {
   color: var(--text-muted, #8a8a8a);
   flex-shrink: 0;
+  background: var(--bg-primary, #000000);
+  border-radius: 50%;
 }
 
 .thought-node-dot {
   font-size: 13px;
   color: var(--text-muted, #8a8a8a);
   line-height: 1;
+  background: var(--bg-primary, #000000);
+  border-radius: 50%;
 }
 
 .thought-timeline-item.is-running .thought-node-clock,
@@ -1716,16 +1729,6 @@
 .thought-markdown-text ol {
   margin: 2px 0 6px;
   padding-left: 16px;
-}
-
-.thought-cursor {
-  display: inline-block;
-  width: 5px;
-  height: 12px;
-  background: var(--text-primary, #ffffff);
-  margin-left: 3px;
-  vertical-align: middle;
-  animation: pulse 0.8s infinite;
 }
 
 .thought-meta {
@@ -3267,6 +3270,131 @@
 
 .chat-model-settings:hover {
   color: var(--text-primary);
+}
+
+/* === CHAT EFFORT PICKER =================================================== */
+.chat-effort-picker {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.chat-effort-trigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.chat-effort-trigger:hover,
+.chat-effort-trigger.active {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.chat-effort-label {
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.chat-effort-trigger:hover .chat-effort-label {
+  color: var(--text-primary);
+}
+
+.chat-effort-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  left: auto;
+  min-width: 250px;
+  background: rgba(16, 16, 16, 0.96);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  box-shadow: 0 -12px 48px -8px rgba(0, 0, 0, 0.85);
+  z-index: 100;
+  animation: slideUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.chat-effort-menu-header {
+  padding: 6px 10px 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.chat-effort-option {
+  display: flex;
+  align-items: center;
+  padding: 7px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+.chat-effort-option:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.chat-effort-option.selected {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.chat-effort-option-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.chat-effort-option-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chat-effort-option-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.chat-composer-send-btn.is-stop {
+  background: rgba(255, 255, 255, 0.95);
+  color: #000000;
+  cursor: pointer;
+}
+
+.chat-composer-send-btn.is-stop:hover {
+  background: #ff4757;
+  color: #ffffff;
+  transform: scale(1.06);
+  box-shadow: 0 0 14px rgba(255, 71, 87, 0.4);
 }
 
 /* === TOOL RESULT CARDS ===================================================== */
