@@ -10,12 +10,11 @@ describe('security-sensitive repository contracts', () => {
     expect(pkg.scripts.start).toContain('--hostname 127.0.0.1');
   });
 
-  it('publishes only from main and does not let manual dispatch force a duplicate publish', () => {
+  it('triggers on GitHub release publication and enforces version guard', () => {
     const workflow = readFileSync(resolve('.github/workflows/publish.yml'), 'utf8');
-    expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
-    expect(workflow).not.toMatch(/tags:\s*\n/);
-    expect(workflow).not.toContain('release:');
-    expect(workflow).not.toContain('github.event_name');
+    expect(workflow).toContain('release:');
+    expect(workflow).toContain('types: [published]');
+    expect(workflow).toContain('[ "$LOCAL_VERSION" != "$REMOTE_VERSION" ]');
   });
 
   it('keeps model selection request-local and removes autonomous memory writes', () => {
