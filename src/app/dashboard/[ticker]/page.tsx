@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import TradingViewChart from '@/app/components/ui/TradingViewChart';
 import TechnicalStrip from '@/app/components/ui/TechnicalStrip';
+import ExternalAiBriefButton from '@/app/components/ui/ExternalAiBriefButton';
 
 interface QuoteData {
   ticker: string;
@@ -125,6 +126,7 @@ type ChartStyle = '1' | '4' | '5';
 
 const CHART_STYLE_KEY = 'boz_dashboard_chart_style';
 const DEFAULT_STYLE: ChartStyle = '1';
+const DASHBOARD_CHART_HEIGHT = 700;
 
 const STYLE_LABELS: Record<ChartStyle, string> = {
   '1': 'CANDLES',
@@ -232,6 +234,7 @@ export default function DashboardPage() {
   const [sentiment, setSentiment] = useState<SentimentData | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
   const [news, setNews] = useState<NewsData | null>(null);
+  const [briefingData, setBriefingData] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [asOf, setAsOf] = useState<Date | null>(null);
@@ -244,6 +247,7 @@ export default function DashboardPage() {
     if (!background) {
       setLoading(true);
       setError(null);
+      setBriefingData(null);
     }
     try {
       const res = await fetch(`/api/market/analysis?ticker=${encodeURIComponent(t)}`);
@@ -328,6 +332,7 @@ export default function DashboardPage() {
       setSentiment(sentimentData);
       setAnalysis(payload.analysis || null);
       setNews(payload.news || null);
+      setBriefingData(payload);
       setAsOf(payload.timestamp ? new Date(payload.timestamp) : new Date());
     } catch (err) {
       if (!background) {
@@ -444,7 +449,15 @@ export default function DashboardPage() {
           <h1 style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-violet)', fontSize: '14px', fontWeight: 700, margin: 0, letterSpacing: '0.05em' }}>INTELLIGENCE DASHBOARD</h1>
           <p style={{ fontFamily: 'var(--font-mono)', color: '#555', fontSize: '10px', marginTop: '2px', textTransform: 'uppercase' }}>REAL-TIME MARKET OVERVIEW</p>
         </div>
-        <div style={{ position: 'relative', width: '280px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <ExternalAiBriefButton
+            ticker={quote?.ticker || ticker}
+            source="BOZ ticker intelligence dashboard"
+            data={briefingData}
+            dataTimestamp={asOf?.toISOString()}
+            disabled={!briefingData}
+          />
+          <div style={{ position: 'relative', width: '280px' }}>
           <form onSubmit={handleTickerSubmit} style={{ display: 'flex', border: '1px solid #333' }}>
             <input
               type="text"
@@ -505,6 +518,7 @@ export default function DashboardPage() {
               )}
             </div>
           )}
+          </div>
         </div>
       </div>
 
@@ -707,8 +721,8 @@ export default function DashboardPage() {
               </div>
 
               {/* Chart Container */}
-              <div style={{ height: '520px', position: 'relative' }}>
-                <TradingViewChart symbol={quote?.ticker || 'AAPL'} style={chartStyle} height={520} />
+              <div style={{ height: `${DASHBOARD_CHART_HEIGHT}px`, position: 'relative' }}>
+                <TradingViewChart symbol={quote?.ticker || 'AAPL'} style={chartStyle} height={DASHBOARD_CHART_HEIGHT} />
               </div>
             </div>
 

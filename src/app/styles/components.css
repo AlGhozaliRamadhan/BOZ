@@ -560,6 +560,79 @@
   border-color: rgba(255, 255, 255, 0.08);
 }
 
+.chat-message-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.chat-message-meta {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-message-meta span {
+  white-space: nowrap;
+}
+
+.chat-message-meta i {
+  margin-right: 4px;
+}
+
+.chat-user-message {
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-user-time {
+  margin-top: 4px;
+  color: rgba(0, 0, 0, 0.58);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.external-ai-brief-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid #383838;
+  background: #111;
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.external-ai-brief-button:hover:not(:disabled) {
+  border-color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.08);
+}
+
+.external-ai-brief-button:disabled {
+  color: #555;
+  cursor: not-allowed;
+}
+
 /* === EMPTY STATE GREETING & QUOTE ========================================= */
 .chat-empty-title {
   font-size: 26px;

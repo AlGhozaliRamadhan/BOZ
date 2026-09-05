@@ -21,6 +21,11 @@ import {
   extractTickerDashboardFact,
   extractPriceFact,
 } from '@/tools/ticker.tool';
+import {
+  executeFetchGlobalMarketSnapshot,
+  fetchGlobalMarketSnapshotDefinition,
+  isGlobalMarketOutlookRequest,
+} from '@/tools/global-market.tool';
 import { newsFetchService } from '@/services/news/news.fetch.service';
 import { SentimentService } from '@/services/market/sentiment.service';
 import { webSearchService } from '@/services/search/web.search.service';
@@ -140,13 +145,20 @@ export class WebChatEngine {
     messages.push({ role: 'user', content: message });
 
     // ── First AI call — with tools (and prefill trap on the first call) ─────
+    const initialToolChoice = isGlobalMarketOutlookRequest(message)
+      ? {
+          type: 'function' as const,
+          function: { name: 'fetch_global_market_snapshot' },
+        }
+      : undefined;
+
     let aiMessage: LLMMessage;
     try {
       aiMessage = await this.callWithFallback(
         messages,
         this.getToolDefinitions(),
         0.3,
-        { reasoningEffort, model: modelOverride },
+        { reasoningEffort, model: modelOverride, toolChoice: initialToolChoice },
       );
       if (aiMessage.thought) {
         yield { type: 'thought', data: aiMessage.thought };
@@ -443,6 +455,7 @@ export class WebChatEngine {
       'TOOLS:',
       '  fetch_ticker_dashboard(symbol)    — COMPLETE quantitative & macro dashboard data (SMA stack, RSI, ATR, trade plan, patterns, support/resistance, macro regime, crowd sentiment). Use for in-depth ticker analysis.',
       '  fetch_price(symbol_or_name)       — live price for any asset',
+      '  fetch_global_market_snapshot()    — broad US/developed/emerging equity, US/international/EM bonds and credit, macro-risk, sentiment, and headline snapshot',
       '  fetch_news(query, category?)      — market news; query is a free-text search string',
       '  fetch_sentiment()                 — Fear & Greed + StockTwits crowd data',
       '  web_search(query)                 — live web search; use when other tools give nothing',
@@ -488,6 +501,11 @@ export class WebChatEngine {
       '  4. You may call 6-10 tools per query if needed. More data = better analysis.',
       '  5. Maintain a global market focus unless the user asks about a specific region.',
       '  6. FOLLOW-UP QUESTIONS & DISCUSSIONS: If the user asks about, discusses, or asks for advice on the analysis in the conversation history, DO NOT call tools. Answer directly and conversationally from context.',
+      '',
+      'GLOBAL MARKET OUTLOOK MANDATE:',
+      '  - For a global market outlook, or a request covering equities, bonds/rates, and macro regimes, call fetch_global_market_snapshot first.',
+      '  - SPY or one other ticker alone is not a global-market view. Assess the US, developed-market, emerging-market, global bonds/credit, volatility, yield, dollar, commodity, sentiment, and headline signals together.',
+      '  - Call additional focused tools only when the broad snapshot reveals a meaningful gap or conflict that needs clarification.',
       '',
       'INDONESIAN STOCK HUNTING RULES:',
       '  - When asked for IDX stocks to buy/invest/watch: ALWAYS call scan_indonesia_momentum.',
@@ -594,6 +612,7 @@ export class WebChatEngine {
         },
       },
       fetchPriceDefinition,
+      fetchGlobalMarketSnapshotDefinition,
       {
         type: 'function',
         function: {
@@ -718,6 +737,9 @@ export class WebChatEngine {
         const raw = (args.symbol_or_name as string) ?? '';
         return await executeFetchPrice(raw);
       }
+
+      case 'fetch_global_market_snapshot':
+        return await executeFetchGlobalMarketSnapshot();
 
       case 'fetch_news': {
         const query    = (args.query as string) ?? '';
@@ -939,6 +961,20 @@ export class WebChatEngine {
   private extractFact(toolName: string, args: Record<string, any>, obs: string): LedgerEntry | null {
     const wasEmpty = obs.includes('No news found') || obs.includes('returned no results') ||
                      obs.includes('Tool execution failed') || obs.includes('no data');
+
+    if (toolName === 'fetch_global_market_snapshot') {
+      const coverage =
+        obs.includes('=== EQUITIES ===') &&
+        obs.includes('=== RATES AND CREDIT ===') &&
+        obs.includes('=== MACRO RISK SIGNALS ===');
+
+      return {
+        step: 0,
+        tool: toolName,
+        fact: 'Global snapshot covering US, developed, and emerging equities; US, international, and emerging-market bonds and credit; volatility, yields, dollar, gold, oil, sentiment, and macro headlines.',
+        quality: coverage ? 'confirmed' : 'partial',
+      };
+    }
 
     if (toolName === 'fetch_price') {
       return extractPriceFact(args.symbol_or_name as string, obs);
@@ -1324,7 +1360,11 @@ export class WebChatEngine {
     messages:    LLMMessage[],
     tools:       object[],
     temperature: number,
-    options: { reasoningEffort?: ReasoningEffort; model?: string } = {},
+    options: {
+      reasoningEffort?: ReasoningEffort;
+      model?: string;
+      toolChoice?: { type: 'function'; function: { name: string } };
+    } = {},
   ): Promise<LLMMessage> {
     try {
       this.consumeLlmCall();
@@ -1335,6 +1375,7 @@ export class WebChatEngine {
         maxTokens: 4096,
         model: options.model,
         reasoningEffort: options.reasoningEffort,
+        toolChoice: options.toolChoice,
       });
     } catch (err: any) {
       const status = err?.response?.status || err?.status;
@@ -1353,6 +1394,7 @@ export class WebChatEngine {
             maxTokens: 4096,
             model: fallbackModel,
             reasoningEffort: options.reasoningEffort,
+            toolChoice: options.toolChoice,
           });
         }
       }

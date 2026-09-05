@@ -239,12 +239,14 @@ export class LLMAdapter {
     maxTokens?: number;
     model?: string;
     reasoningEffort?: ReasoningEffort;
+    toolChoice?: { type: 'function'; function: { name: string } };
   }): Promise<LLMMessage> {
     const provider = config.aiProvider ?? 'github';
     const temperature = options.temperature ?? 0.3;
     const maxTokens = options.maxTokens ?? 4096;
     const model = options.model;
     const messages = options.messages;
+    const toolChoice = options.toolChoice ?? 'auto';
 
     if (provider === 'custom') {
       const modelName = model ?? config.custom.model;
@@ -253,7 +255,7 @@ export class LLMAdapter {
         model: modelName,
         messages: messages as any,
         tools: options.tools as any,
-        tool_choice: 'auto',
+        tool_choice: toolChoice,
         temperature,
         max_tokens: maxTokens,
       };
@@ -270,7 +272,7 @@ export class LLMAdapter {
         model: modelName,
         messages: messages as any,
         tools: options.tools as any,
-        tool_choice: 'auto',
+        tool_choice: toolChoice,
         temperature,
         max_tokens: maxTokens,
       };
@@ -283,7 +285,7 @@ export class LLMAdapter {
     }
 
     if (provider === 'offline') {
-      return this.callOfflineTooling(messages, options.tools, model);
+      return this.callOfflineTooling(messages, options.tools, model, options.toolChoice?.function.name);
     }
 
     if (!config.github.token) throw new Error('No GitHub token configured');
@@ -291,7 +293,7 @@ export class LLMAdapter {
       model: model ?? config.github.model,
       messages,
       tools: options.tools,
-      tool_choice: 'auto',
+      tool_choice: toolChoice,
       temperature,
       max_tokens: maxTokens,
     };
@@ -351,6 +353,7 @@ export class LLMAdapter {
     messages: LLMMessage[],
     tools: object[],
     modelOverride?: string,
+    forcedToolName?: string,
   ): Promise<LLMMessage> {
     if (!config.aiEndpoint) throw new Error('No offline endpoint configured');
     const toolNames = (tools as any[]).map(t => t.function?.name ?? '').join(', ');
@@ -360,6 +363,9 @@ export class LLMAdapter {
         role: 'system',
         content:
           `You have access to these tools: ${toolNames}.\n` +
+          (forcedToolName
+            ? `You MUST call ${forcedToolName} first.\n`
+            : '') +
           `To call a tool respond ONLY with valid JSON:\n` +
           `{"tool":"<name>","args":{...}}\n` +
           `To call multiple tools, put each on its own line as a separate JSON object.`,

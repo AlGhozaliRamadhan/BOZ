@@ -9,6 +9,13 @@ import { getEffort, getThinkingEnabled } from '../../shared/chat-options';
 import ChatModelPicker from './ChatModelPicker';
 import ChatEffortPicker from './ChatEffortPicker';
 import type { ToolResult } from './ToolResultCards';
+import { toolStartThought, updateToolResultThought } from './tool-thoughts';
+import {
+  buildAssistantMessageMetrics,
+  formatDuration,
+  formatTokensPerSecond,
+  type AssistantMessageMetrics,
+} from './chat-message-metrics';
 
 export interface TickerSuggestion {
   symbol: string;
@@ -20,6 +27,8 @@ export interface TickerSuggestion {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  createdAt?: number;
+  metrics?: AssistantMessageMetrics;
   data?: any;
   type?: 'intraday' | 'longterm' | 'newsintel' | 'chat';
   thoughts?: string[];
@@ -41,6 +50,15 @@ function formatContent(content: string): string {
   } catch (e) {
     return DOMPurify.sanitize(content);
   }
+}
+
+function formatMessageTime(timestamp?: number): string | null {
+  if (!timestamp || !Number.isFinite(timestamp)) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(timestamp);
 }
 
 interface MarketQuote {
@@ -294,13 +312,36 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     }
   };
 
-  const executeStreamChat = async (command: string, historyMessages: ChatMessage[]): Promise<ChatMessage> => {
+  const executeStreamChat = async (
+    command: string,
+    historyMessages: ChatMessage[],
+    startedAt: number,
+  ): Promise<ChatMessage> => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
     let accumulatedContent = '';
     let accumulatedThoughts: string[] = [];
     const collectedTools: ToolResult[] = [];
+    let firstTokenAt: number | undefined;
+
+    const createReply = (content: string): ChatMessage => {
+      const completedAt = Date.now();
+      return {
+        role: 'assistant',
+        content,
+        createdAt: completedAt,
+        metrics: buildAssistantMessageMetrics({
+          content,
+          startedAt,
+          firstTokenAt,
+          completedAt,
+          toolCount: collectedTools.filter(tool => tool.status === 'done').length,
+        }),
+        thoughts: accumulatedThoughts.length > 0 ? [...accumulatedThoughts] : undefined,
+        tools: collectedTools.filter(tool => tool.status === 'done'),
+      };
+    };
 
     try {
       const res = await fetch('/api/chat/stream', {
@@ -345,6 +386,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
             if (!dataStr) continue;
 
             if (currentEvent === 'token') {
+              firstTokenAt ??= Date.now();
               let token: any = dataStr;
               try { token = JSON.parse(dataStr); } catch {}
               
@@ -361,14 +403,17 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                 const data = JSON.parse(dataStr);
                 collectedTools.push({ tool: data.tool, status: 'running', args: data.args });
                 setToolStatuses([...collectedTools]);
-                const toolArgStr = data.args && Object.keys(data.args).length > 0 ? ` (${Object.values(data.args).join(', ')})` : '';
-                accumulatedThoughts.push(`tool used: ${data.tool}${toolArgStr}`);
+                accumulatedThoughts.push(toolStartThought(data.tool, data.args));
                 setStreamingThoughts([...accumulatedThoughts]);
               } catch (e) {}
             } else if (currentEvent === 'tool_result') {
               try {
                 const data = JSON.parse(dataStr);
-                const idx = collectedTools.findIndex(t => t.tool === data.tool && t.status === 'running');
+                const idx = collectedTools.findIndex(t =>
+                  t.tool === data.tool &&
+                  t.status === 'running' &&
+                  JSON.stringify(t.args ?? {}) === JSON.stringify(data.args ?? {}),
+                );
                 const next: ToolResult = {
                   tool: data.tool,
                   status: 'done',
@@ -381,16 +426,15 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                 if (idx !== -1) collectedTools[idx] = next;
                 else collectedTools.push(next);
                 setToolStatuses([...collectedTools]);
-                const toolLabel = data.tool;
-                const toolArgStr = data.args && Object.keys(data.args).length > 0 ? ` (${Object.values(data.args).join(', ')})` : '';
-                const resultText = data.fact ? ` — ${data.fact.substring(0, 140)}${data.fact.length > 140 ? '…' : ''}` : '';
-                const marker = `tool used: ${toolLabel}`;
-                const thoughtIdx = accumulatedThoughts.findIndex(t => t.startsWith(marker));
-                if (thoughtIdx !== -1) {
-                  accumulatedThoughts[thoughtIdx] = `${marker}${toolArgStr}${resultText}`;
-                } else {
-                  accumulatedThoughts.push(`${marker}${toolArgStr}${resultText}`);
-                }
+                accumulatedThoughts.splice(
+                  0,
+                  accumulatedThoughts.length,
+                  ...updateToolResultThought(accumulatedThoughts, {
+                    tool: data.tool,
+                    args: next.args,
+                    fact: data.fact,
+                  }),
+                );
                 setStreamingThoughts([...accumulatedThoughts]);
               } catch (e) {}
             } else if (currentEvent === 'thought_new') {
@@ -439,20 +483,12 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
         }
       }
 
-      return {
-        role: 'assistant',
-        content: accumulatedContent || (controller.signal.aborted ? '[Generation stopped]' : 'No response received.'),
-        thoughts: accumulatedThoughts.length > 0 ? [...accumulatedThoughts] : undefined,
-        tools: collectedTools.filter((t) => t.status === 'done'),
-      };
+      return createReply(
+        accumulatedContent || (controller.signal.aborted ? '[Generation stopped]' : 'No response received.'),
+      );
     } catch (err: any) {
       if (controller.signal.aborted || err?.name === 'AbortError') {
-        return {
-          role: 'assistant',
-          content: accumulatedContent || '[Generation stopped]',
-          thoughts: accumulatedThoughts.length > 0 ? [...accumulatedThoughts] : undefined,
-          tools: collectedTools.filter((t) => t.status === 'done'),
-        };
+        return createReply(accumulatedContent || '[Generation stopped]');
       }
       throw err;
     } finally {
@@ -465,7 +501,8 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     if (!override && !input.trim()) return;
 
     const command = (override ?? input).trim();
-    const userMessage: ChatMessage = { role: 'user', content: command };
+    const sentAt = Date.now();
+    const userMessage: ChatMessage = { role: 'user', content: command, createdAt: sentAt };
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
     setInput('');
@@ -483,7 +520,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     }
 
     try {
-      const reply = await executeStreamChat(command, messages);
+      const reply = await executeStreamChat(command, messages, sentAt);
 
       const finalMessages = [...updatedMessages, reply];
       setMessages(finalMessages);
@@ -499,6 +536,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
         {
           role: 'assistant',
           content: 'Sorry, I encountered an error processing your request. Please try again.',
+          createdAt: Date.now(),
         } as ChatMessage,
       ];
       setMessages(errMessages);
@@ -621,7 +659,39 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
                           {/* Assistant Message Actions */}
                           {msg.content && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', paddingTop: '6px', borderTop: '1px solid rgba(255, 255, 255, 0.04)' }}>
+                            <div className="chat-message-footer">
+                              <div className="chat-message-meta">
+                                {formatMessageTime(msg.createdAt) && (
+                                  <span title={new Date(msg.createdAt!).toLocaleString()}>
+                                    <i className="fa-regular fa-clock"></i>
+                                    {formatMessageTime(msg.createdAt)}
+                                  </span>
+                                )}
+                                {msg.metrics && (
+                                  <>
+                                    <span title="Estimated visible output tokens; exact provider usage is not available for every model.">
+                                      ~{msg.metrics.outputTokensEstimate} tokens
+                                    </span>
+                                    <span>{msg.metrics.outputWords} words</span>
+                                    <span title="Total time from sending the prompt until the reply completed.">
+                                      {formatDuration(msg.metrics.totalDurationMs)} total
+                                    </span>
+                                    {msg.metrics.timeToFirstTokenMs !== undefined && (
+                                      <span title="Time from sending the prompt until the first visible response token.">
+                                        first {formatDuration(msg.metrics.timeToFirstTokenMs)}
+                                      </span>
+                                    )}
+                                    {formatTokensPerSecond(msg.metrics.outputTokensPerSecond) && (
+                                      <span title="Estimated visible output tokens per second after the first visible token.">
+                                        {formatTokensPerSecond(msg.metrics.outputTokensPerSecond)}
+                                      </span>
+                                    )}
+                                    {msg.metrics.toolCount > 0 && (
+                                      <span>{msg.metrics.toolCount} tool{msg.metrics.toolCount === 1 ? '' : 's'}</span>
+                                    )}
+                                  </>
+                                )}
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => copyMessage(msg.content, i)}
@@ -636,7 +706,14 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                         </div>
                       </div>
                     ) : (
-                      <span>{msg.content}</span>
+                      <div className="chat-user-message">
+                        <span>{msg.content}</span>
+                        {formatMessageTime(msg.createdAt) && (
+                          <time dateTime={new Date(msg.createdAt!).toISOString()} className="chat-user-time">
+                            Sent {formatMessageTime(msg.createdAt)}
+                          </time>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}

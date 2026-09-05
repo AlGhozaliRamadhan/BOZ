@@ -813,7 +813,7 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <div>
                             <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
-                              BOZ v{updateInfo?.currentVersion || '2.5.2'}
+                              BOZ v{updateInfo?.currentVersion || '2.5.3'}
                             </div>
                             <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
                               {checkingUpdate ? (
