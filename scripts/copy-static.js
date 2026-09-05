@@ -7,6 +7,7 @@ const __dirname = dirname(__filename);
 
 /**
  * Copy .next/static into both standalone locations Next reads from.
+ * Also copy public assets because Next's standalone server does not include them.
  * Returns which destinations were copied to and which sources were skipped.
  *
  * @param {{ moduleRoot: string }} opts
@@ -14,9 +15,11 @@ const __dirname = dirname(__filename);
  */
 export async function run({ moduleRoot }) {
   const src = join(moduleRoot, '.next', 'static');
+  const publicSrc = join(moduleRoot, 'public');
   const standaloneRoot = join(moduleRoot, '.next', 'standalone');
   const destA = join(standaloneRoot, '.next', 'static');
   const destB = join(standaloneRoot, 'public', '_next', 'static');
+  const publicDest = join(standaloneRoot, 'public');
   const removed = [];
 
   mkdirSync(standaloneRoot, { recursive: true });
@@ -42,6 +45,13 @@ export async function run({ moduleRoot }) {
     }
   } else {
     skipped.push('.next/static');
+  }
+
+  if (existsSync(publicSrc)) {
+    cpSync(publicSrc, publicDest, { recursive: true, force: true });
+    copied.push(publicDest);
+  } else {
+    skipped.push('public');
   }
 
   return { copied, skipped, removed };

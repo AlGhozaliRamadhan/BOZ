@@ -15,14 +15,18 @@ describe('copy-static run()', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('copies .next/static into both standalone destinations', async () => {
-    // arrange: fake a .next/static dir with one CSS file
+  it('copies framework static files and public assets into standalone output', async () => {
+    // arrange: fake a .next/static dir with one CSS file and a public logo
     const src = join(root, '.next', 'static');
     mkdirSync(src, { recursive: true });
     writeFileSync(join(src, 'app.css'), 'body { color: red; }');
+    const publicSrc = join(root, 'public');
+    mkdirSync(publicSrc, { recursive: true });
+    writeFileSync(join(publicSrc, 'logo-boz-transparant-black.png'), 'transparent-logo');
 
     const destA = join(root, '.next', 'standalone', '.next', 'static');
     const destB = join(root, '.next', 'standalone', 'public', '_next', 'static');
+    const publicDest = join(root, '.next', 'standalone', 'public');
 
     // act
     const result = await run({ moduleRoot: root });
@@ -30,9 +34,11 @@ describe('copy-static run()', () => {
     // assert: both destinations exist and contain the file
     expect(existsSync(join(destA, 'app.css'))).toBe(true);
     expect(existsSync(join(destB, 'app.css'))).toBe(true);
+    expect(existsSync(join(publicDest, 'logo-boz-transparant-black.png'))).toBe(true);
     expect(readFileSync(join(destA, 'app.css'), 'utf8')).toBe('body { color: red; }');
     expect(readFileSync(join(destB, 'app.css'), 'utf8')).toBe('body { color: red; }');
-    expect(result.copied).toEqual([destA, destB]);
+    expect(readFileSync(join(publicDest, 'logo-boz-transparant-black.png'), 'utf8')).toBe('transparent-logo');
+    expect(result.copied).toEqual([destA, destB, publicDest]);
     expect(result.skipped).toEqual([]);
     expect(result.removed).toEqual([]);
   });
@@ -49,7 +55,7 @@ describe('copy-static run()', () => {
     const result = await run({ moduleRoot: root });
 
     expect(result.copied).toEqual([]);
-    expect(result.skipped).toEqual(['.next/static']);
+    expect(result.skipped).toEqual(['.next/static', 'public']);
     expect(result.removed).toEqual(envFiles.map(name => join(standalone, name)));
     for (const name of envFiles) {
       expect(existsSync(join(standalone, name))).toBe(false);

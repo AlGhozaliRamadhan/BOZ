@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { ThoughtAccordion } from '@/app/components/ui/ThoughtAccordion';
+import ExternalAiBriefButton from '@/app/components/ui/ExternalAiBriefButton';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -139,6 +140,14 @@ export default function LongtermAnalysisPage() {
 
       {result && !loading && (
         <div className="flex-col gap-6 animate-slideUp">
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <ExternalAiBriefButton
+              ticker={result.ticker || ticker}
+              source="BOZ long-term ticker analysis"
+              data={result}
+              dataTimestamp={result.timestamp}
+            />
+          </div>
 
           {/* Executive Summary */}
           <div className="glass-card">

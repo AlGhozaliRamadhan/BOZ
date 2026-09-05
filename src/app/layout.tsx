@@ -13,7 +13,20 @@ const outfit = Outfit({
 export const metadata: Metadata = {
   title: 'BOZ',
   description: 'AI-powered market analysis engine',
-  icons: { icon: '/logo-boz.png' },
+  icons: {
+    icon: [
+      {
+        url: '/logo-boz-transparant-black.png',
+        type: 'image/png',
+        media: '(prefers-color-scheme: light)',
+      },
+      {
+        url: '/logo-boz-transparant-white.png',
+        type: 'image/png',
+        media: '(prefers-color-scheme: dark)',
+      },
+    ],
+  },
 };
 
 export default function RootLayout({
