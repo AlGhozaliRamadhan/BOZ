@@ -25,13 +25,20 @@ export async function run({ moduleRoot }) {
   mkdirSync(standaloneRoot, { recursive: true });
 
   if (existsSync(standaloneRoot)) {
-    for (const entry of readdirSync(standaloneRoot, { withFileTypes: true })) {
-      if (entry.isFile() && /^\.env(?:\.|$)/.test(entry.name)) {
-        const envPath = join(standaloneRoot, entry.name);
-        rmSync(envPath, { force: true });
-        removed.push(envPath);
+    const sanitize = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const entryPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          sanitize(entryPath);
+          continue;
+        }
+        if ((entry.isFile() || entry.isSymbolicLink()) && (/^\.env(?:\.|$)/.test(entry.name) || entry.name.endsWith('.nft.json'))) {
+          rmSync(entryPath, { force: true });
+          removed.push(entryPath);
+        }
       }
-    }
+    };
+    sanitize(standaloneRoot);
   }
 
   const copied = [];
@@ -64,8 +71,13 @@ if (isCli) {
   const moduleRoot = resolve(__dirname, '..');
   try {
     const { copied, skipped, removed } = await run({ moduleRoot });
-    for (const envPath of removed) {
+    const removedEnvFiles = removed.filter((path) => /^\.env(?:\.|$)/.test(path.split(/[\\/]/).pop()));
+    const removedTraceManifests = removed.filter((path) => path.endsWith('.nft.json'));
+    for (const envPath of removedEnvFiles) {
       console.log(`✓ sanitize-standalone: ${envPath}`);
+    }
+    if (removedTraceManifests.length > 0) {
+      console.log(`✓ sanitize-standalone: removed ${removedTraceManifests.length} Next trace manifests`);
     }
     for (const dest of copied) {
       console.log(`✓ copy-static: ${dest}`);
