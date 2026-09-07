@@ -219,7 +219,7 @@ export default function LongtermAnalysisPage() {
                   <tr><td>ATR</td><td>{fmt(md?.atr, 4)} ({fmt(md?.atr_percent)}%)</td></tr>
                   <tr><td>BB Width</td><td>{fmt(md?.bb_width, 4)}</td></tr>
                   <tr><td>Volume Ratio</td><td>{fmt(md?.volume_ratio)}x</td></tr>
-                  <tr><td>OBV Trend</td><td>{md?.obv_trend ? '🟢 Bullish' : '🔴 Bearish'}</td></tr>
+                  <tr><td>OBV Trend</td><td>{md?.obv_trend ? 'Bullish' : 'Bearish'}</td></tr>
                 </tbody>
               </table>
             </div>

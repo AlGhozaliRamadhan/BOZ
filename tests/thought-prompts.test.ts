@@ -19,10 +19,14 @@ describe('private analysis prompts', () => {
     const prompt = getReasoningPassPrompt('Max');
     expect(prompt).toContain('Reason silently');
     expect(prompt).toContain('<analysis_note>');
-    expect(prompt).toContain('3-5 short paragraphs');
+    expect(prompt).toContain('audit-friendly public evidence brief');
+    expect(prompt).toContain('market implication');
+    expect(prompt).toContain('Risk & invalidation');
+    expect(prompt).toContain('Never invent probabilities');
     expect(prompt).toContain('<answer>');
     expect(prompt).toContain('what the user can do');
     expect(prompt).toContain('Do not use a rigid "Verdict" heading');
+    expect(prompt).toContain('Do not use emojis');
     expect(prompt).toContain('unless the user explicitly asks');
   });
 });

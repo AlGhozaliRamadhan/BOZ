@@ -15,6 +15,17 @@ import {
   CHAT_OPTIONS_EVENT,
 } from '../../../shared/chat-options';
 
+const providerLabel = (provider: string): string => ({
+  custom: '9router',
+  github: 'GitHub',
+  nvidia: 'NVIDIA',
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  groq: 'Groq',
+  openrouter: 'OpenRouter',
+  offline: 'Offline',
+}[provider] ?? provider);
+
 export default function TopBar() {
   const pathname = usePathname();
   const [config, setConfig] = useState<any>(null);
@@ -36,6 +47,10 @@ export default function TopBar() {
   const [effortOpen, setEffortOpen] = useState(false);
   
   const providers = [
+    { id: 'openai', label: 'OpenAI', color: '#10a37f' },
+    { id: 'anthropic', label: 'Anthropic', color: '#d97757' },
+    { id: 'groq', label: 'Groq', color: '#f55036' },
+    { id: 'openrouter', label: 'OpenRouter', color: '#7c3aed' },
     { id: 'custom', label: '9router', color: 'var(--accent-cyan)' },
     { id: 'nvidia', label: 'NVIDIA', color: '#76b900' },
     { id: 'github', label: 'GitHub', color: '#00d2ff' },
@@ -73,7 +88,7 @@ export default function TopBar() {
         setConfig(data);
         if (data.provider) setSelectedProvider(data.provider);
         if (data.model) {
-          const provLabel = data.provider === 'custom' ? '9router' : data.provider === 'github' ? 'GitHub' : data.provider === 'nvidia' ? 'NVIDIA' : 'Offline';
+          const provLabel = providerLabel(data.provider);
           const displayStr = `${provLabel} • ${data.model}`;
           setLastUsedAi(displayStr);
         }
@@ -151,7 +166,7 @@ export default function TopBar() {
         const data = await res.json();
         setConfig(data);
         setModalOpen(false);
-        const provLabel = providerId === 'custom' ? '9router' : providerId === 'github' ? 'GitHub' : providerId === 'nvidia' ? 'NVIDIA' : 'Offline';
+        const provLabel = providerLabel(providerId);
         const displayStr = `${provLabel} • ${modelId}`;
         setLastUsedAi(displayStr);
         localStorage.setItem('boz_last_ai', displayStr);

@@ -16,6 +16,12 @@ import {
   formatTokensPerSecond,
   type AssistantMessageMetrics,
 } from './chat-message-metrics';
+import { fallbackChatTitle, normalizeGeneratedChatTitle } from './chat-title';
+import {
+  buildPausedChatResponse,
+  describeChatStreamFailure,
+  type ChatStreamFailure,
+} from '@/shared/chat-stream-failure';
 
 export interface TickerSuggestion {
   symbol: string;
@@ -59,6 +65,41 @@ function formatMessageTime(timestamp?: number): string | null {
     minute: '2-digit',
     second: '2-digit',
   }).format(timestamp);
+}
+
+type ChatStreamError = Error & ChatStreamFailure;
+
+function streamFailureFromPayload(payload: unknown, status?: number): ChatStreamFailure {
+  const candidate = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : {};
+  const message = typeof candidate.error === 'string'
+    ? candidate.error
+    : typeof candidate.message === 'string'
+      ? candidate.message
+      : undefined;
+
+  return {
+    status,
+    code: typeof candidate.code === 'string' ? candidate.code : undefined,
+    message,
+  };
+}
+
+function streamFailureFromError(error: unknown): ChatStreamFailure {
+  if (!error || typeof error !== 'object') return {};
+  const candidate = error as Partial<ChatStreamFailure> & { message?: unknown };
+  return {
+    status: typeof candidate.status === 'number' ? candidate.status : undefined,
+    code: typeof candidate.code === 'string' ? candidate.code : undefined,
+    message: typeof candidate.message === 'string' ? candidate.message : undefined,
+  };
+}
+
+function createChatStreamError(failure: ChatStreamFailure): ChatStreamError {
+  const error = new Error(failure.message ?? 'Chat stream failed') as ChatStreamError;
+  Object.assign(error, failure);
+  return error;
 }
 
 interface MarketQuote {
@@ -260,12 +301,12 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
       const stored = localStorage.getItem('boz_chat_sessions');
       let sessions: ChatSession[] = stored ? JSON.parse(stored) : [];
       const index = sessions.findIndex(s => s.id === id);
-      
-      const title = msgs.find(m => m.role === 'user')?.content.substring(0, 30) + '...' || 'New Chat';
+      const title = fallbackChatTitle(msgs.find(m => m.role === 'user')?.content);
       
       if (index >= 0) {
         sessions[index].messages = msgs;
         sessions[index].updatedAt = Date.now();
+        sessions[index].title ||= title;
       } else {
         sessions.push({ id, title, messages: msgs, updatedAt: Date.now() });
       }
@@ -274,6 +315,44 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
       window.dispatchEvent(new Event('boz_chat_updated'));
     } catch (e) {
       console.error('Failed to save session', e);
+    }
+  };
+
+  const saveGeneratedSessionTitle = (id: string, candidate: unknown) => {
+    const title = normalizeGeneratedChatTitle(candidate);
+    if (!title) return;
+
+    try {
+      const stored = localStorage.getItem('boz_chat_sessions');
+      const sessions: ChatSession[] = stored ? JSON.parse(stored) : [];
+      const index = sessions.findIndex(session => session.id === id);
+      if (index < 0) return;
+
+      sessions[index].title = title;
+      localStorage.setItem('boz_chat_sessions', JSON.stringify(sessions));
+      window.dispatchEvent(new Event('boz_chat_updated'));
+    } catch (error) {
+      console.error('Failed to save generated chat title', error);
+    }
+  };
+
+  const generateSessionTitle = async (id: string, titleMessages: ChatMessage[]) => {
+    try {
+      const response = await fetch('/api/chat/title', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: titleMessages.map(({ role, content }) => ({ role, content: content.slice(0, 4_000) })),
+          model: activeModel || undefined,
+        }),
+      });
+      if (!response.ok) return;
+
+      const data: unknown = await response.json();
+      const title = data && typeof data === 'object' ? (data as { title?: unknown }).title : null;
+      saveGeneratedSessionTitle(id, title);
+    } catch {
+      // Keep the first-message title when a background title request fails.
     }
   };
 
@@ -357,7 +436,11 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
         }),
       });
 
-      if (!res.ok) throw new Error('Failed to start stream');
+      if (!res.ok) {
+        let payload: unknown;
+        try { payload = await res.json(); } catch {}
+        throw createChatStreamError(streamFailureFromPayload(payload, res.status));
+      }
       const reader = res.body?.getReader();
       if (!reader) throw new Error('No readable stream');
 
@@ -421,6 +504,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                   quality: data.quality,
                   success: data.success,
                   preview: data.preview,
+                  detail: data.detail,
                   args: data.args ?? (idx !== -1 ? collectedTools[idx].args : undefined),
                 };
                 if (idx !== -1) collectedTools[idx] = next;
@@ -477,20 +561,33 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
               }
               setStreamingThoughts([...accumulatedThoughts]);
             } else if (currentEvent === 'error') {
-              throw new Error(JSON.parse(dataStr).message || 'Stream error');
+              let payload: unknown;
+              try { payload = JSON.parse(dataStr); } catch { payload = { message: dataStr }; }
+              throw createChatStreamError(streamFailureFromPayload(payload));
             }
           }
         }
       }
 
-      return createReply(
-        accumulatedContent || (controller.signal.aborted ? '[Generation stopped]' : 'No response received.'),
-      );
-    } catch (err: any) {
-      if (controller.signal.aborted || err?.name === 'AbortError') {
+      if (controller.signal.aborted) {
         return createReply(accumulatedContent || '[Generation stopped]');
       }
-      throw err;
+      if (!accumulatedContent) {
+        return createReply(buildPausedChatResponse({
+          completedResearch: accumulatedThoughts.length > 0 || collectedTools.some(tool => tool.status === 'done'),
+          failure: { message: 'The stream ended before the model sent a final response' },
+        }));
+      }
+      return createReply(accumulatedContent);
+    } catch (err: unknown) {
+      if (controller.signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
+        return createReply(accumulatedContent || '[Generation stopped]');
+      }
+      return createReply(buildPausedChatResponse({
+        partialContent: accumulatedContent,
+        completedResearch: accumulatedThoughts.length > 0 || collectedTools.some(tool => tool.status === 'done'),
+        failure: streamFailureFromError(err),
+      }));
     } finally {
       abortControllerRef.current = null;
     }
@@ -528,14 +625,18 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
       setStreamingThoughts([]);
       setToolStatuses([]);
       saveSession(activeChatId, finalMessages);
+      if (messages.length === 0) {
+        void generateSessionTitle(activeChatId, [userMessage, reply]);
+      }
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      const failure = streamFailureFromError(err);
+      setError(describeChatStreamFailure(failure));
       const errMessages = [
         ...updatedMessages,
         {
           role: 'assistant',
-          content: 'Sorry, I encountered an error processing your request. Please try again.',
+          content: buildPausedChatResponse({ failure }),
           createdAt: Date.now(),
         } as ChatMessage,
       ];
@@ -624,6 +725,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                           {msg.thoughts && msg.thoughts.length > 0 && (
                             <ThoughtAccordion
                               thoughts={msg.thoughts}
+                              toolResults={msg.tools}
                               title="Thought process"
                               defaultOpen={false}
                             />
@@ -729,6 +831,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                         {streamingThoughts.length > 0 && (
                           <ThoughtAccordion
                             thoughts={streamingThoughts}
+                            toolResults={toolStatuses}
                             isStreaming={true}
                             defaultOpen={false}
                             title="Thought process"

@@ -131,6 +131,8 @@ export class SentimentService {
           value:    Math.round(score),
           label:    rating ?? 'Unknown',
           momentum: fgRes.data?.fear_and_greed_historical?.data?.[1]?.rating ?? 'N/A',
+          source:   'CNN Fear & Greed',
+          source_url: 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata',
         };
         const scoreColor =
           crowd.fear_greed.value < 30 ? clr.red :
@@ -153,6 +155,8 @@ export class SentimentService {
             value:    parseInt(latest.value, 10),
             label:    latest.value_classification,
             momentum: 'N/A',
+            source:   'Alternative.me Crypto Fear & Greed',
+            source_url: 'https://api.alternative.me/fng/?limit=1',
           };
           log.crowd('fear-greed', `${clr.dim(String(crowd.fear_greed.value))}  ${clr.dim(crowd.fear_greed.label)}  ${clr.ghost('(fallback)')}`);
         }
@@ -198,6 +202,8 @@ export class SentimentService {
             watchlist_count: stRes.data?.symbol?.watchlist_count ?? null,
             sample_messages: sampleMessages,
             bull_ratio: total > 0 ? (bullish / total) * 100 : 50,
+            source: 'StockTwits',
+            source_url: `https://api.stocktwits.com/api/2/streams/symbol/${stockTwitsSymbol}.json`,
           };
           const ratio      = crowd.stocktwits_data.bull_ratio;
           const ratioColor = ratio > 60 ? clr.green : ratio < 40 ? clr.red : clr.yellow;
@@ -216,7 +222,13 @@ export class SentimentService {
     const cacheKey = ticker;
     if ((global as any).__redditCache && (global as any).__redditCache[cacheKey] && now - (global as any).__redditCache[cacheKey].timestamp < 300000) {
       const cached = (global as any).__redditCache[cacheKey];
-      crowd.social_buzz.push({ source: 'Reddit', mentions: cached.mentions, top_posts: cached.top_posts });
+      crowd.social_buzz.push({
+        source: 'Reddit',
+        mentions: cached.mentions,
+        top_posts: cached.top_posts,
+        window: 'month',
+        source_url: `https://www.reddit.com/search.rss?q=${encodeURIComponent(buildSocialSearchQuery(ticker))}&sort=new&limit=100&t=month`,
+      });
       log.crowd('reddit', clr.dim(`${cached.mentions} mentions (cached)`));
     } else {
       try {
@@ -250,6 +262,7 @@ export class SentimentService {
             top_posts: titles,
             window: 'month',
             capped: mentions >= 100,
+            source_url: searchUrl,
           });
           log.crowd('reddit', clr.dim(`${mentions} recent posts${mentions >= 100 ? ' (feed cap)' : ''}`));
 

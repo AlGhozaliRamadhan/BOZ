@@ -7,6 +7,11 @@ import {
   validateChatRequestBody,
 } from '@/app/lib/api-helpers';
 import { chatWorkloadGate } from '@/services/security/workload-gate';
+import {
+  classifyChatStreamFailure,
+  describeChatStreamFailure,
+  type ChatStreamFailure,
+} from '@/shared/chat-stream-failure';
 
 const VALID_EFFORTS: ThoughtEffort[] = ['Low', 'Medium', 'High', 'Extra', 'Max'];
 
@@ -36,7 +41,10 @@ export async function POST(request: NextRequest) {
   const thinking = rawBody.thinking !== false;
 
   const release = chatWorkloadGate.tryAcquire();
-  if (!release) return Response.json({ error: 'Too many chat requests are already running' }, { status: 429 });
+  if (!release) return Response.json({
+    code: 'busy',
+    error: 'Too many chat requests are already running',
+  }, { status: 429 });
 
   const encoder = new TextEncoder();
 
@@ -57,8 +65,16 @@ export async function POST(request: NextRequest) {
           controller.enqueue(encoder.encode(sseMessage));
         }
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-        const sseError = `event: error\ndata: ${JSON.stringify({ message: errorMsg })}\n\n`;
+        const failure: ChatStreamFailure = {
+          status: typeof (err as { status?: unknown })?.status === 'number'
+            ? (err as { status: number }).status
+            : undefined,
+          message: err instanceof Error ? err.message : undefined,
+        };
+        const sseError = `event: error\ndata: ${JSON.stringify({
+          code: classifyChatStreamFailure(failure),
+          message: describeChatStreamFailure(failure),
+        })}\n\n`;
         controller.enqueue(encoder.encode(sseError));
       } finally {
         release();

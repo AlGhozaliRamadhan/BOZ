@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   parseAnalysisPassOutput,
+  PrivateReasoningStreamFilter,
   sanitizeAssistantOutput,
   summarizeAnalysisActivity,
 } from '../src/shared/assistant-output.js';
@@ -16,6 +17,24 @@ describe('sanitizeAssistantOutput', () => {
   it('handles an orphaned closing tag from an assistant prefill', () => {
     expect(sanitizeAssistantOutput('secret scratchpad</think>## Current view\nBuy only above 100.'))
       .toBe('## Current view\nBuy only above 100.');
+  });
+
+  it('never releases private reasoning when tags are split across stream chunks', () => {
+    const filter = new PrivateReasoningStreamFilter();
+
+    expect(filter.push('Public finding. <thi')).toBe('Public finding. ');
+    expect(filter.push('nk>private scratchpad')).toBe('');
+    expect(filter.push(' that must not appear</think>Action: wait for confirmation.')).toBe('Action: wait for confirmation.');
+    expect(filter.finish()).toBe('');
+  });
+
+  it('fails closed for orphaned and truncated private stream blocks', () => {
+    const orphaned = new PrivateReasoningStreamFilter();
+    expect(orphaned.push('private prefill</THINK>Public conclusion.')).toBe('Public conclusion.');
+
+    const truncated = new PrivateReasoningStreamFilter();
+    expect(truncated.push('Visible start <thought>private')).toBe('Visible start ');
+    expect(truncated.finish()).toBe('');
   });
 
   it('removes generic output announcements', () => {

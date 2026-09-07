@@ -37,12 +37,18 @@ import { NVIDIA_MODELS } from '@/config/nvidia.config';
 import type { LLMMessage, RawToolCall } from '@/types/llm.types';
 import { getThoughtPrompt, getReasoningPassPrompt, type ThoughtEffort } from '@/shared/thought-prompts';
 import { formatLedgerFacts } from '@/shared/ledger-facts';
-import { parseAnalysisPassOutput, sanitizeAssistantOutput } from '@/shared/assistant-output';
+import { requiredTickerResearchQueries } from '@/shared/ticker-research';
+import { formatCrowdSignalEvidence, WEB_EVIDENCE_CITATION_RULES } from '@/shared/evidence-attribution';
+import {
+  parseAnalysisPassOutput,
+  PrivateReasoningStreamFilter,
+  sanitizeAssistantOutput,
+} from '@/shared/assistant-output';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface ChatEvent {
-  type: 'tool_start' | 'tool_result' | 'reasoning_start' | 'token' | 'done' | 'error' | 'thought' | 'thought_new';
+  type: 'tool_start' | 'tool_result' | 'reasoning_start' | 'token' | 'done' | 'error' | 'thought_new';
   data: any;
 }
 
@@ -128,9 +134,6 @@ export class WebChatEngine {
       ? (effort === 'Low' ? 'low' : effort === 'Medium' ? 'medium' : 'high')
       : undefined;
 
-    // Prefill text — forces the model to start generating inside <think>
-    const PREFILL = '<think>\nThinking Process:\n1. ';
-
     // ── Build message list ──────────────────────────────────────────────────
     const messages: LLMMessage[] = [
       { role: 'system', content: this.buildSystemPrompt(effort, thinkingEnabled) },
@@ -160,9 +163,6 @@ export class WebChatEngine {
         0.3,
         { reasoningEffort, model: modelOverride, toolChoice: initialToolChoice },
       );
-      if (aiMessage.thought) {
-        yield { type: 'thought', data: aiMessage.thought };
-      }
     } catch (err) {
       yield { type: 'error', data: { message: err instanceof Error ? err.message : 'AI call failed' } };
       return;
@@ -172,6 +172,7 @@ export class WebChatEngine {
     const ledger: LedgerEntry[] = [];
     let step = 0;
     let toolRounds = 0;
+    let tickerDashboardWasFetched = false;
 
     // ── Tool-calling loop ───────────────────────────────────────────────────
     while (aiMessage.tool_calls && aiMessage.tool_calls.length > 0) {
@@ -215,12 +216,23 @@ export class WebChatEngine {
       );
 
       // Process results: extract facts, emit events, push tool messages
+      const webSearchesBeforeRound = ledger.filter((entry) => entry.tool === 'web_search').length;
+      const successfulWebSearchesThisRound = results.filter(({ call, success }) => call.name === 'web_search' && success).length;
+      let automaticTickerResearchAdded = false;
+      const tickerResearchSymbols: string[] = [];
       for (const { raw, call, obs, success } of results) {
         step++;
         const fact = this.extractFact(call.name, call.arguments, obs);
         if (fact) {
           fact.step = step;
           ledger.push(fact);
+        }
+        if (call.name === 'fetch_ticker_dashboard' && success) {
+          tickerDashboardWasFetched = true;
+          if (!automaticTickerResearchAdded) {
+            automaticTickerResearchAdded = true;
+            tickerResearchSymbols.push(String(call.arguments.symbol ?? ''));
+          }
         }
 
         yield {
@@ -232,6 +244,7 @@ export class WebChatEngine {
             step,
             success,
             preview: obs.slice(0, 800),
+            detail: obs.slice(0, 16_000),
             args:    call.arguments,
           },
         };
@@ -244,17 +257,72 @@ export class WebChatEngine {
         });
       }
 
+      // Tool-choice is not honored consistently by every configured model
+      // provider. Make ticker research an engine requirement, not merely a
+      // model instruction, so a dashboard can never be the only evidence.
+      for (const symbol of tickerResearchSymbols) {
+        const requiredQueries = requiredTickerResearchQueries(symbol, effort);
+        const missingSearches = Math.max(
+          0,
+          requiredQueries.length - webSearchesBeforeRound - successfulWebSearchesThisRound,
+        );
+        const webDepth = effort === 'Low' || effort === 'Medium' ? 2 : effort === 'High' ? 4 : 6;
+
+        for (const query of requiredQueries.slice(0, missingSearches)) {
+          step++;
+          yield {
+            type: 'tool_start',
+            data: { tool: 'web_search', args: { query }, step },
+          };
+
+          let webObservation: string;
+          let webSuccess = true;
+          try {
+            webObservation = await webSearchService.deepSearch(query, webDepth);
+            if (webObservation.includes('returned no results')) webSuccess = false;
+          } catch (error) {
+            webSuccess = false;
+            webObservation = 'Tool execution failed: ' + (error instanceof Error ? error.message : String(error));
+          }
+
+          const webFact = this.extractFact('web_search', { query }, webObservation);
+          if (webFact) {
+            webFact.step = step;
+            ledger.push(webFact);
+          }
+          yield {
+            type: 'tool_result',
+            data: {
+              tool: 'web_search',
+              fact: webFact?.fact || webObservation.slice(0, 120),
+              quality: webFact?.quality || 'empty',
+              step,
+              success: webSuccess,
+              preview: webObservation.slice(0, 800),
+              detail: webObservation.slice(0, 16_000),
+              args: { query },
+            },
+          };
+        }
+      }
+
       // Next AI call — decide if more tools or final answer (no prefill after first round)
       try {
+        const requiredWebSearches = effort === 'Low' || effort === 'Medium' ? 1 : 2;
+        const completedWebSearches = ledger.filter((entry) => entry.tool === 'web_search').length;
+        const requireWebResearch = tickerDashboardWasFetched && completedWebSearches < requiredWebSearches;
         aiMessage = await this.callWithFallback(
           messages,
           this.getToolDefinitions(),
           0.3,
-          { reasoningEffort, model: modelOverride },
+          {
+            reasoningEffort,
+            model: modelOverride,
+            toolChoice: requireWebResearch
+              ? { type: 'function', function: { name: 'web_search' } }
+              : undefined,
+          },
         );
-        if (aiMessage.thought) {
-          yield { type: 'thought', data: aiMessage.thought };
-        }
       } catch (err) {
         yield { type: 'error', data: { message: err instanceof Error ? err.message : 'AI follow-up call failed' } };
         return;
@@ -262,10 +330,9 @@ export class WebChatEngine {
     }
 
     // ── Final response ──────────────────────────────────────────────────────
-    // Multi-pass thinking: at higher effort the model genuinely "looks again" —
-    // each pass streams a fresh numbered thinking block, then re-examines its
-    // own draft and produces a refined answer. The frontend renders each
-    // thought_new as a separate step, so the user sees the iterative loop.
+    // Multi-pass verification: higher effort re-examines the draft from
+    // distinct evidence angles. Only the resulting public evidence briefs are
+    // eligible for the analysis timeline; provider scratchpad text is dropped.
     if (ledger.length > 0 || aiMessage.content) {
       const confirmedCount = ledger.filter(e => e.quality === 'confirmed').length;
       // Passes to run:
@@ -283,26 +350,19 @@ export class WebChatEngine {
       try {
         // ── Pass 0: initial synthesis (research) or use the direct answer ─────
         // NOTE: pass tokens are accumulated internally, NOT streamed to the UI.
-        // The user sees every thinking step, but only the FINAL refined draft is
-        // streamed as the visible answer at the bottom — so the reply is one
-        // coherent answer, never a concatenation of every pass's draft.
+        // Public evidence briefs are retained for the timeline, while only the
+        // final refined draft becomes the visible reply.
         if (ledger.length > 0) {
           const reasoningMessages = this.buildReasoningMessages(messages, ledger);
-          let passThought = '';
           for await (const ev of this.streamThinkingPass(reasoningMessages, reasoningEffort, getReasoningPassPrompt(effort), modelOverride)) {
             if (ev.type === 'token') {
               draft += ev.data;
-            } else if (ev.type === 'thought') {
-              passThought += ev.data;
-              yield ev;
             } else {
               yield ev;
             }
           }
           draft = draft.trim();
-          if (!draft && passThought) {
-            draft = this.stripThinkingFull(passThought);
-          }
+          if (!draft) throw new Error('The analysis provider returned no public response.');
           const parsed = parseAnalysisPassOutput(draft, 'Initial Quantitative Synthesis');
           if (parsed.analysis) {
             yield { type: 'thought_new', data: parsed.analysis };
@@ -320,7 +380,8 @@ export class WebChatEngine {
         //   Max    passes — run INDEPENDENT scenario branches (bull/base/bear),
         //                    each reasoned from the SAME base draft, then a
         //                    synthesis pass merges them.
-        // Only the thoughts stream to the UI; the refined draft is kept internal.
+        // Only public evidence briefs reach the timeline; the refined draft is
+        // kept internal until the final response.
         // If a pass fails (context overflow, provider hiccup), keep the last good
         // draft and deliver the answer instead of erroring the stream.
         baseDraft = draft;
@@ -352,21 +413,15 @@ export class WebChatEngine {
 
           try {
             let passDraft = '';
-            let passThought = '';
             for await (const ev of this.streamThinkingPass(passMessages, reasoningEffort, getReasoningPassPrompt(effort), modelOverride)) {
               if (ev.type === 'token') {
                 passDraft += ev.data;
-              } else if (ev.type === 'thought') {
-                passThought += ev.data;
-                yield ev;
               } else {
                 yield ev;
               }
             }
             passDraft = passDraft.trim();
-            if (!passDraft && passThought) {
-              passDraft = this.stripThinkingFull(passThought);
-            }
+            if (!passDraft) continue;
             const parsed = parseAnalysisPassOutput(passDraft, thoughtMsg);
             if (parsed.analysis) {
               yield { type: 'thought_new', data: parsed.analysis };
@@ -395,8 +450,7 @@ export class WebChatEngine {
         }
 
         // ── Final: stream the one, final refined answer at the bottom ─────────
-        // The chain of thought stops here — no more thinking after the answer
-        // starts. Tokens stream progressively so the reply still feels alive.
+        // Public answer tokens stream progressively after verification finishes.
         const finalParsed = parseAnalysisPassOutput(draft, 'Final Synthesis');
         const finalAnswer = finalParsed.answer || draft;
         const words = finalAnswer.split(/(\s+)/);
@@ -439,6 +493,8 @@ export class WebChatEngine {
       '',
       groundingDirective,
       '',
+      WEB_EVIDENCE_CITATION_RULES,
+      '',
       thoughtDirective,
       '',
       'CONVERSATIONAL AI & FOLLOW-UP RULES (CRITICAL):',
@@ -465,15 +521,15 @@ export class WebChatEngine {
       'INITIAL TICKER & STOCK ANALYSIS MANDATE (FOR FIRST-TIME TICKER REQUESTS):',
       '  - When analyzing a NEW stock, ETF, crypto, or index (via /intraday, /longterm, /newsintel, or a new ticker question):',
       '    1. MUST call fetch_ticker_dashboard(symbol) to pull the full institutional dataset (Hourly 1H, Daily 1D + Weekly 1W, 50-day range & positioning, 52-week high/low, SMA stack & % distances, 8 confluence signals, trading plan, ATR stop buffer, candlestick patterns, macro regime, SPY/QQQ Beta, StockTwits/Reddit sentiment, and live headlines).',
-      '    2. MUST call fetch_news(symbol) or web_search(symbol + " earnings catalysts business moat guidance") to gather live company catalysts and fundamental drivers. NEVER skip news or assume catalysts from memory.',
-      '    3. MUST think through the entire picture across multiple thought steps in <think>:',
+      '    2. MUST call web_search in addition to any fetch_news call before presenting a ticker setup. Search current, decision-relevant evidence rather than generic headlines: earnings/guidance and company catalysts; then regulation, sector/competitor conditions, or macro exposure. At High, Extra, and Max effort, run at least two complementary web searches. Never duplicate a query or assume current catalysts from memory.',
+      '    3. MUST assess the entire picture internally before answering; do not emit reasoning tags or private scratchpad text:',
       '       - Cross-examine Daily (1D) vs Weekly (1W) trend: is daily momentum aligned with the higher-timeframe weekly structure, or is this a pullback within a macro uptrend?',
       '       - Check 50-Day & 52-Week range positioning (% off 50d high/low, percentile position) to determine if the stock is overextended or coiled at support.',
       '       - Evaluate moving average extension (% distance from SMA 20, 50, 200) to gauge mean-reversion risk.',
       '       - Sanity-check the quantitative score and trade setup against the volume flow, live news catalysts, and ATR buffer.',
-      '    4. MUST turn the private analysis into a clean, structured, decision-ready answer with minimal emojis:',
+      '    4. MUST turn the private analysis into a clean, structured, decision-ready answer without emojis:',
       '       • State the clear status/bias up front (e.g. `[CONDITIONAL LONG - WAIT FOR TRIGGER]`, `[ACTIVE BUY]`, `[HOLD / NEUTRAL]`, `[AVOID / SHORT]`). Do not use a rigid "Verdict" heading.',
-      '       • AI Market Stance & Data-Driven Conviction: Even when providing both Long and Short setups for balanced risk management, explicitly articulate what the AI thinks and assesses from the data intelligence (e.g., probability skew, momentum conviction, volume backing). Tell the user which side possesses the quantitative edge and why.',
+      '       • AI Market Stance & Data-Driven Conviction: Even when providing both Long and Short setups for balanced risk management, explicitly articulate what the data supports (e.g., directional skew, momentum conviction, volume backing). Do not state a numeric probability unless it is supplied by a calibrated source. Tell the user which side possesses the quantitative edge and why.',
       '       • Present a structured Execution Blueprint table or formatted parameter list whenever confirmed or derived trade levels exist:',
       '           - Trigger Condition: the exact price action/volume trigger required before putting money in (e.g., Daily close > $X on volume).',
       '           - Entry Zone: exact entry price or range.',
@@ -498,7 +554,7 @@ export class WebChatEngine {
       '  1. After each tool result, privately assess what changed, whether evidence is sufficient, and what is still needed.',
       '  2. If a tool returns empty/irrelevant results, pivot to web_search with a better query.',
       '  3. Build a picture iteratively. Each tool call should add NEW information.',
-      '  4. You may call 6-10 tools per query if needed. More data = better analysis.',
+      '  4. Call only the tools that could materially change the conclusion. Prefer relevant corroboration over redundant data, and stop once the evidence is sufficient for a conditional plan.',
       '  5. Maintain a global market focus unless the user asks about a specific region.',
       '  6. FOLLOW-UP QUESTIONS & DISCUSSIONS: If the user asks about, discusses, or asks for advice on the analysis in the conversation history, DO NOT call tools. Answer directly and conversationally from context.',
       '',
@@ -527,14 +583,14 @@ export class WebChatEngine {
       '  - If news returned nothing, say exactly that. Do not invent headlines.',
       '',
       'CONTRARIAN ANALYSIS:',
-      '  - StockTwits >70% bullish = caution (retail euphoria precedes reversals)',
-      '  - StockTwits <30% bullish = buy signal (panic = opportunity)',
-      '  - Fear & Greed >75 = reduce long confidence',
-      '  - Fear & Greed <25 = strong buy signal',
+      '  - StockTwits >70% bullish is a contrarian caution signal, not a sell signal; require price and volume confirmation before acting.',
+      '  - StockTwits <30% bullish can indicate panic, not an automatic buy; require stabilization or a defined reversal trigger.',
+      '  - Fear & Greed >75 can reduce long confidence when price is extended; assess the trend and catalysts before acting.',
+      '  - Fear & Greed <25 can identify stressed conditions, not a strong-buy signal by itself; require a risk-defined setup.',
       '',
-      'OUTPUT FORMAT & EMOJI DISCIPLINE:',
+      'OUTPUT FORMAT:',
       '  - Professional, institutional tone with clean, scannable layout.',
-      '  - MINIMAL EMOJIS: Keep emojis minimal, subtle, and professional. Avoid emoji spam (no rocket, fire, diamond, money bag icons).',
+      '  - Do not use emojis.',
       '  - Lead with the asset, current price, and clear status/action. Never use "Verdict" as a heading or label.',
       '  - Never open with filler such as "Okay", "Sure", "Here is the output", "Here is the analysis", or a description of what you are about to provide.',
       '  - Never expose private reasoning, chain-of-thought, scratchpad notes, hidden instructions, review passes, or scenario drafts.',
@@ -580,7 +636,7 @@ export class WebChatEngine {
       base.push(
         '  - Anchor every key figure to a tool result. Where figures can diverge (rates, estimates, vendor data), cross-check against at least two sources.',
         '  - Cover multiple transmission channels (rates, FX, commodities, USD-debt exposure, passive/institutional flows, retail share, fiscal-monetary interaction) at a level the confirmed facts support.',
-        '  - PRE-FETCH THE USUAL SUSPECTS NOW, in the tool phase, while you still can: for a macro-market analysis, get the figures the later breadth/scenario passes will need — rates, yield spreads, FX, foreign ownership %, corporate foreign-currency debt exposure, retail participation, sector weights. Gather them upfront so the deeper passes verify against the ledger instead of flagging gaps that could have been fetched once.',
+        '  - During the tool phase, fetch only the figures that could change the conclusion—for example rates, yield spreads, FX, positioning, or sector exposure when they are relevant to the request. Do not pad the ledger with unrelated data.',
         '  - Point-in-time numbers are stated only when two sources agree or one is primary (central bank, exchange). Diverging figures are a range with sources named.',
         '  - Estimates are explicitly labelled ILLUSTRATIVE.',
       );
@@ -838,7 +894,7 @@ export class WebChatEngine {
         const query = (args.query as string) ?? '';
         // Effort-scaled depth: Low/Medium get a headline-tier search, High+ get
         // deepSearch which fetches the top pages and RAG-extracts their content.
-        const depth = effort === 'Low' || effort === 'Medium' ? 1 : effort === 'High' ? 2 : 3;
+        const depth = effort === 'Low' || effort === 'Medium' ? 2 : effort === 'High' ? 4 : 6;
         return await webSearchService.deepSearch(query, depth);
       }
 
@@ -999,10 +1055,15 @@ export class WebChatEngine {
         const fgl  = json.fear_greed?.label;
         const st   = json.reddit_buzz?.stocktwits;
         const sig  = (json.overall_signals ?? []).join(', ');
+        const crowdEvidence = formatCrowdSignalEvidence({
+          fear_greed: json.fear_greed,
+          stocktwits_data: st,
+          social_buzz: json.reddit_buzz?.social,
+        });
         const stStr = st ? `, StockTwits ${st.bull_ratio?.toFixed(0)}% bullish` : '';
         return {
           step: 0, tool: toolName,
-          fact: `Sentiment: Fear & Greed ${fg} (${fgl})${stStr}, signals: [${sig}]`,
+          fact: crowdEvidence || `Sentiment: Fear & Greed ${fg} (${fgl})${stStr}, signals: [${sig}]`,
           quality: 'confirmed',
         };
       } catch { /* fall through */ }
@@ -1077,9 +1138,8 @@ export class WebChatEngine {
 
   // ─── Reasoning agent messages ─────────────────────────────────────────────
 
-  // Streams one full reasoning pass: yields thought chunks while the model is
-  // in its thinking block, then answer tokens. Reuses the shared thinking
-  // buffer so each pass is isolated from the last.
+  // Streams one full reasoning pass, excluding any provider-native thinking
+  // blocks before the text can reach an SSE event or an internal fallback.
   private async *streamThinkingPass(
     messages: LLMMessage[],
     reasoningEffort?: ReasoningEffort,
@@ -1093,8 +1153,7 @@ export class WebChatEngine {
             : m,
         )
       : messages;
-    this.thinkingBuffer = '';
-    this.insideThinking = false;
+    const privateReasoningFilter = new PrivateReasoningStreamFilter();
     this.consumeLlmCall();
     for await (const chunk of this.llm.callTextStream({
       messages: withDirective,
@@ -1103,24 +1162,13 @@ export class WebChatEngine {
       reasoningEffort,
       model,
     })) {
-      const { token: cleaned, thought: streamThought } = this.stripThinkingFromChunk(chunk);
-      if (streamThought) {
-        yield { type: 'thought', data: streamThought };
-      }
+      const cleaned = privateReasoningFilter.push(chunk);
       if (cleaned) {
         yield { type: 'token', data: cleaned };
       }
     }
-    // Flush any leftover buffer at stream completion
-    if (this.thinkingBuffer) {
-      if (this.insideThinking) {
-        yield { type: 'thought', data: this.thinkingBuffer };
-      } else {
-        yield { type: 'token', data: this.thinkingBuffer };
-      }
-      this.thinkingBuffer = '';
-      this.insideThinking = false;
-    }
+    const remainder = privateReasoningFilter.finish();
+    if (remainder) yield { type: 'token', data: remainder };
   }
 
   private buildSelfReviewMessages(
@@ -1174,7 +1222,7 @@ export class WebChatEngine {
         '  - Do NOT restate the framework, the review-pass label, or the original task. Just give the refined answer.',
       ].join('\n');
       taskLine = `Widen the draft to cover the channels it left out, at the level the confirmed facts support.`;
-      thought = `Before answering, let me widen the net — which channels or sources did the draft leave out?`;
+      thought = 'Cross-market evidence check';
     } else if (role === 'logic') {
       systemPrompt = [
         'You are the LOGIC REVIEW engine inside BOZ, a quantitative market analyst AI.',
@@ -1201,7 +1249,7 @@ export class WebChatEngine {
         '  - Do NOT restate the review instructions or the review-pass label.',
       ].join('\n');
       taskLine = `Refine the draft into the final answer. Keep the same structure, but tighter and fully verified.`;
-      thought = `Before answering, let me check the draft against the confirmed ledger.`;
+      thought = 'Logic and risk review';
     } else {
       // role === 'audit'
       systemPrompt = [
@@ -1221,8 +1269,12 @@ export class WebChatEngine {
         '  - Do NOT restate the audit framework or the review-pass label. Just give the refined answer.',
       ].join('\n');
       taskLine = `Audit every number in the draft. Tag each as TOOL-VERIFIED or ILLUSTRATIVE, or drop unsupported figures.`;
-      thought = `Before answering, let me audit every number in the draft against the confirmed facts.`;
+      thought = 'Number verification';
     }
+
+    // Review passes are fresh model calls. Re-apply the citation contract so a
+    // polished rewrite cannot lose the original source attribution.
+    systemPrompt = `${systemPrompt}\n\n${WEB_EVIDENCE_CITATION_RULES}`;
 
     const userPrompt = [
       toolOutputs ? `COMPLETE TOOL & MARKET DATA:\n${toolOutputs}\n` : '',
@@ -1280,17 +1332,19 @@ export class WebChatEngine {
       '  - Keep scenario work private. The synthesis shown to the user must be concise unless a detailed report was explicitly requested.',
       '  - Begin with one specific, evidence-grounded scenario finding so it can be shown as a safe analysis summary.',
       '  - If the immediate setup is not active, still produce a conditional entry trigger, stop, targets, and sell/exit condition from confirmed or clearly derived levels.',
+      '',
+      WEB_EVIDENCE_CITATION_RULES,
     ].join('\n');
 
     let scenarioDirective = '';
     if (isSynthesis) {
-      scenarioDirective = 'Synthesize the scenario branches into a clean, structured trading blueprint with minimal emojis: Status/Bias, AI data-driven market stance and conviction (explaining which setup the intelligence favors and why), trigger condition, entry/stop/targets table with profit-taking and breakeven rules, decisive evidence bullets, and the main invalidation risk. Never output a dense single-paragraph block. Do not use a "Verdict" heading.';
+      scenarioDirective = 'Synthesize the scenario branches into a clean, structured trading blueprint without emojis: Status/Bias, AI data-driven market stance and conviction (explaining which setup the intelligence favors and why), trigger condition, entry/stop/targets table with profit-taking and breakeven rules, decisive evidence bullets, and the main invalidation risk. Never output a dense single-paragraph block. Do not use a "Verdict" heading.';
     } else if (scenario.includes('bullish')) {
       scenarioDirective = 'Evaluate the BULLISH scenario: What technical drivers, volume expansion, and macro conditions would confirm upside continuation toward resistance, and what are the exact invalidation levels?';
     } else if (scenario.includes('bearish')) {
       scenarioDirective = 'Evaluate the BEARISH scenario: What breakdown triggers, distribution volume, and downside support levels would confirm a bearish trend reversal, and what are the exact invalidation levels?';
     } else {
-      scenarioDirective = `Evaluate the ${scenario} scenario: Given current momentum, moving average stack, and trading range, what is the high-probability roadmap?`;
+      scenarioDirective = `Evaluate the ${scenario} scenario: Given current momentum, moving average stack, and trading range, what is the evidence-supported conditional roadmap?`;
     }
 
     const cleanDraft = this.stripThinkingFull(draft);
@@ -1330,10 +1384,12 @@ export class WebChatEngine {
       '  - Synthesize a concrete, highly scannable trading plan: Status/Bias, AI Data-Driven Stance & Conviction (what the AI thinks and assesses from the data signals even when dual setups are presented), Trigger Condition (when to put money in), Entry Zone, Stop Loss (with ATR volatility buffer), TP1 (with 50% scale-out & breakeven stop rule), TP2 (runner), Risk/Reward ratio, and Invalidation triggers.',
       '  - Format actionable trade setups into a clean Markdown table or clear parameter block — never output a dense unformatted wall of text.',
       '  - Output pure institutional analysis without quoting system instructions or referencing review passes.',
-      '  - Keep emoji usage minimal, clean, and professional (avoid emoji spam).',
+      '  - Do not use emojis.',
       '  - Do not use a "Verdict" heading or force filler intro text. Write directly and cleanly.',
       '  - Never end at WAIT. If entry is premature, give the confirmed or derived price trigger, entry zone, stop, targets, profit-taking plan, and sell/exit condition.',
       '  - You may derive a missing level only from confirmed price, ATR, support/resistance, or moving averages; label it derived and never invent an input.',
+      '',
+      WEB_EVIDENCE_CITATION_RULES,
     ].join('\n');
 
     const reasoningUserPrompt = [
@@ -1461,15 +1517,8 @@ export class WebChatEngine {
 
   private stripThinkingFull(text: string): string {
     if (!text) return '';
-    let cleaned = text
-      .replace(/<think>\s*\n?\s*Thinking Process:\s*\n?\s*1\.\s*/gi, '')
-      .replace(/<thinking>[\s\S]*?<\/thinking>\n*/gi, '')
-      .replace(/<think>[\s\S]*?<\/think>\n*/gi, '')
-      .replace(/<think>[\s\S]*$/gi, '')
+    let cleaned = sanitizeAssistantOutput(text)
       .replace(/^Branching off:[^\n]*\n*/gim, '')
-      .replace(/^\[(?:Your )?tool call or final answer\]\s*/gim, '')
-      .replace(/No additional tool call required\.?/gi, '')
-      .replace(/No further tool call needed;? analysis complete\.?/gi, '')
       .trim();
 
     // If the output begins with prompt-echoing meta-commentary before a markdown heading,
@@ -1495,91 +1544,4 @@ export class WebChatEngine {
     return cleaned;
   }
 
-  // For streaming: tracks if we're inside a thinking block and filters it
-  private thinkingBuffer = '';
-  private insideThinking = false;
-
-  private stripThinkingFromChunk(chunk: string): { token: string, thought: string } {
-    this.thinkingBuffer += chunk;
-    let token = '';
-    let thought = '';
-
-    const startTags = ['<thinking>', '<think>', '<thought>', '<|begin_of_thought|>'];
-    const endTags = ['</thinking>', '</think>', '</thought>', '<|end_of_thought|>'];
-
-    while (this.thinkingBuffer.length > 0) {
-      if (this.insideThinking) {
-        let bestEndPos = -1;
-        let matchedEndTag = '';
-        for (const tag of endTags) {
-          const idx = this.thinkingBuffer.indexOf(tag);
-          if (idx !== -1 && (bestEndPos === -1 || idx < bestEndPos)) {
-            bestEndPos = idx;
-            matchedEndTag = tag;
-          }
-        }
-
-        if (bestEndPos !== -1) {
-          // Found end of thinking block — capture thought and skip tag
-          thought += this.thinkingBuffer.slice(0, bestEndPos);
-          this.thinkingBuffer = this.thinkingBuffer.slice(bestEndPos + matchedEndTag.length).replace(/^\n+/, '');
-          this.insideThinking = false;
-        } else {
-          // Still inside thinking block — check for partial end tags
-          const partialCheck = this.thinkingBuffer.slice(-20);
-          const mightBePartial = endTags.some(tag => tag.startsWith(partialCheck.slice(partialCheck.lastIndexOf('<'))));
-          if (mightBePartial && partialCheck.includes('<')) {
-            const lastLt = this.thinkingBuffer.lastIndexOf('<');
-            thought += this.thinkingBuffer.slice(0, lastLt);
-            this.thinkingBuffer = this.thinkingBuffer.slice(lastLt);
-          } else {
-            thought += this.thinkingBuffer;
-            this.thinkingBuffer = '';
-          }
-          break;
-        }
-      } else {
-        let bestStartPos = -1;
-        let matchedStartTag = '';
-        for (const tag of startTags) {
-          const idx = this.thinkingBuffer.indexOf(tag);
-          if (idx !== -1 && (bestStartPos === -1 || idx < bestStartPos)) {
-            bestStartPos = idx;
-            matchedStartTag = tag;
-          }
-        }
-
-        if (bestStartPos !== -1) {
-          // Output everything before the thinking tag
-          token += this.thinkingBuffer.slice(0, bestStartPos);
-          this.thinkingBuffer = this.thinkingBuffer.slice(bestStartPos + matchedStartTag.length);
-          this.insideThinking = true;
-        } else {
-          // Check if buffer might contain a partial tag at the end
-          const partialCheck = this.thinkingBuffer.slice(-20);
-          const mightBePartial = startTags.some(tag => tag.startsWith(partialCheck.slice(partialCheck.lastIndexOf('<'))));
-
-          if (mightBePartial && partialCheck.includes('<')) {
-            const lastLt = this.thinkingBuffer.lastIndexOf('<');
-            token += this.thinkingBuffer.slice(0, lastLt);
-            this.thinkingBuffer = this.thinkingBuffer.slice(lastLt);
-          } else {
-            token += this.thinkingBuffer;
-            this.thinkingBuffer = '';
-          }
-          break;
-        }
-      }
-    }
-
-    if (thought) {
-      thought = thought
-        .replace(/<\|begin_of_thought\|>|<\|end_of_thought\|>/g, '')
-        .replace(/^\s*\.\s*No meta commentary\.?\s*\n*/gim, '')
-        .replace(/^\s*Let's<\|begin_of_thought\|>\s*/gim, '')
-        .replace(/^(?:We need to|According to the system|The user typed|The user gave|The user says|The instruction|Must follow output format|We must enclose|Let's craft|Let's produce)[^\n]*\n*/gim, '');
-    }
-
-    return { token, thought };
-  }
 }

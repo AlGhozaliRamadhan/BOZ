@@ -2,23 +2,32 @@ import type { MarketData, MacroContext } from '../types/types.js';
 import type { ChartPatternResult } from '../analyzers/chart.analyzer.js';
 import { rsiLabel } from '../utils/display.js';
 import { config } from '../config/config.js';
+import { formatCrowdSignalEvidence } from './evidence-attribution.js';
 
 export interface CrowdSentimentData {
   fear_greed?: {
     value?: number;
     label?: string;
     momentum?: string;
+    source?: string;
+    source_url?: string;
   } | null;
   stocktwits_data?: {
     bull_ratio?: number;
     bullish?: number;
     bearish?: number;
     total_with_sentiment?: number;
+    total_messages?: number;
+    source?: string;
+    source_url?: string;
   } | null;
   social_buzz?: {
     source: string;
     mentions: number;
     top_posts?: string[];
+    window?: string;
+    capped?: boolean;
+    source_url?: string;
   }[] | null;
   summary?: {
     overall_signals?: string[];
@@ -178,6 +187,10 @@ CROWD SENTIMENT (apply CONTRARIAN logic — see framework above):
 SOCIAL MEDIA BUZZ:
 ${formatSocialBuzz(crowdSentiment)}
 
+CROWD-SIGNAL REPORTING:
+${formatCrowdSignalEvidence(crowdSentiment)}
+Describe crowd data as a sourced observation, not a forecast. Name the source and sample size when available; do not call it consensus or a buy/sell signal without price and volume confirmation.
+
 Provide your intraday prediction using the format:
 PREDICTION: UP or DOWN
 CONFIDENCE: 0-100
@@ -275,6 +288,10 @@ CROWD SENTIMENT (apply CONTRARIAN logic — see framework above):
 
 SOCIAL MEDIA BUZZ:
 ${formatSocialBuzz(crowdSentiment)}
+
+CROWD-SIGNAL REPORTING:
+${formatCrowdSignalEvidence(crowdSentiment)}
+Describe crowd data as a sourced observation, not a forecast. Name the source and sample size when available; do not call it consensus or a buy/sell signal without price and volume confirmation.
 
 Provide your long-term outlook using the format:
 PREDICTION: UP or DOWN

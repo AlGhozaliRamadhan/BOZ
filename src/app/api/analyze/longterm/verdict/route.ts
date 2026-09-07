@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { jsonResponse, errorResponse, parseBody, requestBodyErrorResponse } from '@/app/lib/api-helpers';
 import { AIService } from '@/services/ai/ai.service';
 import { buildTradeLevels } from '@/shared/trade-levels';
+import { formatCrowdSignalEvidence } from '@/shared/evidence-attribution';
 
 export async function POST(request: NextRequest) {
   try {
@@ -62,12 +63,13 @@ Asset & Valuation Profile:
 - Current Price: $${fmt(last.close)}
 - 52-Week Range: High $${fmt(context52w.high52w)} (${fmt(context52w.from52wHigh, 1)}% from ATH) | Low $${fmt(context52w.low52w)} (+${fmt(context52w.from52wLow, 1)}% off lows)
 - Multi-Timeframe Alignment: SMA20: $${fmt(last.SMA_20)} | SMA50: $${fmt(last.SMA_50)} | SMA200: $${fmt(last.SMA_200)}
-- Institutional Flow & Volatility: RSI: ${fmt(last.RSI, 1)} | OBV Trend: ${last.OBV_Trend ? 'Accumulation 🟢' : 'Distribution 🔴'} | Volume Ratio: ${fmt(last.Volume_Ratio)}x | ATR: ${fmt(last.ATR_Percent)}%
+- Institutional Flow & Volatility: RSI: ${fmt(last.RSI, 1)} | OBV Trend: ${last.OBV_Trend ? 'Accumulation' : 'Distribution'} | Volume Ratio: ${fmt(last.Volume_Ratio)}x | ATR: ${fmt(last.ATR_Percent)}%
 
 Macro Regime & Monetary Backdrop:
 - Global Macro Regime: ${macro.market_regime} | Risk Sentiment: ${macro.risk_sentiment}
 - 10-Year Treasury Yield: ${macro.tnx_yield != null ? macro.tnx_yield.toFixed(2) + '%' : 'N/A'} | SPY Beta/Corr: ${macro.sp500_correlation} | VIX: ${macro.vix_level ?? 'N/A'}
 - Crowd Sentiment: Fear & Greed: ${sentiment.fear_greed?.value ?? 'N/A'} (${sentiment.fear_greed?.label ?? 'N/A'}) | StockTwits: ${sentiment.stocktwits_data?.bull_ratio != null ? sentiment.stocktwits_data.bull_ratio.toFixed(0) + '% Bullish' : 'N/A'}
+- Crowd evidence: ${formatCrowdSignalEvidence(sentiment) || 'No source-attributed crowd signal was available.'}
 
 Multi-Month Chart Structure:
 - Daily/Weekly Patterns: ${chartPatterns.patterns?.join(', ') || 'None'}

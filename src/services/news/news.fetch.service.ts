@@ -383,6 +383,40 @@ export class NewsFetchService {
 
   // ─── Stock news ────────────────────────────────────────────────────────
 
+  /**
+   * Fetch live, ticker-specific headlines from Google News RSS. Unlike the
+   * broad market feed, this query is scoped to the dashboard's exact symbol.
+   */
+  public async fetchTickerNews(symbol: string): Promise<NewsItem[]> {
+    const cleanSymbol = symbol.replace(/\.JK$/i, '').trim().toUpperCase();
+    if (!cleanSymbol) return [];
+
+    return this.getCached('ticker_news_' + cleanSymbol, async () => {
+      const query = cleanSymbol + ' stock news earnings catalysts';
+      const url = 'https://news.google.com/rss/search?q=' + encodeURIComponent(query) + '&hl=en-US&gl=US&ceid=US:en';
+      const feed = await this.parseURLSafe(url);
+
+      return (feed.items ?? [])
+        .map((entry) => {
+          const rawTitle = (entry.title ?? '').trim();
+          const sourceSeparator = rawTitle.lastIndexOf(' - ');
+          return {
+            category: 'stocks',
+            type: 'news',
+            impact: 'medium' as const,
+            title: sourceSeparator > 0 ? rawTitle.slice(0, sourceSeparator) : rawTitle,
+            details: (entry.contentSnippet ?? entry.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 500),
+            source: sourceSeparator > 0 ? rawTitle.slice(sourceSeparator + 3) : 'Google News',
+            url: entry.link,
+            timestamp: entry.isoDate ?? entry.pubDate ?? new Date().toISOString(),
+            assets: [cleanSymbol],
+          };
+        })
+        .filter((item) => item.title)
+        .slice(0, 12);
+    });
+  }
+
   public async fetchStockNews(): Promise<NewsItem[]> {
     return this.getCached('stock_news', async () => {
       const items: NewsItem[] = [];
@@ -584,7 +618,7 @@ export class NewsFetchService {
       if (fg) {
         const v = fg.value;
         crowd.summary.overall =
-          v <= 25 ? 'EXTREME_FEAR — crowd panicking (contrarian BUY signal)' :
+          v <= 25 ? 'EXTREME_FEAR — crowd panicking (potential contrarian context; require price confirmation)' :
           v <= 40 ? 'FEAR — crowd cautious'                                   :
           v <= 60 ? 'NEUTRAL — crowd undecided'                               :
           v <= 75 ? 'GREED — crowd optimistic'                                :

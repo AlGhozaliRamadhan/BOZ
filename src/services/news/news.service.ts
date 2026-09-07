@@ -9,6 +9,22 @@ export class NewsService {
     const newsItems: string[] = [];
     const seenTitles = new Set<string>();
 
+    // A ticker-specific live RSS query is the primary dashboard-news source.
+    // It remains useful when a vendor's ticker search is stale or unavailable.
+    try {
+      const directTickerNews = await newsFetchService.fetchTickerNews(symbol);
+      for (const item of directTickerNews) {
+        const normalized = item.title.trim().toLowerCase();
+        if (!seenTitles.has(normalized)) {
+          seenTitles.add(normalized);
+          const src = item.source ? ` [${item.source}]` : '';
+          newsItems.push(`${item.title}${src}`);
+        }
+      }
+    } catch (error) {
+      log.warn('news', `Ticker RSS news error: ${(error as Error).message}`);
+    }
+
     try {
       const result = await yahooFinance.search(symbol, { newsCount: 8, quotesCount: 0 });
       if (result.news) {
@@ -55,7 +71,7 @@ export class NewsService {
       log.warn('news', `Extra news enrichment error: ${(error as Error).message}`);
     }
 
-    // Fallback: If still under 3 news items, query DuckDuckGo for live headlines
+    // Fallback: If still under 3 news items, query the live web-news providers.
     if (newsItems.length < 3) {
       try {
         const ddgQuery = `${symbol.replace(/\.JK$/i, '')} stock news earnings catalysts`;

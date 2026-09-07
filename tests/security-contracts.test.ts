@@ -24,6 +24,25 @@ describe('security-sensitive repository contracts', () => {
     expect(engine).toContain('untrusted_tool_output');
   });
 
+  it('keeps market reasoning conditional rather than forcing private tags or automatic contrarian trades', () => {
+    const engine = readFileSync(resolve('src/app/api/chat/chat.engine.ts'), 'utf8');
+    const directRoute = readFileSync(resolve('src/app/api/chat/route.ts'), 'utf8');
+    expect(engine).not.toContain("const PREFILL = '<think>");
+    expect(engine).toContain('do not emit reasoning tags or private scratchpad text');
+    expect(engine).toContain('not an automatic buy');
+    expect(engine).toContain('not a strong-buy signal by itself');
+    expect(engine).toContain('Do not state a numeric probability unless it is supplied by a calibrated source');
+    expect(engine).toContain('MUST call web_search in addition to any fetch_news call');
+    expect(engine).toContain('requiredWebSearches');
+    expect(engine).toContain('automaticTickerResearchAdded');
+    expect(engine).toContain('Tool-choice is not honored consistently');
+    expect(engine).toContain('WEB_EVIDENCE_CITATION_RULES');
+    expect(engine).toContain('formatCrowdSignalEvidence');
+    expect(directRoute).toContain('not an automatic buy');
+    expect(directRoute).toContain('not a strong-buy signal by itself');
+    expect(directRoute).toContain('Do not state a numeric probability unless it comes from a calibrated source');
+  });
+
   it('enforces process-wide admission limits', () => {
     const gate = new WorkloadGate(1);
     const release = gate.tryAcquire();

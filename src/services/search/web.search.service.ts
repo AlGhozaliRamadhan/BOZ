@@ -1,13 +1,65 @@
 import axios from 'axios';
+import Parser from 'rss-parser';
 import { yahooFinance } from '../market/yahoo.service.js';
 import { newsFetchService } from '../news/news.fetch.service.js';
 import { htmlToPlainText } from '../../utils/html.js';
 import { websiteRagService } from './website.rag.service.js';
 
 export interface WebSearchResult {
-  title:   string;
-  url:     string | null;
-  snippet: string;
+  title:        string;
+  url:          string | null;
+  snippet:      string;
+  publisher?:   string;
+  publisherUrl?: string | null;
+}
+
+const SEARCH_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+/** Build a live, public Google News RSS endpoint for a query. */
+export function buildGoogleNewsRssUrl(query: string): string {
+  return 'https://news.google.com/rss/search?q=' + encodeURIComponent(query) + '&hl=en-US&gl=US&ceid=US:en';
+}
+
+/** Keep tool output source-linked and readable inside the expandable Thought. */
+export function formatWebSearchResults(query: string, results: WebSearchResult[]): string {
+  const lines = results.slice(0, 12).map((result) => {
+    const title = result.url ? '[' + result.title + '](' + result.url + ')' : result.title;
+    return [
+      '- ' + title,
+      result.url ? '  URL: ' + result.url : '',
+      result.publisher ? '  Publisher: ' + result.publisher : '',
+      result.publisherUrl ? '  Publisher URL: ' + result.publisherUrl : '',
+      result.snippet ? '  Summary: ' + result.snippet.slice(0, 320) : '',
+    ].filter(Boolean).join('\n');
+  });
+
+  return 'Web search results for "' + query + '":\n' + lines.join('\n');
+}
+
+function plainText(value: unknown, maxLength: number): string {
+  return htmlToPlainText(String(value ?? ''))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
+}
+
+function sanitizeRssXml(xml: string): string {
+  return xml.replace(
+    /&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[\dA-Fa-f]+|[A-Za-z][A-Za-z\d]*);)/g,
+    '&amp;',
+  );
+}
+
+function extractGoogleNewsPublishers(xml: string): Array<{ publisher?: string; publisherUrl?: string }> {
+  const itemBlocks = [...xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)];
+  return itemBlocks.map((itemBlock) => {
+    const source = itemBlock[1].match(/<source\b[^>]*\burl=(['\"])(.*?)\1[^>]*>([\s\S]*?)<\/source>/i);
+    if (!source) return {};
+    return {
+      publisher: plainText(source[3], 160),
+      publisherUrl: source[2].replace(/&amp;/g, '&'),
+    };
+  });
 }
 
 // Decode a DuckDuckGo HTML redirect link (//duckduckgo.com/l/?uddg=<url>&rut=...)
@@ -26,26 +78,74 @@ function decodeDdgUrl(raw: string): string | null {
 export class WebSearchService {
   /**
    * Performs a multi-tiered web search.
-   * Tier 1: DuckDuckGo HTML scrape
-   * Tier 2: DuckDuckGo Instant Answer JSON
-   * Tier 3: Yahoo Finance news search
-   * Tier 4: Direct Indonesian RSS scrape for IHSG-related queries
+   * Tier 1: Google News RSS (live, source-linked financial and market news)
+   * Tier 2: DuckDuckGo HTML scrape
+   * Tier 3: DuckDuckGo Instant Answer JSON
+   * Tier 4: Yahoo Finance news search
+   * Tier 5: Direct Indonesian RSS scrape for IHSG-related queries
    */
-  // Last successful DDG result set, with URLs, so deepSearch can fetch the top
+  // Last successful result set, with URLs, so deepSearch can fetch the top
   // pages and run keyword RAG over their full text. Populated by search().
   private lastResults: WebSearchResult[] = [];
+  private readonly rssParser = new Parser({
+    customFields: { item: [['source', 'source']] },
+  });
+
+  private async searchGoogleNews(query: string): Promise<WebSearchResult[]> {
+    const response = await axios.get<string>(buildGoogleNewsRssUrl(query), {
+      headers: {
+        'User-Agent': SEARCH_USER_AGENT,
+        Accept: 'application/rss+xml, application/xml, text/xml, */*',
+      },
+      timeout: 8000,
+      responseType: 'text',
+      maxContentLength: 1_000_000,
+      maxBodyLength: 1_000_000,
+      validateStatus: status => status >= 200 && status < 300,
+    });
+    const feed = await this.rssParser.parseString(sanitizeRssXml(response.data));
+    const publishers = extractGoogleNewsPublishers(response.data);
+    const seenTitles = new Set<string>();
+
+    return (feed.items ?? [])
+      .map((item: any, index) => ({
+        title: plainText(item.title, 500),
+        url: item.link?.startsWith('http') ? item.link : null,
+        snippet: plainText(item.contentSnippet ?? item.content, 500),
+        publisher: plainText(item.source ?? publishers[index]?.publisher, 160) || undefined,
+        publisherUrl: publishers[index]?.publisherUrl ?? null,
+      }))
+      .filter((item) => {
+        const key = item.title.toLowerCase();
+        if (!item.title || seenTitles.has(key)) return false;
+        seenTitles.add(key);
+        return true;
+      })
+      .slice(0, 12);
+  }
 
   public async search(query: string): Promise<string> {
-    const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+    const normalizedQuery = query.trim();
+    this.lastResults = [];
 
-    // Tier 1: DuckDuckGo HTML scrape — much richer than the JSON Instant Answer API
+    // Tier 1: Google News RSS remains available when the DuckDuckGo TLS
+    // endpoint is unavailable, and each item retains its source URL.
+    try {
+      const results = await this.searchGoogleNews(normalizedQuery);
+      if (results.length > 0) {
+        this.lastResults = results;
+        return formatWebSearchResults(normalizedQuery, results);
+      }
+    } catch { /* cascade */ }
+
+    // Tier 2: DuckDuckGo HTML scrape — much richer than the JSON Instant Answer API
     try {
       const encoded = encodeURIComponent(query);
       const res = await axios.get(
         `https://html.duckduckgo.com/html/?q=${encoded}`,
         {
           headers: {
-            'User-Agent': UA,
+            'User-Agent': SEARCH_USER_AGENT,
             'Accept': 'text/html,application/xhtml+xml',
             'Accept-Language': 'en-US,en;q=0.9',
           },
@@ -82,18 +182,23 @@ export class WebSearchService {
         if (u) urls.push(u);
       }
 
-      const count = Math.min(titles.length, snippets.length, 7);
+      const count = Math.min(titles.length, snippets.length, 12);
       for (let i = 0; i < count; i++) {
-        results.push(`- ${titles[i]}: ${snippets[i].slice(0, 200)}`);
+        const sourceUrl = urls[i] ?? null;
+        results.push([
+          `- ${sourceUrl ? `[${titles[i]}](${sourceUrl})` : titles[i]}`,
+          sourceUrl ? `  URL: ${sourceUrl}` : '',
+          `  Summary: ${snippets[i].slice(0, 320)}`,
+        ].filter(Boolean).join('\n'));
         this.lastResults.push({
           title: titles[i],
-          url: urls[i] ?? null,
+          url: sourceUrl,
           snippet: snippets[i],
         });
       }
       // If only titles available (no snippets parsed), use titles alone
       if (results.length === 0 && titles.length >= 3) {
-        for (const t of titles.slice(0, 7)) {
+        for (const t of titles.slice(0, 12)) {
           results.push(`- ${t}`);
           this.lastResults.push({ title: t, url: null, snippet: '' });
         }
@@ -104,18 +209,18 @@ export class WebSearchService {
       }
     } catch { /* cascade */ }
 
-    // Tier 2: DuckDuckGo Instant Answer JSON (good for entity lookups)
+    // Tier 3: DuckDuckGo Instant Answer JSON (good for entity lookups)
     try {
       const encoded = encodeURIComponent(query);
       const res = await axios.get(
         `https://api.duckduckgo.com/?q=${encoded}&format=json&no_html=1&skip_disambig=1`,
-        { headers: { 'User-Agent': UA }, timeout: 8000, maxContentLength: 1_000_000, maxBodyLength: 1_000_000 },
+        { headers: { 'User-Agent': SEARCH_USER_AGENT }, timeout: 8000, maxContentLength: 1_000_000, maxBodyLength: 1_000_000 },
       );
       const data = res.data;
       const results: string[] = [];
       if (data.AbstractText?.trim()) results.push(`- ${data.AbstractText.trim().slice(0, 300)}`);
       if (data.Answer?.trim()) results.push(`- ${data.Answer.trim().slice(0, 200)}`);
-      for (const topic of (data.RelatedTopics ?? []).slice(0, 8)) {
+      for (const topic of (data.RelatedTopics ?? []).slice(0, 12)) {
         const text = topic.Text ?? topic.Result;
         if (text?.trim()) results.push(`- ${String(text).trim().slice(0, 200)}`);
         for (const sub of (topic.Topics ?? []).slice(0, 2)) {
@@ -123,23 +228,28 @@ export class WebSearchService {
         }
       }
       if (results.length >= 2) {
-        return `Web search results for "${query}":\n${results.slice(0, 8).join('\n')}`;
+        return `Web search results for "${query}":\n${results.slice(0, 12).join('\n')}`;
       }
     } catch { /* cascade */ }
 
-    // Tier 3: Yahoo Finance news search (best for financial / ticker queries)
+    // Tier 4: Yahoo Finance news search (best for financial / ticker queries)
     try {
       const searchRes = await yahooFinance.search(query, { newsCount: 12, quotesCount: 0 });
       const headlines = (searchRes.news ?? [])
-        .slice(0, 10)
-        .map((n: any) => `- ${n.title ?? ''}${n.publisher ? ' (' + n.publisher + ')' : ''}`)
-        .filter(Boolean);
-      if (headlines.length >= 2) {
-        return `Web search results for "${query}":\n${headlines.join('\n')}`;
+        .slice(0, 12)
+        .map((n: any) => ({
+          title: plainText(n.title, 500),
+          url: typeof n.link === 'string' && n.link.startsWith('http') ? n.link : null,
+          snippet: plainText(n.summary ?? n.publisher ?? '', 500),
+        }))
+        .filter((item) => item.title);
+      if (headlines.length >= 1) {
+        this.lastResults = headlines;
+        return formatWebSearchResults(normalizedQuery, headlines);
       }
     } catch { /* cascade */ }
 
-    // Tier 4: Direct Indonesian RSS scrape for IHSG-related queries
+    // Tier 5: Direct Indonesian RSS scrape for IHSG-related queries
     const isIndonesianQuery = /ihsg|idx|bursa|saham|jkse|indonesia|rupiah|bi rate/i.test(query);
     if (isIndonesianQuery) {
       try {
@@ -174,18 +284,19 @@ export class WebSearchService {
    * gets real source text instead of just headlines.
    */
   public async deepSearch(query: string, depth: number = 2): Promise<string> {
-    // First, get the live search results so we have candidate URLs.
-    const baseResults = await this.search(query);
+    // Tool calls execute concurrently. Use a request-scoped search instance so
+    // one query can never overwrite another query's candidate URLs.
+    const scopedSearch = new WebSearchService();
+    const baseResults = await scopedSearch.search(query);
 
-    // If we have URLs from the DDG tier, fetch and RAG the top pages.
-    const candidates = this.lastResults.filter(r => r.url);
+    // If we have URLs from a live provider, fetch and RAG the top pages.
+    const candidates = scopedSearch.lastResults.filter(r => r.url);
     if (candidates.length === 0) {
       return baseResults;
     }
 
-    const fetchCount = Math.min(depth, candidates.length, 3);
-    const perPage = depth >= 3 ? 4 : depth === 2 ? 3 : 2;
-    const topK = Math.min(perPage, 3);
+    const fetchCount = Math.min(depth, candidates.length, 6);
+    const topK = depth >= 5 ? 4 : depth >= 3 ? 3 : 2;
 
     const sections: string[] = [];
     const fetchQueue = candidates.slice(0, fetchCount);
@@ -213,6 +324,8 @@ export class WebSearchService {
     }
 
     return [
+      baseResults,
+      '',
       `Deep web research for "${query}" (${sections.length} source${sections.length === 1 ? '' : 's'} analyzed):`,
       '',
       ...sections,

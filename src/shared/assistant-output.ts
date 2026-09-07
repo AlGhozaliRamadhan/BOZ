@@ -8,6 +8,103 @@ const COMPLETE_PRIVATE_BLOCKS = [
 const OPEN_PRIVATE_BLOCK = /<(?:thinking|think|thought)>|<\|begin_of_thought\|>/i;
 const CLOSE_PRIVATE_BLOCK = /<\/(?:thinking|think|thought)>|<\|end_of_thought\|>/i;
 
+const PRIVATE_START_TAGS = ['<thinking>', '<think>', '<thought>', '<|begin_of_thought|>'];
+const PRIVATE_END_TAGS = ['</thinking>', '</think>', '</thought>', '<|end_of_thought|>'];
+
+function findFirstTag(text: string, tags: string[]): { index: number; tag: string } | null {
+  const lowerText = text.toLowerCase();
+  let match: { index: number; tag: string } | null = null;
+
+  for (const tag of tags) {
+    const index = lowerText.indexOf(tag);
+    if (index !== -1 && (!match || index < match.index)) match = { index, tag };
+  }
+
+  return match;
+}
+
+function findPartialTagStart(text: string, tags: string[]): number {
+  const start = text.lastIndexOf('<');
+  if (start === -1) return -1;
+
+  const candidate = text.slice(start).toLowerCase();
+  return tags.some(tag => tag.startsWith(candidate)) ? start : -1;
+}
+
+/**
+ * Keeps only stable, public text from a streamed model response. Provider
+ * reasoning blocks can arrive over several chunks, so filtering only after a
+ * chunk has been shown is too late. This filter deliberately fails closed:
+ * anything inside a private block, including an incomplete one, is discarded.
+ */
+export class PrivateReasoningStreamFilter {
+  private buffer = '';
+  private insidePrivateBlock = false;
+
+  push(chunk: string): string {
+    this.buffer += chunk;
+    let publicText = '';
+
+    while (this.buffer) {
+      if (this.insidePrivateBlock) {
+        const end = findFirstTag(this.buffer, PRIVATE_END_TAGS);
+        if (end) {
+          this.buffer = this.buffer.slice(end.index + end.tag.length);
+          this.insidePrivateBlock = false;
+          continue;
+        }
+
+        const partialEnd = findPartialTagStart(this.buffer, PRIVATE_END_TAGS);
+        this.buffer = partialEnd === -1 ? '' : this.buffer.slice(partialEnd);
+        break;
+      }
+
+      const start = findFirstTag(this.buffer, PRIVATE_START_TAGS);
+      const end = findFirstTag(this.buffer, PRIVATE_END_TAGS);
+      const nextTag = !start || (end && end.index < start.index) ? end : start;
+
+      if (nextTag) {
+        if (nextTag === end) {
+          // A provider prefill can start inside private text and stream the
+          // closing tag later. Discard the prefix rather than guessing.
+          this.buffer = this.buffer.slice(nextTag.index + nextTag.tag.length);
+        } else {
+          publicText += this.buffer.slice(0, nextTag.index);
+          this.buffer = this.buffer.slice(nextTag.index + nextTag.tag.length);
+          this.insidePrivateBlock = true;
+        }
+        continue;
+      }
+
+      const partialStart = findPartialTagStart(this.buffer, PRIVATE_START_TAGS);
+      const partialEnd = findPartialTagStart(this.buffer, PRIVATE_END_TAGS);
+      if (partialEnd !== -1 && (partialStart === -1 || partialEnd < partialStart)) {
+        // Treat text before a possible orphaned closing tag as private.
+        this.buffer = this.buffer.slice(partialEnd);
+        break;
+      }
+      if (partialStart !== -1) {
+        publicText += this.buffer.slice(0, partialStart);
+        this.buffer = this.buffer.slice(partialStart);
+        break;
+      }
+
+      publicText += this.buffer;
+      this.buffer = '';
+    }
+
+    return publicText;
+  }
+
+  finish(): string {
+    // A buffered suffix is necessarily an incomplete private tag or private
+    // content. Dropping it is safer than trying to recover partial output.
+    this.buffer = '';
+    this.insidePrivateBlock = false;
+    return '';
+  }
+}
+
 /**
  * Removes private model deliberation and generic hand-off filler from text that
  * is about to be shown to a user. Different reasoning providers use different
