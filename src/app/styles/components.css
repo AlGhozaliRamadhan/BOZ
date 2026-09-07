@@ -473,6 +473,8 @@
   display: flex;
   flex-direction: column;
   position: relative;
+  width: calc(100% + var(--space-6) + var(--space-6));
+  margin-inline: calc(0px - var(--space-6));
   overflow: hidden;
 }
 
@@ -481,8 +483,8 @@
   flex-direction: column;
   height: 100%;
   position: relative;
-  max-width: 880px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
   width: 100%;
   overflow: hidden;
 }
@@ -492,9 +494,11 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: var(--space-6) var(--space-4) 140px var(--space-4);
+  padding-inline: max(var(--space-4), calc(50% - 424px));
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
+  scrollbar-gutter: stable;
 }
 
 .chat-messages::-webkit-scrollbar {
@@ -1784,6 +1788,105 @@
   line-height: 1.45;
 }
 
+.thought-tool-toggle {
+  margin-top: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-cyan, #00e5ff);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.thought-tool-toggle:hover {
+  color: var(--text-primary, #ffffff);
+  text-decoration: underline;
+}
+
+.web-search-source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.web-search-source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 6px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.025);
+  text-decoration: none;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.web-search-source:hover {
+  border-color: rgba(0, 229, 255, 0.48);
+  background: rgba(0, 229, 255, 0.06);
+}
+
+.web-search-source.is-unlinked {
+  cursor: default;
+}
+
+.web-search-source-favicon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.web-search-source-favicon img {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.web-search-source-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.web-search-source-title,
+.web-search-source-publisher {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.web-search-source-title {
+  color: var(--text-secondary, #cccccc);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.web-search-source:hover .web-search-source-title {
+  color: var(--accent-cyan, #00e5ff);
+}
+
+.web-search-source-publisher {
+  color: var(--text-muted, #808080);
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.web-search-source-toggle {
+  align-self: flex-start;
+}
+
 .thought-markdown-text {
   font-size: 12.5px;
   line-height: 1.55;
@@ -2411,6 +2514,15 @@
    - `.bb-tbl`           augments .data-table with terminal styling
    - `.bb-up/.bb-down/.bb-amber`  up/down/amber color utilities
    ════════════════════════════════════════════════════════════════════════════ */
+
+/* Ticker dashboards are data-dense workspaces, so use the complete content
+   canvas rather than the standard page gutters. The sidebar and top bar remain
+   outside this area; only the unused left/right gap inside `.app-content` is
+   reclaimed. */
+.bbg-page {
+  width: calc(100% + var(--space-6) + var(--space-6));
+  margin-inline: calc(-1 * var(--space-6));
+}
 
 /* Page-wide: when .bb-shell is on the page root, pull it flush against
    the topbar and the viewport edges — no floating gap. */
@@ -3580,6 +3692,56 @@
   border-bottom: none;
 }
 
+.tool-card-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-cyan);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tool-card-expand:hover {
+  color: var(--text-primary);
+}
+
+.tool-card-detail {
+  max-height: 360px;
+  margin: 10px 0 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.24);
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tool-card-source-link {
+  color: var(--accent-cyan);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.tool-card-source-link:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.tool-card-source-summary {
+  color: var(--text-muted);
+}
+
 /* === CHAT REASON LIST ====================================================== */
 
 .chat-reason-list {
@@ -3634,6 +3796,10 @@
 }
 
 @media (max-width: 768px) {
+  .bbg-page {
+    width: calc(100% + var(--space-4) + var(--space-4));
+    margin-inline: calc(-1 * var(--space-4));
+  }
   .bb-shell { margin: calc(-1 * (var(--topbar-height) + var(--space-4))) calc(-1 * var(--space-4)) calc(-1 * var(--space-4)); width: calc(100% + 2 * var(--space-4)); max-width: calc(100% + 2 * var(--space-4)); }
   .bb-quote { grid-template-columns: 1fr; }
   .bb-quote-left { border-right: none; border-bottom: 1px solid var(--term-border-bold); }

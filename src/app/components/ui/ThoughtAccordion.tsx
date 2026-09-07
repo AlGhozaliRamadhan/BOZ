@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'isomorphic-dompurify';
+import type { ToolResult } from '../../chat/ToolResultCards';
+import { parseWebSources, type WebSourceDetail } from '../../chat/tool-result-details';
 
 export interface ThoughtTimelineStep {
   id?: string;
@@ -12,6 +14,7 @@ export interface ThoughtTimelineStep {
   toolName?: string;
   args?: Record<string, unknown>;
   preview?: string;
+  detail?: string;
   status?: 'running' | 'done';
 }
 
@@ -28,6 +31,8 @@ export interface ThoughtAccordionProps {
    * Optional timeline steps
    */
   timeline?: ThoughtTimelineStep[];
+  /** Tool outputs matched to timeline entries, available through Show more. */
+  toolResults?: ToolResult[];
   /**
    * Title shown in header (e.g. "AI analysis")
    */
@@ -81,6 +86,7 @@ export function ThoughtAccordion({
   thoughts,
   thought,
   timeline,
+  toolResults,
   title,
   duration,
   modelName,
@@ -96,6 +102,7 @@ export function ThoughtAccordion({
   if (timeline && timeline.length > 0) {
     steps.push(...timeline);
   } else {
+    const unclaimedToolResults = [...(toolResults ?? [])];
     const rawList: string[] = [];
     if (Array.isArray(thoughts)) {
       thoughts.forEach((t) => {
@@ -114,11 +121,16 @@ export function ThoughtAccordion({
       if (raw.startsWith('tool used: ') || raw.startsWith('• tool_call: ') || raw.startsWith('Searched: ')) {
         const toolStr = raw.replace(/^tool used:\s*|^• tool_call:\s*|^Searched:\s*/i, '');
         const parts = toolStr.split(' — ');
+        const toolName = parts[0]?.trim();
+        const toolId = toolName?.split(/\s+\(/, 1)[0];
+        const resultIndex = unclaimedToolResults.findIndex((result) => result.tool === toolId);
+        const result = resultIndex >= 0 ? unclaimedToolResults.splice(resultIndex, 1)[0] : undefined;
         steps.push({
           type: 'tool',
-          toolName: parts[0]?.trim(),
+          toolName,
           content: raw,
           preview: parts[1]?.trim(),
+          detail: result?.detail || result?.preview,
           status: 'done',
         });
       } else {
@@ -315,9 +327,11 @@ export function ThoughtAccordion({
                         )}
                       </div>
                       {step.preview && (
-                        <div className="thought-tool-preview">
-                          {step.preview}
-                        </div>
+                        <ToolTimelinePreview
+                          preview={step.preview}
+                          detail={step.detail}
+                          isWebSearch={step.toolName?.startsWith('web_search') ?? false}
+                        />
                       )}
                     </div>
                   ) : (
@@ -349,3 +363,110 @@ export function ThoughtAccordion({
 }
 
 export default ThoughtAccordion;
+
+function ToolTimelinePreview({
+  preview,
+  detail,
+  isWebSearch,
+}: {
+  preview: string;
+  detail?: string;
+  isWebSearch: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const fullDetail = detail?.trim() || '';
+  const sources = isWebSearch ? parseWebSources(fullDetail || preview) : [];
+  const canExpand = fullDetail.length > preview.trim().length;
+  const shown = expanded && canExpand ? fullDetail : preview;
+
+  if (sources.length > 0) return <WebSearchSourceList sources={sources} />;
+
+  return (
+    <div>
+      <div className="thought-tool-preview">{shown}</div>
+      {canExpand && (
+        <button
+          type="button"
+          className="thought-tool-toggle"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function WebSearchSourceList({ sources }: { sources: WebSourceDetail[] }) {
+  const [showAll, setShowAll] = useState(false);
+  const visibleSources = showAll ? sources : sources.slice(0, 5);
+  const remaining = sources.length - 5;
+
+  return (
+    <div className="web-search-source-list" aria-label="Web search sources">
+      {visibleSources.map((source, index) => (
+        <WebSearchSource key={source.url ?? source.title + index} source={source} />
+      ))}
+      {remaining > 0 && (
+        <button
+          type="button"
+          className="thought-tool-toggle web-search-source-toggle"
+          onClick={() => setShowAll((value) => !value)}
+        >
+          {showAll ? 'Show less' : `Show ${remaining} more sources`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function WebSearchSource({ source }: { source: WebSourceDetail }) {
+  const destination = source.url;
+  const publisherDomain = domainFromUrl(source.publisherUrl);
+  const resultDomain = domainFromUrl(source.url);
+  const label = source.publisher || publisherDomain || resultDomain || 'Web source';
+  const faviconDomain = publisherDomain || resultDomain;
+  const content = (
+    <>
+      <span className="web-search-source-favicon" aria-hidden="true">
+        {faviconDomain && (
+          <img
+            src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(faviconDomain)}&sz=32`}
+            alt=""
+            width={16}
+            height={16}
+            referrerPolicy="no-referrer"
+            onError={(event) => { event.currentTarget.style.visibility = 'hidden'; }}
+          />
+        )}
+      </span>
+      <span className="web-search-source-copy">
+        <span className="web-search-source-title">{source.title}</span>
+        <span className="web-search-source-publisher">{label}</span>
+      </span>
+    </>
+  );
+
+  if (!destination) return <div className="web-search-source is-unlinked">{content}</div>;
+
+  return (
+    <a
+      className="web-search-source"
+      href={destination}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open ${source.title} from ${label}`}
+    >
+      {content}
+    </a>
+  );
+}
+
+function domainFromUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return new URL(value).hostname.replace(/^www\./i, '');
+  } catch {
+    return undefined;
+  }
+}

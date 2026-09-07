@@ -84,6 +84,8 @@ function buildSystemPrompt(): string {
     `ACCURACY CHECK (do before answering):\n` +
     `  - Ground all price levels to the provided dataset.\n` +
     `  - Ensure prediction, confidence, thesis, and trade levels form a unified narrative.\n` +
+    `  - When the prompt includes a web source URL, attribute the claim in the thesis/reasons with that exact link. Use “According to [Source](URL), …” for a single report. Say “Multiple independent reports, including [A](URL) and [B](URL), indicate …” only when two distinct named sources support the same point.\n` +
+    `  - Treat Fear & Greed, StockTwits, and Reddit data as sourced crowd observations—not forecasts or proof of a trade. State the source and sample when supplied, keep market-wide and ticker-specific signals separate, and require price/volume confirmation.\n` +
     `  - Keep tone highly professional, precise, and institutional.\n\n` +
     JSON_OUTPUT_RULES
   );
@@ -106,6 +108,10 @@ export class AIService {
       case 'offline': return this.analyzeWithOffline(prompt);
       case 'nvidia':  return this.analyzeWithNvidia(prompt);
       case 'custom':  return this.analyzeWithCustom(prompt);
+      case 'openai': return this.analyzeWithCloudProvider(prompt, 'OpenAI', config.openai.apiKey);
+      case 'anthropic': return this.analyzeWithCloudProvider(prompt, 'Anthropic', config.anthropic.apiKey);
+      case 'groq': return this.analyzeWithCloudProvider(prompt, 'Groq', config.groq.apiKey);
+      case 'openrouter': return this.analyzeWithCloudProvider(prompt, 'OpenRouter', config.openrouter.apiKey);
       default:        return this.analyzeWithGitHub(prompt);
     }
   }
@@ -280,6 +286,44 @@ export class AIService {
       const msg = err instanceof Error ? err.message : String(err);
       log.error('ai', `Custom provider error: ${msg}`);
       return errResult(`Custom provider API call failed: ${msg}`);
+    }
+  }
+
+  private async analyzeWithCloudProvider(
+    prompt: string,
+    providerName: string,
+    apiKey: string,
+  ): Promise<AIResult> {
+    if (!apiKey) {
+      log.warn('ai', `No ${providerName} API key configured.`);
+      return uncertain(`No ${providerName} API key`);
+    }
+
+    log.ai('mode', providerName);
+    log.ai('endpoint', clr.dim(config.aiEndpoint));
+    log.ai('model', clr.white(config.aiModel));
+
+    try {
+      const content = await this.llm.callText({
+        messages: [
+          { role: 'system', content: buildSystemPrompt() },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.3,
+        maxTokens: 4096,
+        responseFormat: 'json',
+      });
+      const parsed = this.validateResponse(content);
+      if (parsed.ok) {
+        parsed.warnings.forEach((warning) => log.warn('ai', warning));
+        return parsed.result;
+      }
+      log.error('ai', `Invalid JSON from ${providerName}: ${parsed.error}`);
+      return uncertain(`${providerName} response failed schema validation`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.error('ai', `${providerName} error: ${message}`);
+      return errResult(`${providerName} API call failed: ${message}`);
     }
   }
 

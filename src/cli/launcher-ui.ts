@@ -16,9 +16,22 @@ function hasProviderConfiguration(env: NodeJS.ProcessEnv): boolean {
   const provider = env.AI_PROVIDER?.toLowerCase();
   if (provider === 'github') return Boolean(env.GITHUB_TOKEN);
   if (provider === 'nvidia') return Boolean(env.NVIDIA_API_KEY);
+  if (provider === 'openai') return Boolean(env.OPENAI_API_KEY);
+  if (provider === 'anthropic') return Boolean(env.ANTHROPIC_API_KEY);
+  if (provider === 'groq') return Boolean(env.GROQ_API_KEY);
+  if (provider === 'openrouter') return Boolean(env.OPENROUTER_API_KEY);
   if (provider === 'custom') return Boolean(env.CUSTOM_AI_URL);
   if (provider === 'offline') return Boolean(env.OFFLINE_AI_URL);
-  return Boolean(env.GITHUB_TOKEN || env.NVIDIA_API_KEY || env.CUSTOM_AI_URL || env.OFFLINE_AI_URL);
+  return Boolean(
+    env.GITHUB_TOKEN
+    || env.NVIDIA_API_KEY
+    || env.OPENAI_API_KEY
+    || env.ANTHROPIC_API_KEY
+    || env.GROQ_API_KEY
+    || env.OPENROUTER_API_KEY
+    || env.CUSTOM_AI_URL
+    || env.OFFLINE_AI_URL,
+  );
 }
 
 export function createLauncherInfo(

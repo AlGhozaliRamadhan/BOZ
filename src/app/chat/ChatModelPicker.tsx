@@ -18,11 +18,17 @@ interface SettingsSnapshot {
 const PROVIDER_LABEL: Record<string, string> = {
   github: 'GitHub',
   nvidia: 'NVIDIA',
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  groq: 'Groq',
+  openrouter: 'OpenRouter',
   offline: 'Offline',
   custom: '9router',
 };
 
-const PROVIDER_ORDER = ['custom', 'nvidia', 'github', 'offline'] as const;
+const PROVIDER_ORDER = [
+  'openai', 'anthropic', 'groq', 'openrouter', 'custom', 'nvidia', 'github', 'offline',
+] as const;
 
 export default function ChatModelPicker() {
   const [open, setOpen] = useState(false);

@@ -4,6 +4,8 @@ export const MAX_REQUEST_BODY_BYTES = 256 * 1024;
 export const MAX_CHAT_MESSAGE_CHARS = 16_000;
 export const MAX_CHAT_HISTORY_MESSAGES = 20;
 export const MAX_CHAT_MODEL_CHARS = 256;
+export const MAX_CHAT_TITLE_MESSAGES = 2;
+export const MAX_CHAT_TITLE_MESSAGE_CHARS = 4_000;
 
 export class InvalidJsonBodyError extends Error {
   constructor() {
@@ -89,6 +91,11 @@ export interface ChatRequestBody {
   model?: string;
 }
 
+export interface ChatTitleRequestBody {
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  model?: string;
+}
+
 export function validateChatRequestBody(body: unknown): ChatRequestBody {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new InvalidRequestBodyError('Request body must be an object');
@@ -131,6 +138,41 @@ export function validateChatRequestBody(body: unknown): ChatRequestBody {
   }
 
   return { message: candidate.message.trim(), history, model };
+}
+
+export function validateChatTitleRequestBody(body: unknown): ChatTitleRequestBody {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new InvalidRequestBodyError('Request body must be an object');
+  }
+
+  const candidate = body as Record<string, unknown>;
+  if (!Array.isArray(candidate.messages) || candidate.messages.length === 0 || candidate.messages.length > MAX_CHAT_TITLE_MESSAGES) {
+    throw new InvalidRequestBodyError(`Title requests must contain between 1 and ${MAX_CHAT_TITLE_MESSAGES} messages`);
+  }
+
+  const messages = candidate.messages.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new InvalidRequestBodyError('Title messages must be objects');
+    }
+    const message = entry as Record<string, unknown>;
+    if ((message.role !== 'user' && message.role !== 'assistant') || typeof message.content !== 'string') {
+      throw new InvalidRequestBodyError('Title messages require a valid role and string content');
+    }
+    if (!message.content.trim() || message.content.length > MAX_CHAT_TITLE_MESSAGE_CHARS) {
+      throw new InvalidRequestBodyError(`Title message content must be non-empty and at most ${MAX_CHAT_TITLE_MESSAGE_CHARS} characters`);
+    }
+    return { role: message.role as 'user' | 'assistant', content: message.content.trim() };
+  });
+
+  let model: string | undefined;
+  if (candidate.model !== undefined) {
+    if (typeof candidate.model !== 'string' || candidate.model.length > MAX_CHAT_MODEL_CHARS || /[\r\n\0]/.test(candidate.model)) {
+      throw new InvalidRequestBodyError('Model is invalid');
+    }
+    model = candidate.model.trim() || undefined;
+  }
+
+  return { messages, model };
 }
 
 export function requestBodyErrorResponse(error: unknown): NextResponse | null {

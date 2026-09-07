@@ -16,13 +16,27 @@ interface SettingsConfig {
   riskMode: string;
   hasGithubToken: boolean;
   hasNvidiaKey: boolean;
+  hasOpenaiKey: boolean;
+  hasAnthropicKey: boolean;
+  hasGroqKey: boolean;
+  hasOpenrouterKey: boolean;
   hasCustomKey: boolean;
+  offlineUrl: string;
   customUrl: string;
   availableModels: { id: string; label: string }[];
   allModels?: { id: string; label: string; provider?: string }[];
 }
 
-type CredentialProviderId = 'github' | 'nvidia' | 'custom';
+type IntegrationProviderId =
+  | 'github'
+  | 'nvidia'
+  | 'offline'
+  | 'custom'
+  | 'openai'
+  | 'anthropic'
+  | 'groq'
+  | 'openrouter';
+type CredentialProviderId = Exclude<IntegrationProviderId, 'offline'>;
 
 interface ConnectionResult {
   success: boolean;
@@ -35,65 +49,81 @@ const ALL_PROVIDERS = [
     id: 'github',
     name: 'GitHub Models',
     description: 'GitHub-hosted AI models with free tier access',
-    icon: <i className="fa-brands fa-github" style={{ fontSize: '24px' }}></i>,
+    icon: <i className="fa-brands fa-github" style={{ fontSize: '24px' }} aria-hidden="true"></i>,
     available: true,
-    examples: ['gpt-4o', 'claude-3.5-sonnet', 'cohere-command-r', 'llama-3.1-70b']
   },
   {
     id: 'nvidia',
     name: 'NVIDIA NIM',
     description: 'High-performance inference with NVIDIA hardware acceleration',
     icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-label="NVIDIA">
         <path d="M8.948 8.798l-1.178.397c-.04-.397-.238-1.907-2.107-1.907-1.452 0-2.596 1.17-2.596 3.117 0 2.303 1.378 3.157 2.596 3.157 1.352 0 2.027-1.072 2.147-1.868l1.178.337c-.357 1.669-1.669 2.937-3.325 2.937-2.107 0-3.88-1.63-3.88-4.563 0-2.576 1.549-4.523 3.88-4.523 2.027 0 3.126 1.312 3.285 2.916zm2.419-2.718v8.682h-1.193V6.08h1.193zm3.959 0v8.682h-1.193V6.08h1.193zm4.843 2.918c-.853 0-1.669.517-1.909 1.372h3.621c-.04-.736-.557-1.372-1.712-1.372zm2.855 2.498h-4.783c.04 1.23.854 2.067 1.948 2.067.694 0 1.352-.318 1.709-.894l.972.576c-.636.994-1.669 1.512-2.82 1.512-1.988 0-3.285-1.432-3.285-3.525 0-2.027 1.233-3.564 3.225-3.564 1.986 0 3.105 1.471 3.105 3.326 0 .159-.01.319-.07.502z" />
       </svg>
     ),
     available: true,
-    examples: ['meta/llama-3.1-405b', 'mistralai/mixtral-8x22b', 'nvidia/nemotron-4-340b']
   },
   {
     id: 'custom',
     name: '9router',
-    description: 'OpenAI-compatible local router at localhost:20128/v1',
-    icon: <i className="fa-solid fa-route" style={{ fontSize: '22px' }}></i>,
+    description: 'Your OpenAI-compatible local router or gateway',
+    icon: <span aria-label="9router" style={{ fontSize: '16px', fontWeight: 800, letterSpacing: '-1px' }}>9R</span>,
     available: true,
-    examples: []
   },
   {
     id: 'openai',
     name: 'OpenAI',
-    description: 'Industry-leading models like GPT-4o and GPT-3.5',
-    icon: <i className="fa-solid fa-bolt" style={{ fontSize: '24px' }}></i>,
-    available: false,
-    examples: ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo']
+    description: 'GPT models through the official OpenAI API',
+    icon: <span aria-label="OpenAI" style={{ fontSize: '15px', fontWeight: 800, letterSpacing: '-1px' }}>AI</span>,
+    available: true,
   },
   {
     id: 'anthropic',
     name: 'Anthropic',
-    description: 'Claude 3 Opus, Sonnet, and Haiku models',
-    icon: <i className="fa-solid fa-brain" style={{ fontSize: '24px' }}></i>,
-    available: false,
-    examples: ['claude-3-opus', 'claude-3.5-sonnet', 'claude-3-haiku']
+    description: 'Claude models through the official Messages API',
+    icon: <span aria-label="Anthropic" style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-1px' }}>A</span>,
+    available: true,
   },
   {
     id: 'groq',
     name: 'Groq',
-    description: 'Lightning fast LPU inference engine',
-    icon: <i className="fa-solid fa-rocket" style={{ fontSize: '24px' }}></i>,
-    available: false,
-    examples: ['llama3-70b-8192', 'mixtral-8x7b-32768']
+    description: 'Fast OpenAI-compatible inference from GroqCloud',
+    icon: <span aria-label="Groq" style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-1px' }}>G</span>,
+    available: true,
   },
   {
     id: 'openrouter',
     name: 'OpenRouter',
-    description: 'Unified API across dozens of AI providers',
-    icon: <i className="fa-solid fa-network-wired" style={{ fontSize: '24px' }}></i>,
-    available: false,
-    examples: ['google/gemini-pro', 'meta-llama/llama-3-70b', 'anthropic/claude-3']
+    description: 'One OpenAI-compatible API for hundreds of models',
+    icon: <span aria-label="OpenRouter" style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '-1px' }}>OR</span>,
+    available: true,
   },
-];
+  {
+    id: 'offline',
+    name: 'Ollama',
+    description: 'Private, Ollama-compatible inference running on your machine',
+    icon: <i className="fa-solid fa-server" style={{ fontSize: '20px' }} aria-hidden="true"></i>,
+    available: true,
+  },
+] as const satisfies readonly {
+  id: IntegrationProviderId;
+  name: string;
+  description: string;
+  icon: React.ReactNode;
+  available: boolean;
+}[];
 
-const ModelBadge = ({ modelName, isActiveProvider }: { modelName: string, isActiveProvider: boolean }) => {
+const ModelBadge = ({
+  modelName,
+  isActiveProvider,
+  isSelected,
+  onSelect,
+}: {
+  modelName: string;
+  isActiveProvider: boolean;
+  isSelected: boolean;
+  onSelect: () => void;
+}) => {
   const [hovered, setHovered] = useState(false);
   const [status, setStatus] = useState<'idle'|'loading'|'success'|'error'>('idle');
 
@@ -103,9 +133,18 @@ const ModelBadge = ({ modelName, isActiveProvider }: { modelName: string, isActi
       onMouseLeave={() => setHovered(false)}
       style={{ 
         display: 'flex', alignItems: 'center', gap: '6px',
-        background: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.1)', 
+        background: isSelected ? 'var(--text-primary)' : 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.1)',
         color: 'var(--text-secondary)', padding: '4px 8px', borderRadius: '4px', 
-        fontSize: '11px', fontWeight: 500, userSelect: 'none', transition: 'all 0.15s'
+        fontSize: '11px', fontWeight: 500, userSelect: 'none', transition: 'all 0.15s', cursor: 'pointer'
+      }}
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect();
+        }
       }}
     >
       {status !== 'idle' && (
@@ -114,12 +153,12 @@ const ModelBadge = ({ modelName, isActiveProvider }: { modelName: string, isActi
         </i>
       )}
       
-      <span>{modelName}</span>
+      <span style={{ color: isSelected ? 'var(--bg-primary)' : undefined }}>{modelName}</span>
       
       {hovered && (
         <div style={{ display: 'flex', gap: '6px', marginLeft: '4px', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '6px' }}>
           <button 
-            onClick={() => { navigator.clipboard.writeText(modelName); }}
+            onClick={(event) => { event.stopPropagation(); navigator.clipboard.writeText(modelName); }}
             style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}
             title="Copy Model Name"
           >
@@ -127,7 +166,8 @@ const ModelBadge = ({ modelName, isActiveProvider }: { modelName: string, isActi
           </button>
           
           <button 
-            onClick={async () => {
+            onClick={async (event) => {
+              event.stopPropagation();
               if (!isActiveProvider) { alert('You must set this as your Active Provider to test its models.'); return; }
               setStatus('loading');
               try {
@@ -168,6 +208,7 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [effort, setEffortLocal] = useState<Effort>(() => getEffort());
   const [customUrl, setCustomUrl] = useState('http://localhost:20128/v1');
+  const [offlineUrl, setOfflineUrl] = useState('http://localhost:11434');
   const [customKey, setCustomKey] = useState('');
   const [customModels, setCustomModels] = useState<{ id: string; label: string }[]>([]);
   const [customModelDraft, setCustomModelDraft] = useState('');
@@ -176,6 +217,10 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
     github: '',
     nvidia: '',
     custom: '',
+    openai: '',
+    anthropic: '',
+    groq: '',
+    openrouter: '',
   });
   const [updateInfo, setUpdateInfo] = useState<{
     currentVersion: string;
@@ -211,11 +256,20 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
       const data = await res.json();
       setConfig(data);
       setCustomUrl(data.customUrl || 'http://localhost:20128/v1');
+      setOfflineUrl(data.offlineUrl || 'http://localhost:11434');
       setCustomKey('');
       setCustomModels(Array.isArray(data.availableModels) && data.provider === 'custom'
         ? data.availableModels
         : (data.allModels || []).filter((m: { provider?: string }) => m.provider === 'custom'));
-      setCredentialDrafts({ github: '', nvidia: '', custom: '' });
+      setCredentialDrafts({
+        github: '',
+        nvidia: '',
+        custom: '',
+        openai: '',
+        anthropic: '',
+        groq: '',
+        openrouter: '',
+      });
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -249,8 +303,10 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
     setTimeout(() => setSaveMessage(null), 3000);
   };
 
-  const updateConfig = async (payload: Record<string, unknown>, successMsg: string) => {
+  const updateConfig = async (payload: Record<string, unknown>, successMsg: string): Promise<boolean> => {
     setSaving(true);
+    setError(null);
+    setTestResult(null);
     try {
       const res = await fetch('/api/settings', {
         method: 'PUT',
@@ -262,20 +318,37 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
       setConfig(data);
       window.dispatchEvent(new Event('boz_settings_updated'));
       showToast(successMsg);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');
+      return false;
     } finally {
       setSaving(false);
     }
   };
 
-  const credentialField = (providerId: CredentialProviderId) =>
-    providerId === 'nvidia' ? 'nvidiaKey' :
-    providerId === 'custom' ? 'customKey' : 'githubToken';
+  const credentialField: Record<CredentialProviderId, string> = {
+    github: 'githubToken',
+    nvidia: 'nvidiaKey',
+    custom: 'customKey',
+    openai: 'openaiKey',
+    anthropic: 'anthropicKey',
+    groq: 'groqKey',
+    openrouter: 'openrouterKey',
+  };
 
-  const credentialConfigured = (providerId: CredentialProviderId) =>
-    providerId === 'nvidia' ? Boolean(config?.hasNvidiaKey) :
-    providerId === 'custom' ? Boolean(config?.hasCustomKey) : Boolean(config?.hasGithubToken);
+  const credentialConfigured = (providerId: CredentialProviderId) => {
+    const configured: Record<CredentialProviderId, boolean> = {
+      github: Boolean(config?.hasGithubToken),
+      nvidia: Boolean(config?.hasNvidiaKey),
+      custom: Boolean(config?.hasCustomKey),
+      openai: Boolean(config?.hasOpenaiKey),
+      anthropic: Boolean(config?.hasAnthropicKey),
+      groq: Boolean(config?.hasGroqKey),
+      openrouter: Boolean(config?.hasOpenrouterKey),
+    };
+    return configured[providerId];
+  };
 
   const saveCredential = async (providerId: CredentialProviderId) => {
     const value = providerId === 'custom' ? customKey.trim() : credentialDrafts[providerId].trim();
@@ -283,20 +356,29 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
       setError('Enter a credential before saving it.');
       return;
     }
-    await updateConfig({ [credentialField(providerId)]: value }, 'Credential saved securely on the server');
-    if (providerId === 'custom') setCustomKey('');
-    else setCredentialDrafts((current) => ({ ...current, [providerId]: '' }));
+    const saved = await updateConfig({ [credentialField[providerId]]: value }, 'Credential saved securely on the server');
+    if (saved) {
+      if (providerId === 'custom') setCustomKey('');
+      else setCredentialDrafts((current) => ({ ...current, [providerId]: '' }));
+    }
   };
 
   const clearCredential = async (providerId: CredentialProviderId) => {
-    await updateConfig({ [credentialField(providerId)]: '' }, 'Credential removed');
-    if (providerId === 'custom') setCustomKey('');
-    else setCredentialDrafts((current) => ({ ...current, [providerId]: '' }));
+    const cleared = await updateConfig({ [credentialField[providerId]]: '' }, 'Credential removed');
+    if (cleared) {
+      if (providerId === 'custom') setCustomKey('');
+      else setCredentialDrafts((current) => ({ ...current, [providerId]: '' }));
+    }
   };
 
   const saveCustomEndpoint = async () => {
     const url = customUrl.trim() || 'http://localhost:20128/v1';
     await updateConfig({ customUrl: url }, 'Custom endpoint saved');
+  };
+
+  const saveOfflineEndpoint = async () => {
+    const url = offlineUrl.trim() || 'http://localhost:11434';
+    await updateConfig({ offlineUrl: url }, 'Ollama endpoint saved');
   };
 
   const fetchCustomModels = async () => {
@@ -448,14 +530,22 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                     <div>
                       <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Integrations</h3>
-                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>Select a provider to configure API keys and preferences.</p>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                        Configure hosted, routed, or local models. Credentials are write-only and stay on this device.
+                      </p>
+
+                      {error && (
+                        <div role="alert" style={{ marginBottom: '16px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.35)', color: 'var(--danger)', fontSize: '12px' }}>
+                          {error}
+                        </div>
+                      )}
                       
                       {/* Search Bar */}
                       <div style={{ marginBottom: '16px', position: 'relative' }}>
                         <i className="fa-solid fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '12px' }}></i>
                         <input
                           type="text"
-                          placeholder="Search providers (e.g. OpenAI, Anthropic, NVIDIA)..."
+                          placeholder="Search OpenAI, Anthropic, Groq, OpenRouter..."
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           style={{
@@ -470,6 +560,9 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                         {filteredProviders.map(p => {
                           const isExpanded = expandedProvider === p.id;
                           const isActiveProvider = config?.provider === p.id;
+                          const providerModels = (config?.allModels || [])
+                            .filter((model) => model.provider === p.id)
+                            .filter((model, index, models) => models.findIndex((candidate) => candidate.id === model.id) === index);
                           
                           return (
                             <div 
@@ -490,7 +583,7 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                                 <div style={{ flex: 1 }}>
                                   <div style={{ fontSize: '14px', fontWeight: 600, color: isActiveProvider ? 'var(--text-primary)' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     {p.name}
-                                    {!p.available && <span style={{ border: '1px solid var(--border-glass)', color: 'var(--text-muted)', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase' }}>Coming Soon</span>}
+                                    {isActiveProvider && <span style={{ border: '1px solid rgba(34, 197, 94, 0.35)', color: 'var(--bull)', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase' }}>Active</span>}
                                   </div>
                                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>{p.description}</div>
                                 </div>
@@ -613,8 +706,36 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                                       </div>
                                     )}
 
+                                    {p.id === 'offline' && (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        <div>
+                                          <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '8px' }}>Ollama endpoint</label>
+                                          <div style={{ display: 'flex', gap: '8px' }}>
+                                            <input
+                                              type="url"
+                                              value={offlineUrl}
+                                              onChange={(event) => setOfflineUrl(event.target.value)}
+                                              placeholder="http://localhost:11434"
+                                              spellCheck={false}
+                                              style={{ flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '8px 10px', borderRadius: '6px', fontSize: '12px', fontFamily: 'monospace', outline: 'none' }}
+                                            />
+                                            <button
+                                              onClick={saveOfflineEndpoint}
+                                              disabled={saving}
+                                              style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
+                                            >
+                                              Save
+                                            </button>
+                                          </div>
+                                          <p style={{ color: 'var(--text-muted)', fontSize: '11px', margin: '8px 0 0' }}>
+                                            This stays on your machine by default and does not require an API key.
+                                          </p>
+                                        </div>
+                                      </div>
+                                    )}
+
                                     {/* Credentials are write-only and remain server-side. */}
-                                    {p.id !== 'custom' && (
+                                    {p.id !== 'custom' && p.id !== 'offline' && (
                                     <div>
                                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                         <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, margin: 0 }}>
@@ -655,32 +776,19 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                                     )}
 
                                     {/* Supported Models Badges */}
-                                    {p.id !== 'custom' && p.examples && (
+                                    {p.id !== 'custom' && providerModels.length > 0 && (
                                       <div style={{ marginTop: '8px' }}>
-                                        <label style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, margin: '0 0 8px 0', display: 'block', textTransform: 'uppercase' }}>Available Models</label>
+                                        <label style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, margin: '0 0 8px 0', display: 'block', textTransform: 'uppercase' }}>Select a model</label>
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                          {p.examples.map(ex => (
-                                            <ModelBadge key={ex} modelName={ex} isActiveProvider={isActiveProvider} />
+                                          {providerModels.map((model) => (
+                                            <ModelBadge
+                                              key={model.id}
+                                              modelName={model.id}
+                                              isActiveProvider={isActiveProvider}
+                                              isSelected={isActiveProvider && config?.model === model.id}
+                                              onSelect={() => updateConfig({ provider: p.id, model: model.id }, `${model.id} set as active`)}
+                                            />
                                           ))}
-                                          <button 
-                                            onClick={() => {
-                                              const newModel = prompt('Enter custom model name (e.g. custom-llama-3):');
-                                              if (newModel && newModel.trim()) {
-                                                const updatedProviders = [...ALL_PROVIDERS];
-                                                const providerIndex = updatedProviders.findIndex(prov => prov.id === p.id);
-                                                if (providerIndex !== -1 && updatedProviders[providerIndex].examples) {
-                                                  if (!updatedProviders[providerIndex].examples.includes(newModel.trim())) {
-                                                    updatedProviders[providerIndex].examples.push(newModel.trim());
-                                                  }
-                                                }
-                                              }
-                                            }}
-                                            style={{ background: 'transparent', border: '1px dashed rgba(255,255,255,0.2)', color: 'var(--text-muted)', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s ease' }}
-                                            onMouseOver={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
-                                            onMouseOut={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
-                                          >
-                                            <i className="fa-solid fa-plus" style={{ marginRight: '4px' }}></i> Add Model
-                                          </button>
                                         </div>
                                       </div>
                                     )}
@@ -701,23 +809,7 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                                       )}
                                       
                                       <button
-                                        onClick={async () => {
-                                          setTestLoading(true);
-                                          setTestResult(null);
-                                          try {
-                                            const res = await fetch('/api/settings/test', { method: 'POST' });
-                                            const data = await res.json();
-                                            if (data.success) {
-                                              setTestResult({ success: true, message: 'Keys configured correctly' });
-                                            } else {
-                                              setTestResult({ success: false, message: data.message });
-                                            }
-                                          } catch {
-                                            setTestResult({ success: false, message: 'Failed to verify key' });
-                                          } finally {
-                                            setTestLoading(false);
-                                          }
-                                        }}
+                                        onClick={testConnection}
                                         disabled={testLoading || !isActiveProvider}
                                         style={{ 
                                           background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', 
@@ -731,6 +823,13 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                                         {testLoading ? <><i className="fa-solid fa-spinner fa-spin"></i> Checking...</> : 'Ping API'}
                                       </button>
                                     </div>
+
+                                    {isActiveProvider && testResult && (
+                                      <p role="status" style={{ margin: 0, color: testResult.success ? 'var(--bull)' : 'var(--danger)', fontSize: '12px' }}>
+                                        {testResult.success ? <i className="fa-solid fa-check" style={{ marginRight: '6px' }} /> : <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: '6px' }} />}
+                                        {testResult.message}{testResult.latencyMs !== undefined ? ` (${testResult.latencyMs} ms)` : ''}
+                                      </p>
+                                    )}
 
                                   </div>
                                 </div>
@@ -813,7 +912,7 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <div>
                             <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
-                              BOZ v{updateInfo?.currentVersion || '2.5.4'}
+                              BOZ v{updateInfo?.currentVersion || '2.5.5'}
                             </div>
                             <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
                               {checkingUpdate ? (

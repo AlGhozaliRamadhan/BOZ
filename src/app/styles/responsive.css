@@ -11,6 +11,11 @@
   .topbar { left: 0; }
   .topbar.sidebar-collapsed { left: 0; }
   .app-content { padding: var(--space-4); padding-top: calc(var(--topbar-height) + var(--space-4)); }
+  .chat-page-root {
+    width: calc(100% + var(--space-4) + var(--space-4));
+    margin-inline: calc(0px - var(--space-4));
+  }
+  .chat-messages { padding-inline: var(--space-4); }
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
   .trade-levels { grid-template-columns: 1fr; }
   .topbar-search { width: 180px; }

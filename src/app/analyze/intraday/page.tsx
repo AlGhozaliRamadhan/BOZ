@@ -231,7 +231,7 @@ export default function IntradayAnalysisPage() {
                     <td>Volume Ratio</td>
                     <td className={(md?.volume_ratio ?? 0) > 1.5 ? 'table-cell-positive' : ''}>{fmt(md?.volume_ratio)}x</td>
                   </tr>
-                  <tr><td>OBV Trend</td><td>{md?.obv_trend ? '🟢 Bullish' : '🔴 Bearish'}</td></tr>
+                  <tr><td>OBV Trend</td><td>{md?.obv_trend ? 'Bullish' : 'Bearish'}</td></tr>
                 </tbody>
               </table>
             </div>

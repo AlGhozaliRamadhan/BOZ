@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { describeToolCall, parseWebSources } from './tool-result-details';
 
 export interface ToolResult {
   tool: string;
@@ -8,6 +9,7 @@ export interface ToolResult {
   quality?: string;
   success?: boolean;
   preview?: string;
+  detail?: string;
   args?: Record<string, unknown>;
   status?: 'running' | 'done';
 }
@@ -73,6 +75,34 @@ function ToolResultCard({ result }: { result: ToolResult }) {
   const [expanded, setExpanded] = useState(false);
   const tool = result.tool;
 
+  if (tool === 'fetch_ticker_dashboard') {
+    const symbol = String(result.args?.symbol || 'Ticker').toUpperCase();
+    const detail = result.detail || result.preview || result.fact || 'No dashboard data returned.';
+    return (
+      <div className="tool-card animate-fadeIn">
+        <div className="tool-card-kicker">
+          <i className="fa-solid fa-table-columns" style={{ marginRight: '5px' }}></i>
+          Ticker Dashboard
+        </div>
+        <div className="tool-card-row">
+          <div className="tool-card-title">{describeToolCall(tool, { symbol })}</div>
+          {result.quality && <span className={`badge ${result.quality === 'confirmed' ? 'badge-bull' : 'badge-neutral'}`}>{result.quality}</span>}
+        </div>
+        {result.fact && <div className="tool-card-sub">{result.fact}</div>}
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className="tool-card-expand"
+          aria-expanded={expanded}
+        >
+          <i className={`fa-solid fa-chevron-${expanded ? 'up' : 'down'}`} />
+          {expanded ? 'Hide dashboard data' : 'View dashboard data'}
+        </button>
+        {expanded && <ToolDetail detail={detail} />}
+      </div>
+    );
+  }
+
   // 1. LIVE PRICE TOOL
   if (tool === 'fetch_price') {
     const p = parsePrice(result.preview, result.fact);
@@ -109,9 +139,12 @@ function ToolResultCard({ result }: { result: ToolResult }) {
 
   // 2. NEWS & SEARCH TOOL
   if (tool === 'fetch_news' || tool === 'web_search') {
+    const detail = result.detail || result.preview;
+    const sources = parseWebSources(detail);
     const lines = parseHeadlines(result.preview);
     const isSearch = tool === 'web_search';
     const query = String(result.args?.query || result.fact || 'Search Query');
+    const visibleSources = expanded ? sources : sources.slice(0, 6);
     return (
       <div className="tool-card animate-fadeIn">
         <div className="tool-card-kicker" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -128,9 +161,25 @@ function ToolResultCard({ result }: { result: ToolResult }) {
         <div className="tool-card-title" style={{ fontSize: '13px', color: 'var(--text-primary)', marginBottom: '6px' }}>
           {query}
         </div>
-        {lines.length > 0 ? (
+        {sources.length > 0 ? (
           <ul className="tool-card-list">
-            {(expanded ? lines : lines.slice(0, 3)).map((line, i) => (
+            {visibleSources.map((source, i) => (
+              <li key={`${source.url ?? source.title}-${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                <span style={{ color: 'var(--accent-cyan)', fontSize: '10px', marginTop: '3px' }}>•</span>
+                <span>
+                  {source.url ? (
+                    <a href={source.url} target="_blank" rel="noreferrer" className="tool-card-source-link">
+                      {source.title}
+                    </a>
+                  ) : source.title}
+                  {source.summary && <span className="tool-card-source-summary"> — {source.summary}</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : lines.length > 0 ? (
+          <ul className="tool-card-list">
+            {(expanded ? lines : lines.slice(0, 6)).map((line, i) => (
               <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
                 <span style={{ color: 'var(--accent-cyan)', fontSize: '10px', marginTop: '3px' }}>•</span>
                 <span>{line}</span>
@@ -140,7 +189,7 @@ function ToolResultCard({ result }: { result: ToolResult }) {
         ) : (
           <div className="tool-card-sub">{result.fact || 'No headlines retrieved'}</div>
         )}
-        {lines.length > 3 && (
+        {(sources.length > 6 || lines.length > 6) && (
           <button
             type="button"
             onClick={() => setExpanded(!expanded)}
@@ -155,7 +204,7 @@ function ToolResultCard({ result }: { result: ToolResult }) {
               fontWeight: 500,
             }}
           >
-            {expanded ? 'Show less' : `+${lines.length - 3} more sources`}
+            {expanded ? 'Show less' : `+${Math.max(sources.length, lines.length) - 6} more sources`}
           </button>
         )}
       </div>
@@ -294,8 +343,28 @@ function ToolResultCard({ result }: { result: ToolResult }) {
   // GENERIC FALLBACK
   return (
     <div className="tool-card animate-fadeIn">
-      <div className="tool-card-kicker">{tool.replace(/_/g, ' ')}</div>
+      <div className="tool-card-kicker">{describeToolCall(tool, result.args)}</div>
       <div className="tool-card-sub">{result.fact || (result.success === false ? 'No data' : 'Done')}</div>
+      {(result.detail || result.preview) && (
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          className="tool-card-expand"
+          aria-expanded={expanded}
+        >
+          <i className={`fa-solid fa-chevron-${expanded ? 'up' : 'down'}`} />
+          {expanded ? 'Hide tool details' : 'View tool details'}
+        </button>
+      )}
+      {expanded && <ToolDetail detail={result.detail || result.preview || ''} />}
     </div>
+  );
+}
+
+function ToolDetail({ detail }: { detail: string }) {
+  return (
+    <pre className="tool-card-detail" aria-label="Tool result details">
+      {detail.slice(0, 16_000)}
+    </pre>
   );
 }

@@ -2,9 +2,21 @@ import { githubConfig } from './github.config.js';
 import { offlineConfig } from './offline.config.js';
 import { nvidiaConfig }  from './nvidia.config.js';
 import { customConfig }  from './custom.config.js';
+import { openaiConfig } from './openai.config.js';
+import { anthropicConfig } from './anthropic.config.js';
+import { groqConfig } from './groq.config.js';
+import { openrouterConfig } from './openrouter.config.js';
 import { resolveSymbol } from '../shared/market-constants.js';
 
-export type AIProvider = 'github' | 'offline' | 'nvidia' | 'custom';
+export type AIProvider =
+  | 'github'
+  | 'offline'
+  | 'nvidia'
+  | 'custom'
+  | 'openai'
+  | 'anthropic'
+  | 'groq'
+  | 'openrouter';
 export type RiskMode = 'auto' | 'on' | 'off';
 
 const normalizeProvider = (value: string | undefined): AIProvider => {
@@ -12,6 +24,10 @@ const normalizeProvider = (value: string | undefined): AIProvider => {
   if (v === 'offline') return 'offline';
   if (v === 'nvidia')  return 'nvidia';
   if (v === 'custom' || v === '9router') return 'custom';
+  if (v === 'openai') return 'openai';
+  if (v === 'anthropic') return 'anthropic';
+  if (v === 'groq') return 'groq';
+  if (v === 'openrouter') return 'openrouter';
   return 'github';
 };
 
@@ -35,6 +51,18 @@ const applyProvider = (provider: AIProvider) => {
   } else if (provider === 'custom') {
     activeState.aiEndpoint = customConfig.endpoint;
     activeState.aiModel    = customConfig.model;
+  } else if (provider === 'openai') {
+    activeState.aiEndpoint = openaiConfig.endpoint;
+    activeState.aiModel    = openaiConfig.model;
+  } else if (provider === 'anthropic') {
+    activeState.aiEndpoint = anthropicConfig.endpoint;
+    activeState.aiModel    = anthropicConfig.model;
+  } else if (provider === 'groq') {
+    activeState.aiEndpoint = groqConfig.endpoint;
+    activeState.aiModel    = groqConfig.model;
+  } else if (provider === 'openrouter') {
+    activeState.aiEndpoint = openrouterConfig.endpoint;
+    activeState.aiModel    = openrouterConfig.model;
   } else {
     activeState.aiEndpoint = githubConfig.endpoint;
     activeState.aiModel    = githubConfig.model;
@@ -48,6 +76,10 @@ export const config = {
   offline: offlineConfig,
   nvidia:  nvidiaConfig,
   custom:  customConfig,
+  openai: openaiConfig,
+  anthropic: anthropicConfig,
+  groq: groqConfig,
+  openrouter: openrouterConfig,
 
   get ticker() { return activeState.ticker; },
   get aiProvider() { return activeState.aiProvider; },
@@ -72,17 +104,25 @@ export const config = {
   setAIProvider(provider: AIProvider) {
     applyProvider(provider);
   },
-  setAIModel(model: string) {
-    if (activeState.aiProvider === 'offline') {
+  setAIModel(model: string, provider: AIProvider = activeState.aiProvider) {
+    if (provider === 'offline') {
       offlineConfig.model = model;
-    } else if (activeState.aiProvider === 'nvidia') {
+    } else if (provider === 'nvidia') {
       nvidiaConfig.model = model;
-    } else if (activeState.aiProvider === 'custom') {
+    } else if (provider === 'custom') {
       customConfig.model = model;
+    } else if (provider === 'openai') {
+      openaiConfig.model = model;
+    } else if (provider === 'anthropic') {
+      anthropicConfig.model = model;
+    } else if (provider === 'groq') {
+      groqConfig.model = model;
+    } else if (provider === 'openrouter') {
+      openrouterConfig.model = model;
     } else {
       githubConfig.model = model;
     }
-    activeState.aiModel = model;
+    if (activeState.aiProvider === provider) activeState.aiModel = model;
   },
   setRiskMode(mode: RiskMode) {
     activeState.riskMode = mode;

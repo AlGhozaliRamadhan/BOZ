@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { jsonResponse, errorResponse, parseBody, requestBodyErrorResponse } from '@/app/lib/api-helpers';
 import { AIService } from '@/services/ai/ai.service';
 import { buildTradeLevels } from '@/shared/trade-levels';
+import { formatCrowdSignalEvidence } from '@/shared/evidence-attribution';
 
 export async function POST(request: NextRequest) {
   try {
@@ -63,6 +64,7 @@ Macro & Sentiment Landscape:
 - SPY Correlation: ${macro.sp500_correlation} | VIX Volatility Index: ${macro.vix_level ?? 'N/A'}
 - Sentiment Index: Fear & Greed: ${sentiment.fear_greed?.value ?? 'N/A'} (${sentiment.fear_greed?.label ?? 'N/A'})
 - Crowd Ratio: ${sentiment.stocktwits_data?.bull_ratio != null ? sentiment.stocktwits_data.bull_ratio.toFixed(0) + '% Bullish' : 'N/A'}
+- Crowd evidence: ${formatCrowdSignalEvidence(sentiment) || 'No source-attributed crowd signal was available.'}
 
 Price Action & Structure:
 - Technical Patterns: ${chartPatterns.patterns?.join(', ') || 'None'}

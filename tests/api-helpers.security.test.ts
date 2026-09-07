@@ -5,6 +5,7 @@ import {
   UnsupportedMediaTypeError,
   parseBody,
   validateChatRequestBody,
+  validateChatTitleRequestBody,
 } from '../src/app/lib/api-helpers';
 
 describe('bounded API body parsing', () => {
@@ -39,5 +40,22 @@ describe('bounded API body parsing', () => {
     expect(() => validateChatRequestBody({ message: 'x'.repeat(16_001) })).toThrow(/Message exceeds/);
     expect(() => validateChatRequestBody({ message: 'ok', history: Array.from({ length: 21 }, () => ({ role: 'user', content: 'x' })) })).toThrow(/History/);
     expect(() => validateChatRequestBody({ message: 'ok', model: 'bad\nmodel' })).toThrow(/Model/);
+  });
+
+  it('accepts only a small, well-formed title conversation', () => {
+    expect(validateChatTitleRequestBody({
+      messages: [
+        { role: 'user', content: 'Review BBCA earnings' },
+        { role: 'assistant', content: 'The earnings trend is improving.' },
+      ],
+    })).toEqual({
+      messages: [
+        { role: 'user', content: 'Review BBCA earnings' },
+        { role: 'assistant', content: 'The earnings trend is improving.' },
+      ],
+      model: undefined,
+    });
+    expect(() => validateChatTitleRequestBody({ messages: [] })).toThrow(/Title requests/);
+    expect(() => validateChatTitleRequestBody({ messages: [{ role: 'user', content: 'x'.repeat(4_001) }] })).toThrow(/Title message content/);
   });
 });

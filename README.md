@@ -52,7 +52,7 @@ Version 2.5 is web-only: install it, run `boz`, and the complete dashboard opens
 | **Risk-aware trade plans** | Action, conviction, entry, targets, stop loss, reward/risk, invalidation, and late-signal warnings. |
 | **News and crowd intelligence** | RSS and market headlines alongside Fear & Greed, StockTwits, Reddit, and crypto community signals. |
 | **IDX momentum scanner** | Purpose-built scanning for Indonesian equities and momentum candidates. |
-| **Flexible AI backends** | GitHub Models, NVIDIA NIM, an Ollama-compatible local endpoint, or another OpenAI-compatible provider. |
+| **Flexible AI backends** | OpenAI, Anthropic, Groq, OpenRouter, GitHub Models, NVIDIA NIM, Ollama, and OpenAI-compatible local gateways. |
 | **Session memory** | Disk-backed preferences and retained context for more consistent follow-up research. |
 
 ## Product tour
@@ -121,8 +121,24 @@ Configure BOZ from **Settings** in the web interface or with environment variabl
 Credentials entered through Settings are write-only: the browser sends a replacement value to BOZ but cannot read saved values back. They are stored in the per-user server configuration file and are never persisted in browser storage. Set `BOZ_CONFIG_DIR` to use a different per-user configuration directory.
 
 ```dotenv
-# github | nvidia | offline | custom
+# openai | anthropic | groq | openrouter | github | nvidia | offline | custom
 AI_PROVIDER=github
+
+# OpenAI
+OPENAI_API_KEY=<openai-api-key>
+OPENAI_AI_MODEL=gpt-6-astra
+
+# Anthropic
+ANTHROPIC_API_KEY=<anthropic-api-key>
+ANTHROPIC_AI_MODEL=claude-opus-5
+
+# Groq
+GROQ_API_KEY=<groq-api-key>
+GROQ_AI_MODEL=openai/gpt-oss-120b
+
+# OpenRouter
+OPENROUTER_API_KEY=<openrouter-api-key>
+OPENROUTER_AI_MODEL=~openai/gpt-latest
 
 # GitHub Models
 GITHUB_TOKEN=<github-token>
@@ -154,6 +170,10 @@ FRED_API_KEY=<api-key>
 | --- | --- | --- |
 | **GitHub Models** | Easy hosted setup and broad model choice | `GITHUB_TOKEN` |
 | **NVIDIA NIM** | Long, tool-heavy research sessions | `NVIDIA_API_KEY` |
+| **OpenAI** | Official GPT models | `OPENAI_API_KEY` |
+| **Anthropic** | Official Claude models | `ANTHROPIC_API_KEY` |
+| **Groq** | High-speed open-model inference | `GROQ_API_KEY` |
+| **OpenRouter** | Multi-provider routing and model catalog | `OPENROUTER_API_KEY` |
 | **Offline / Ollama** | Private local inference | No key by default |
 | **Custom** | OpenAI-compatible routers and gateways | Provider-dependent |
 

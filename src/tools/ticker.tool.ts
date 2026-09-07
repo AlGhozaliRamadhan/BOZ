@@ -6,6 +6,7 @@ import { buildDashboardAnalysis, scoreHeadlines, type QuoteSnapshot } from '../s
 import { SentimentService } from '../services/market/sentiment.service.js';
 import { NewsService } from '../services/news/news.service.js';
 import { resolveSymbolIDX } from '../shared/market-constants.js';
+import { formatCrowdSignalEvidence } from '../shared/evidence-attribution.js';
 
 // ─── Tool Definitions (JSON Schemas) ──────────────────────────────────────────
 
@@ -133,7 +134,7 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
     const recentHourlyFormatted = hourlyCandles.slice(-8).map(c => {
       const timeStr = c.date instanceof Date ? c.date.toISOString().replace('T', ' ').slice(11, 16) + ' UTC' : String(c.date);
       const chg = c.open > 0 ? (((c.close - c.open) / c.open) * 100).toFixed(2) : '0.00';
-      const dir = c.close >= c.open ? '🟢' : '🔴';
+      const dir = c.close >= c.open ? 'UP' : 'DOWN';
       return `    • [${timeStr}] Open: $${c.open.toFixed(2)} | High: $${c.high.toFixed(2)} | Low: $${c.low.toFixed(2)} | Close: $${c.close.toFixed(2)} | Vol: ${(c.volume / 1e3).toFixed(0)}k (${dir} ${chg}%)`;
     }).join('\n');
 
@@ -171,12 +172,12 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
       `[Daily 1D Frame]:\n` +
       `  • 50-Day Positioning: High $${high50d?.toFixed(2) || '--'} | Low $${low50d?.toFixed(2) || '--'} | Range Width: ${range50dPct?.toFixed(1) || '--'}% | Pos in 50D Range: ${range50dPos?.toFixed(0) || '--'}% (${from50dHighPct?.toFixed(1) || '--'}% from 50d high, +${from50dLowPct?.toFixed(1) || '--'}% from 50d low)\n` +
       `  • 52-Week Positioning: High $${analysis.structure.high52w?.toFixed(2) || '--'} | Low $${analysis.structure.low52w?.toFixed(2) || '--'} | Pos in 52W Range: ${analysis.structure.range52wPos?.toFixed(0) || '--'}% (${analysis.structure.from52wHighPct?.toFixed(1) || '--'}% from ATH, +${analysis.structure.from52wLowPct?.toFixed(1) || '--'}% from 52w low)\n` +
-      `  • RSI(14): ${analysis.structure.rsi?.toFixed(1) || '--'} (${analysis.structure.rsi && analysis.structure.rsi > 70 ? 'Overbought (Extended) ⚠️' : analysis.structure.rsi && analysis.structure.rsi < 30 ? 'Oversold (Mean Reversion Bounce Candidate) 💎' : 'Balanced/Neutral'})\n` +
-      `  • MACD Momentum: MACD Line: ${lastCandle?.MACD?.toFixed(4) || '--'} | Signal: ${lastCandle?.MACD_Signal?.toFixed(4) || '--'} | Hist: ${lastCandle?.MACD_Hist?.toFixed(4) || '--'} (${lastCandle?.MACD_Hist && lastCandle.MACD_Hist > 0 ? 'Bullish Expansion 🟢' : 'Bearish Contraction / Pullback 🔴'})\n` +
+      `  • RSI(14): ${analysis.structure.rsi?.toFixed(1) || '--'} (${analysis.structure.rsi && analysis.structure.rsi > 70 ? 'Overbought (Extended)' : analysis.structure.rsi && analysis.structure.rsi < 30 ? 'Oversold (Mean Reversion Bounce Candidate)' : 'Balanced/Neutral'})\n` +
+      `  • MACD Momentum: MACD Line: ${lastCandle?.MACD?.toFixed(4) || '--'} | Signal: ${lastCandle?.MACD_Signal?.toFixed(4) || '--'} | Hist: ${lastCandle?.MACD_Hist?.toFixed(4) || '--'} (${lastCandle?.MACD_Hist && lastCandle.MACD_Hist > 0 ? 'Bullish Expansion' : 'Bearish Contraction / Pullback'})\n` +
       `  • Moving Average Stack: SMA 20 ($${lastCandle?.SMA_20?.toFixed(2) || '--'}, ${distSma20Pct != null ? (distSma20Pct >= 0 ? '+' : '') + distSma20Pct.toFixed(2) + '%' : '--'}), SMA 50 ($${lastCandle?.SMA_50?.toFixed(2) || '--'}, ${distSma50Pct != null ? (distSma50Pct >= 0 ? '+' : '') + distSma50Pct.toFixed(2) + '%' : '--'}), SMA 200 ($${lastCandle?.SMA_200?.toFixed(2) || '--'}, ${distSma200Pct != null ? (distSma200Pct >= 0 ? '+' : '') + distSma200Pct.toFixed(2) + '%' : '--'}) -> Stack Status: ${analysis.structure.smaStack}\n` +
-      `  • Golden/Death Cross: ${lastCandle?.SMA_50 && lastCandle?.SMA_200 && lastCandle.SMA_50 > lastCandle.SMA_200 ? 'Golden Cross active (50 > 200) 🟢' : 'Death Cross active (50 < 200) 🔴'}\n` +
+      `  • Golden/Death Cross: ${lastCandle?.SMA_50 && lastCandle?.SMA_200 && lastCandle.SMA_50 > lastCandle.SMA_200 ? 'Golden Cross active (50 > 200)' : 'Death Cross active (50 < 200)'}\n` +
       `  • Volatility & Bands: ATR: $${analysis.structure.atr?.toFixed(2) || '--'} (${analysis.structure.atrPercent?.toFixed(2) || '--'}% of price) | BB Width: ${lastCandle?.BB_Width?.toFixed(2) || '--'}% (Upper: $${lastCandle?.BB_High?.toFixed(2) || '--'}, Mid: $${lastCandle?.BB_Mid?.toFixed(2) || '--'}, Lower: $${lastCandle?.BB_Low?.toFixed(2) || '--'} | Position: ${analysis.structure.bbPosition})\n` +
-      `  • Volume & Flow: Volume: ${q?.regularMarketVolume ? (q.regularMarketVolume / 1e6).toFixed(2) + 'M' : '--'} (Ratio: ${analysis.structure.volumeRatio?.toFixed(2) || '--'}x) | OBV Trend: ${analysis.structure.obvTrend ? 'Bullish Accumulation (Smart Money Inflow) 🟢' : 'Bearish Distribution (Smart Money Outflow) 🔴'}\n` +
+      `  • Volume & Flow: Volume: ${q?.regularMarketVolume ? (q.regularMarketVolume / 1e6).toFixed(2) + 'M' : '--'} (Ratio: ${analysis.structure.volumeRatio?.toFixed(2) || '--'}x) | OBV Trend: ${analysis.structure.obvTrend ? 'Bullish Accumulation (Smart Money Inflow)' : 'Bearish Distribution (Smart Money Outflow)'}\n` +
       `[Weekly 1W Macro Frame]:\n` +
       `  • Macro Trend: ${weeklyTrend}\n` +
       `  • Weekly RSI(14): ${weeklyRsi}\n` +
@@ -228,9 +229,8 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
 
       sections.push(
         `=== CROWD & SOCIAL SENTIMENT ===\n` +
-        `CNN Fear & Greed Index: ${sentiment.fear_greed?.value || '--'} (${sentiment.fear_greed?.label || 'N/A'})\n` +
+        `${formatCrowdSignalEvidence(sentiment) || 'No source-attributed crowd observations were available.'}\n` +
         `StockTwits Watchlist: ${st?.watchlist_count ? Number(st.watchlist_count).toLocaleString() + ' watchers' : 'Active watchlist'}\n` +
-        (st ? `StockTwits Pulse: ${st.bull_ratio != null ? st.bull_ratio.toFixed(0) + '% Bullish / ' + (100 - st.bull_ratio).toFixed(0) + '% Bearish' : '--'} (${st.total_messages || 0} messages sampled)\n` : '') +
         `Community Voices:\n${sampleMessages}\n` +
         (reddit ? `Reddit Buzz: ${reddit.mentions || 0} mentions (${reddit.top_posts?.slice(0, 2).join('; ') || 'High activity'})\n` : '')
       );

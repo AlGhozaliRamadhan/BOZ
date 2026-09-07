@@ -9,6 +9,7 @@ import { ChartAnalyzer } from '@/analyzers/chart.analyzer';
 import { AIService } from '@/services/ai/ai.service';
 import { buildTradeLevels } from '@/shared/trade-levels';
 import { resolveSymbol } from '@/shared/market-constants';
+import { formatCrowdSignalEvidence } from '@/shared/evidence-attribution';
 
 export async function POST(request: NextRequest) {
   try {
@@ -138,6 +139,7 @@ Macro Context:
 Sentiment:
 - Fear & Greed: ${sentiment.fear_greed?.value ?? 'N/A'} (${sentiment.fear_greed?.label ?? 'N/A'})
 - StockTwits Bull Ratio: ${sentiment.stocktwits_data?.bull_ratio != null ? sentiment.stocktwits_data.bull_ratio.toFixed(0) + '%' : 'N/A'}
+- Crowd evidence: ${formatCrowdSignalEvidence(sentiment) || 'No source-attributed crowd signal was available.'}
 
 Chart Patterns (Daily): ${chartPatterns.patterns.join(', ')}
 Candle Pattern: ${chartPatterns.candle_patterns.summary_text}

@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { GET, PUT } from '../src/app/api/settings/route';
+import { config } from '../src/config/config';
 
 describe.sequential('settings route security boundary', () => {
   let configDirectory: string;
@@ -11,6 +12,13 @@ describe.sequential('settings route security boundary', () => {
     githubToken: process.env.GITHUB_TOKEN,
     nvidiaKey: process.env.NVIDIA_API_KEY,
     customKey: process.env.CUSTOM_AI_KEY,
+    openaiKey: process.env.OPENAI_API_KEY,
+    anthropicKey: process.env.ANTHROPIC_API_KEY,
+    groqKey: process.env.GROQ_API_KEY,
+    openrouterKey: process.env.OPENROUTER_API_KEY,
+    offlineUrl: process.env.OFFLINE_AI_URL,
+    provider: config.aiProvider,
+    model: config.aiModel,
   };
 
   beforeAll(async () => {
@@ -19,6 +27,10 @@ describe.sequential('settings route security boundary', () => {
     process.env.GITHUB_TOKEN = 'github-secret-value';
     process.env.NVIDIA_API_KEY = 'nvidia-secret-value';
     process.env.CUSTOM_AI_KEY = 'custom-secret-value';
+    process.env.OPENAI_API_KEY = 'openai-secret-value';
+    process.env.ANTHROPIC_API_KEY = 'anthropic-secret-value';
+    process.env.GROQ_API_KEY = 'groq-secret-value';
+    process.env.OPENROUTER_API_KEY = 'openrouter-secret-value';
   });
 
   afterAll(async () => {
@@ -30,6 +42,14 @@ describe.sequential('settings route security boundary', () => {
     restore('GITHUB_TOKEN', original.githubToken);
     restore('NVIDIA_API_KEY', original.nvidiaKey);
     restore('CUSTOM_AI_KEY', original.customKey);
+    restore('OPENAI_API_KEY', original.openaiKey);
+    restore('ANTHROPIC_API_KEY', original.anthropicKey);
+    restore('GROQ_API_KEY', original.groqKey);
+    restore('OPENROUTER_API_KEY', original.openrouterKey);
+    restore('OFFLINE_AI_URL', original.offlineUrl);
+    config.setOfflineEndpoint(original.offlineUrl ?? '');
+    config.setAIModel(original.model, original.provider);
+    config.setAIProvider(original.provider);
     await rm(configDirectory, { recursive: true, force: true });
   });
 
@@ -41,10 +61,18 @@ describe.sequential('settings route security boundary', () => {
       hasGithubToken: true,
       hasNvidiaKey: true,
       hasCustomKey: true,
+      hasOpenaiKey: true,
+      hasAnthropicKey: true,
+      hasGroqKey: true,
+      hasOpenrouterKey: true,
     });
     expect(payload).not.toHaveProperty('githubToken');
     expect(payload).not.toHaveProperty('nvidiaKey');
     expect(payload).not.toHaveProperty('customKey');
+    expect(payload).not.toHaveProperty('openaiKey');
+    expect(payload).not.toHaveProperty('anthropicKey');
+    expect(payload).not.toHaveProperty('groqKey');
+    expect(payload).not.toHaveProperty('openrouterKey');
     expect(JSON.stringify(payload)).not.toContain('secret-value');
   });
 
@@ -62,6 +90,96 @@ describe.sequential('settings route security boundary', () => {
     expect(JSON.stringify(payload)).not.toContain('replacement-token');
     expect(await readFile(join(configDirectory, '.env'), 'utf8'))
       .toContain('GITHUB_TOKEN=replacement-token\n');
+  });
+
+  it('saves the model on the provider selected in the same request', async () => {
+    const response = await PUT(new Request('http://localhost/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        provider: 'nvidia',
+        model: 'nvidia/nemotron-4-340b-instruct',
+      }),
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      provider: 'nvidia',
+      model: 'nvidia/nemotron-4-340b-instruct',
+    });
+    expect(await readFile(join(configDirectory, '.env'), 'utf8')).toContain(
+      'NVIDIA_AI_MODEL=nvidia/nemotron-4-340b-instruct\n',
+    );
+  });
+
+  it('persists a direct-provider key and model without returning the key', async () => {
+    const response = await PUT(new Request('http://localhost/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        provider: 'openai',
+        model: 'gpt-5.6-terra',
+        openaiKey: 'replacement-openai-token',
+      }),
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      provider: 'openai',
+      model: 'gpt-5.6-terra',
+      hasOpenaiKey: true,
+    });
+    expect(JSON.stringify(payload)).not.toContain('replacement-openai-token');
+    const saved = await readFile(join(configDirectory, '.env'), 'utf8');
+    expect(saved).toContain('OPENAI_API_KEY=replacement-openai-token\n');
+    expect(saved).toContain('OPENAI_AI_MODEL=gpt-5.6-terra\n');
+  });
+
+  it.each([
+    ['anthropic', 'claude-sonnet-5', 'anthropicKey', 'replacement-anthropic-token', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AI_MODEL', 'hasAnthropicKey'],
+    ['groq', 'openai/gpt-oss-20b', 'groqKey', 'replacement-groq-token', 'GROQ_API_KEY', 'GROQ_AI_MODEL', 'hasGroqKey'],
+    ['openrouter', '~openai/gpt-latest', 'openrouterKey', 'replacement-openrouter-token', 'OPENROUTER_API_KEY', 'OPENROUTER_AI_MODEL', 'hasOpenrouterKey'],
+  ])('persists %s settings through the write-only boundary', async (
+    provider,
+    model,
+    keyField,
+    secret,
+    envKey,
+    modelEnvKey,
+    presenceField,
+  ) => {
+    const response = await PUT(new Request('http://localhost/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider, model, [keyField]: secret }),
+    }) as never);
+    const payload = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(payload.provider).toBe(provider);
+    expect(payload.model).toBe(model);
+    expect(payload[presenceField]).toBe(true);
+    expect(JSON.stringify(payload)).not.toContain(secret);
+    const saved = await readFile(join(configDirectory, '.env'), 'utf8');
+    expect(saved).toContain(`${envKey}=${secret}\n`);
+    expect(saved).toContain(`${modelEnvKey}=${model}\n`);
+  });
+
+  it('persists the Ollama endpoint independently of the active provider', async () => {
+    const response = await PUT(new Request('http://localhost/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ offlineUrl: 'http://localhost:11434' }),
+    }) as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.offlineUrl).toBe('http://localhost:11434');
+    expect(await readFile(join(configDirectory, '.env'), 'utf8')).toContain(
+      'OFFLINE_AI_URL=http://localhost:11434\n',
+    );
   });
 
   it('rejects unknown fields and metadata-service endpoints', async () => {

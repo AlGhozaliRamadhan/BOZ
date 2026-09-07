@@ -60,6 +60,19 @@ body.sidebar-collapsed .app-main { margin-left: var(--sidebar-collapsed); }
   min-height: var(--topbar-height);
 }
 
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.sidebar.collapsed .sidebar-brand {
+  width: 24px;
+}
+
 .sidebar-logo img {
   width: 24px; height: 24px;
   border-radius: var(--radius-sm);
