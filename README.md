@@ -97,7 +97,7 @@ npm install --global @agr77/boz
 boz
 ```
 
-Running `boz` opens the terminal launcher with the dashboard address, setup status, runtime information, and launch choices. The default address is [http://127.0.0.1:21526](http://127.0.0.1:21526). Choosing **Run in background** starts BOZ without a separate Next.js terminal window.
+Running `boz` starts the dashboard and opens it in your browser. The default address is [http://127.0.0.1:21526](http://127.0.0.1:21526). Run `boz menu` when you want the terminal launcher with setup details and launch choices; choosing **Run in background** starts BOZ without a separate Next.js terminal window.
 
 Background mode uses the native Windows system tray. Double-click the BOZ icon to open the dashboard, or right-click it to open BOZ, choose whether it starts when you sign in, or exit cleanly. `boz web` remains available for scripts and for starting the foreground server directly.
 
@@ -107,10 +107,11 @@ The npm release includes the compiled launcher, Next.js standalone server, stati
 
 | Command | Description |
 | --- | --- |
-| `boz` | Show the terminal launcher and wait for a launch choice. |
+| `boz` | Start the dashboard and open it in your browser. |
+| `boz menu` | Show the terminal launcher and wait for a launch choice. |
 | `boz web` | Start the foreground dashboard and open it in your browser. |
 | `boz background` | Start the dashboard in the Windows system tray. |
-| `boz --port 3001` | Show the launcher using a custom dashboard port. |
+| `boz --port 3001` | Start the dashboard on a custom port. |
 | `boz --version` | Print the installed version. |
 | `boz --help` | Show command help. |
 

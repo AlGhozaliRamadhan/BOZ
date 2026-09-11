@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { resolveMode } from '../src/cli/mode';
 
 describe('resolveMode', () => {
-  it('opens the launcher by default', () => {
-    expect(resolveMode([])).toEqual({ mode: 'menu', port: 21526 });
+  it('opens the web dashboard by default', () => {
+    expect(resolveMode([])).toEqual({ mode: 'web', port: 21526 });
   });
 
   it('keeps "web" as an explicit alias', () => {
@@ -11,17 +11,21 @@ describe('resolveMode', () => {
   });
 
   it('honors BOZ_PORT', () => {
-    expect(resolveMode([], { BOZ_PORT: '9999' })).toEqual({ mode: 'menu', port: 9999 });
+    expect(resolveMode([], { BOZ_PORT: '9999' })).toEqual({ mode: 'web', port: 9999 });
   });
 
   it('honors --port with or without the web alias', () => {
-    expect(resolveMode(['--port', '4000'])).toEqual({ mode: 'menu', port: 4000 });
+    expect(resolveMode(['--port', '4000'])).toEqual({ mode: 'web', port: 4000 });
     expect(resolveMode(['web', '--port', '4001'])).toEqual({ mode: 'web', port: 4001 });
   });
 
   it('falls back when a port is invalid', () => {
-    expect(resolveMode(['--port', 'abc'])).toEqual({ mode: 'menu', port: 21526 });
-    expect(resolveMode(['--port', '70000'])).toEqual({ mode: 'menu', port: 21526 });
+    expect(resolveMode(['--port', 'abc'])).toEqual({ mode: 'web', port: 21526 });
+    expect(resolveMode(['--port', '70000'])).toEqual({ mode: 'web', port: 21526 });
+  });
+
+  it('opens the launcher only when explicitly requested', () => {
+    expect(resolveMode(['menu'])).toEqual({ mode: 'menu', port: 21526 });
   });
 
   it('supports public and internal background modes', () => {

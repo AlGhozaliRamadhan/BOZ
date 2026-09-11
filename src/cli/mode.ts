@@ -33,6 +33,10 @@ export function resolveMode(
   const first = args[0];
 
   if (!first || first === '--port') {
+    return { mode: 'web', port: resolvePort(args, env) };
+  }
+
+  if (first === 'menu') {
     return { mode: 'menu', port: resolvePort(args, env) };
   }
 
@@ -59,10 +63,11 @@ export function printUsage(): void {
   process.stdout.write(
     'BOZ v' + getBuildVersion() + ' — local AI market intelligence\n' +
     'Usage: boz [command] [--port N]\n\n' +
-    '  boz              show the BOZ launcher\n' +
+    '  boz              start the dashboard and open a browser\n' +
+    '  boz menu         show the interactive BOZ launcher\n' +
     '  boz web          start the dashboard and open a browser\n' +
     '  boz background   run BOZ in the Windows system tray\n' +
-    '  boz --port N     use port N (default ' + DEFAULT_WEB_PORT + ')\n' +
+    '  boz --port N     start the dashboard on a custom port (default ' + DEFAULT_WEB_PORT + ')\n' +
     '  boz --version    print version\n' +
     '  boz --help       show this help\n\n',
   );
