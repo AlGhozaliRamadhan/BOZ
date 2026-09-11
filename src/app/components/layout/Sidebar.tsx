@@ -314,7 +314,7 @@ export default function Sidebar() {
             </button>
           )}
           <span className="sidebar-version">
-            v{updateInfo?.currentVersion ?? process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.5.6'}
+            v{updateInfo?.currentVersion ?? process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.5.7'}
           </span>
         </div>
       </div>
@@ -437,7 +437,7 @@ export default function Sidebar() {
                       BOZ Intelligence
                     </div>
                     <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                      Version v{updateInfo?.currentVersion ?? process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.5.6'}
+                      Version v{updateInfo?.currentVersion ?? process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.5.7'}
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--bull, #00d2ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginTop: '4px' }}>
                       <i className="fa-solid fa-circle-check"></i>
