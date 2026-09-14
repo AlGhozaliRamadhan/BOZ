@@ -1,13 +1,23 @@
-import { homedir } from 'os';
 import { isAbsolute, join, resolve } from 'path';
 import { chmodSync, existsSync, lstatSync, mkdirSync } from 'fs';
 
 export const CONFIG_DIR_NAME = '.boz';
 
+function runtimeEnvironmentValue(name: string): string | undefined {
+  const value = Reflect.get(process.env, name);
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function defaultConfigBase(): string {
+  const primary = process.platform === 'win32' ? 'USERPROFILE' : 'HOME';
+  const secondary = primary === 'HOME' ? 'USERPROFILE' : 'HOME';
+  return runtimeEnvironmentValue(primary) || runtimeEnvironmentValue(secondary) || process.cwd();
+}
+
 /** Absolute path to the per-user BOZ config dir (created if missing). */
 export function ensureConfigDir(): string {
   const configured = process.env.BOZ_CONFIG_DIR?.trim();
-  const base = homedir() || process.cwd();
+  const base = defaultConfigBase();
   const dir = configured
     ? (isAbsolute(configured) ? configured : resolve(configured))
     : join(base, CONFIG_DIR_NAME);

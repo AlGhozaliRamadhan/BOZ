@@ -14,5 +14,5 @@
 
 ### External Links
 - [GitHub Repository](https://github.com/AlGhozaliRamadhan/BOZ)
-- [NPM Package](https://www.npmjs.com/package/@agr77/boz)
+- [Windows Releases](https://github.com/AlGhozaliRamadhan/BOZ/releases)
 - [Issues & Support](https://github.com/AlGhozaliRamadhan/BOZ/issues)

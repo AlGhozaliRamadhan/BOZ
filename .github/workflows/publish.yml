@@ -1,50 +1,182 @@
-name: Publish to NPM
+name: Build and publish BOZ desktop
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag matching package.json (for example v2.6.0)
+        required: true
+        type: string
+      release_pr_url:
+        description: Merged release pull request URL; this is the entire GitHub Release body
+        required: true
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
-  publish:
+  build:
+    name: Windows ${{ matrix.asset_arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            asset_arch: x64
+            updater_arch: x86_64
+          - runner: windows-11-arm
+            asset_arch: arm64
+            updater_arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - name: Verify source and dependencies
+        run: |
+          npm run typecheck
+          npm test
+          npm audit
+          npm audit --omit=dev
+          cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Require updater signing material
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          foreach ($name in @('TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "$name is required to create signed BOZ updater artifacts."
+            }
+          }
+      - name: Build signed NSIS package
+        run: npm run build:package
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Smoke-test desktop lifecycle and record memory
+        shell: pwsh
+        run: ./scripts/smoke-desktop.ps1
+      - name: Stage and verify native assets
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          if ('${{ inputs.tag }}' -ne "v$version") { throw 'Release tag must exactly match package.json.' }
+          $bundle = Resolve-Path 'src-tauri/target/release/bundle/nsis'
+          $installers = @(Get-ChildItem -LiteralPath $bundle -Filter '*-setup.exe')
+          if ($installers.Count -ne 1) { throw "Expected exactly one NSIS installer, found $($installers.Count)." }
+          $installer = $installers[0]
+          $signature = Get-Item -LiteralPath ($installer.FullName + '.sig')
+          if ([string]::IsNullOrWhiteSpace((Get-Content -Raw -LiteralPath $signature.FullName))) {
+            throw 'The updater signature is empty.'
+          }
+          New-Item -ItemType Directory -Force -Path 'artifacts/staged' | Out-Null
+          $asset = "boz-v$version-windows-${{ matrix.asset_arch }}-setup.exe"
+          Copy-Item -LiteralPath $installer.FullName -Destination "artifacts/staged/$asset"
+          Copy-Item -LiteralPath $signature.FullName -Destination "artifacts/staged/$asset.sig"
+          ./scripts/verify-pe-architecture.ps1 -Path 'src-tauri/resources/node.exe' -Expected '${{ matrix.updater_arch }}'
+          # NSIS uses its own 32-bit bootstrap executable on every target. Verify
+          # the application payload instead of misclassifying that installer stub.
+          ./scripts/verify-pe-architecture.ps1 -Path 'src-tauri/target/release/boz-desktop.exe' -Expected '${{ matrix.updater_arch }}'
+          ./scripts/smoke-nsis.ps1 -InstallerPath $installer.FullName
+      - uses: actions/upload-artifact@v4
+        with:
+          name: boz-windows-${{ matrix.asset_arch }}
+          path: artifacts/staged/*
+          if-no-files-found: error
+
+  cargo-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: src-tauri
+
+  release:
+    needs: [build, cargo-audit]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      id-token: write
+      contents: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Upgrade NPM to latest
-        run: npm install -g npm@latest
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Test and build web package
+          pattern: boz-windows-*
+          path: artifacts/releases/${{ inputs.tag }}
+          merge-multiple: true
+      - name: Create and verify updater metadata
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_PR_URL: ${{ inputs.release_pr_url }}
+          GITHUB_REPOSITORY_NAME: ${{ github.repository }}
+        shell: pwsh
         run: |
-          npm test
-          npm run typecheck
-          npm run build:package
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          if ($env:RELEASE_TAG -ne "v$version") { throw "RELEASE_TAG must be v$version." }
+          if ($env:GITHUB_REPOSITORY_NAME -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') {
+            throw 'GITHUB_REPOSITORY_NAME is invalid.'
+          }
+          if ($env:RELEASE_PR_URL -notmatch '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/\d+$') {
+            throw 'RELEASE_PR_URL must be a GitHub pull request URL.'
+          }
 
-      - name: Check version & Publish to NPM (OIDC Trusted Publishing)
-        run: |
-          LOCAL_VERSION=$(node -p "require('./package.json').version")
-          REMOTE_VERSION=$(npm view @agr77/boz version 2>/dev/null || echo "none")
-          echo "Local version: $LOCAL_VERSION"
-          echo "NPM published version: $REMOTE_VERSION"
+          $output = Resolve-Path 'artifacts/releases/${{ inputs.tag }}'
+          $installers = @(
+            "boz-v$version-windows-x64-setup.exe",
+            "boz-v$version-windows-arm64-setup.exe"
+          )
+          $inputs = @($installers + ($installers | ForEach-Object { "$_.sig" }))
+          $allowed = @($inputs + 'latest.json', 'SHA256SUMS.txt')
+          $unexpected = @(Get-ChildItem -LiteralPath $output -Force | Where-Object {
+            $_.PSIsContainer -or $allowed -notcontains $_.Name
+          } | Select-Object -ExpandProperty Name | Sort-Object)
+          if ($unexpected.Count) { throw "Unexpected release artifact(s): $($unexpected -join ', ')" }
 
-          if [ "$LOCAL_VERSION" != "$REMOTE_VERSION" ]; then
-            echo "Publishing @agr77/boz@$LOCAL_VERSION to NPM via OIDC..."
-            npm publish --provenance --access public
-          else
-            echo "Version $LOCAL_VERSION is already published to NPM. Skipping publish."
-          fi
+          $missing = @($inputs | Where-Object { -not (Test-Path -LiteralPath (Join-Path $output $_) -PathType Leaf) })
+          if ($missing.Count) { throw "Missing release artifact(s): $($missing -join ', ')" }
+
+          $signatures = @{}
+          foreach ($installer in $installers) {
+            $signature = (Get-Content -Raw -LiteralPath (Join-Path $output "$installer.sig")).Trim()
+            if ([string]::IsNullOrWhiteSpace($signature)) { throw "Empty updater signature for $installer." }
+            $signatures[$installer] = $signature
+          }
+
+          $downloadRoot = "https://github.com/$($env:GITHUB_REPOSITORY_NAME)/releases/download/$($env:RELEASE_TAG)"
+          $manifest = [ordered]@{
+            version = $version
+            notes = $env:RELEASE_PR_URL
+            platforms = [ordered]@{
+              'windows-x86_64' = [ordered]@{
+                signature = $signatures[$installers[0]]
+                url = "$downloadRoot/$($installers[0])"
+              }
+              'windows-aarch64' = [ordered]@{
+                signature = $signatures[$installers[1]]
+                url = "$downloadRoot/$($installers[1])"
+              }
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $output 'latest.json') -Encoding utf8NoBOM
+
+          $checksums = @($inputs + 'latest.json' | Sort-Object | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $output $_)).Hash.ToLowerInvariant()
+            "$hash  $_"
+          })
+          $checksums -join "`n" | Set-Content -LiteralPath (Join-Path $output 'SHA256SUMS.txt') -Encoding utf8NoBOM
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${{ inputs.tag }}" artifacts/releases/${{ inputs.tag }}/*
+          --title "BOZ ${{ inputs.tag }}"
+          --notes "${{ inputs.release_pr_url }}"
+          --verify-tag

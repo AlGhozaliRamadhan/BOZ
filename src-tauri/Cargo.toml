@@ -1,0 +1,32 @@
+[package]
+name = "boz-desktop"
+version = "2.7.0"
+description = "BOZ Windows desktop host"
+authors = ["AGR"]
+license = "ISC"
+edition = "2024"
+rust-version = "1.88"
+
+[lib]
+name = "boz_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
