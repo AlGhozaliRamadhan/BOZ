@@ -1,0 +1,65 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "BOZ",
+  "version": "../package.json",
+  "identifier": "com.agr77.boz",
+  "build": {
+    "beforeDevCommand": "npm run dev:web",
+    "devUrl": "http://127.0.0.1:21526",
+    "beforeBuildCommand": "npm run prepare:desktop",
+    "frontendDist": "loading"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "BOZ",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1100,
+        "minHeight": 700,
+        "resizable": true,
+        "fullscreen": false,
+        "visible": false
+      }
+    ],
+    "security": {
+      "capabilities": ["desktop-opener"],
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'none'; connect-src 'none'; frame-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "copyright": "© 2026 BOZ",
+    "resources": ["resources/**/*"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUxRkU0QjZGM0FCMzZERQpSV1RlTnF2enR1UWZCWENySzg0WGJGUzBISnRHZEZlUmxFZ3lFODRScVE2Q0Z1dVlBeThWRUdnYgo=",
+      "endpoints": [
+        "https://github.com/AlGhozaliRamadhan/BOZ/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

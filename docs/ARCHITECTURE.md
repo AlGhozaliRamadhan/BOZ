@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-Behavioral Outlook Zone (BOZ) is a local-first, web-based market-intelligence application distributed through npm as `@agr77/boz`. It combines market prices, technical indicators, cross-asset context, news, crowd sentiment, deterministic scoring, and language-model synthesis into research views for stocks, crypto assets, indices, and Indonesian equities.
+Behavioral Outlook Zone (BOZ) is a local-first Windows desktop market-intelligence application. A Tauri v2 host presents the Next.js interface through WebView2 and supervises a bundled Node.js 24.15.0 standalone server. BOZ combines market prices, technical indicators, cross-asset context, news, crowd sentiment, deterministic scoring, and language-model synthesis into research views for stocks, crypto assets, indices, and Indonesian equities.
 
 The product's primary outcome is a risk-aware research thesis containing:
 
@@ -21,7 +21,7 @@ BOZ is not a broker, order-execution system, portfolio accounting platform, or a
 The code substantially implements the advertised local research workflow: the dashboard, intraday and long-term analyses, chat research loop, news intelligence, provider selection, and IDX scanner all have executable paths. Goal alignment is incomplete in four important respects:
 
 1. Long-term prompts ask for business moat, revenue catalysts, and valuation conclusions even when the structured input contains mainly price, indicator, macro, and sentiment data. Those claims can therefore exceed the evidence supplied to the model.
-2. The application still has no authenticated network or multi-user mode. The npm launcher and Compose default bind to host loopback, but operators can still create an unsafe deployment by publishing the container broadly.
+2. The application still has no authenticated network or multi-user mode. The desktop sidecar and Compose default bind to host loopback, but operators can still create an unsafe deployment by publishing the container broadly.
 3. Process-wide mutable ticker, provider, and model selection can mix state between concurrent requests.
 4. The system produces heuristic trade plans, but the scoring and pattern rules have no backtesting, calibration, or performance claims that would justify treating them as validated predictive models.
 
@@ -34,7 +34,7 @@ See [CODEBASE_AUDIT.md](./CODEBASE_AUDIT.md) for findings, severity, and remedia
 | Language | TypeScript 7 in strict mode; selected JavaScript build scripts |
 | Web application | Next.js 16 App Router and React 19 |
 | HTTP boundary | Next.js route handlers under `src/app/api/` |
-| CLI launcher | Node.js ESM compiled from `src/main.ts` into `dist/main.js` |
+| Desktop host | Tauri v2/Rust with WebView2, native tray, single instance, autostart, updater, and sidecar supervision |
 | Market data | `yahoo-finance2` |
 | Technical indicators | `technicalindicators` plus custom scoring and pattern heuristics |
 | LLM providers | GitHub Models, NVIDIA NIM, Ollama-compatible offline endpoint, and arbitrary OpenAI-compatible endpoint |
@@ -42,22 +42,22 @@ See [CODEBASE_AUDIT.md](./CODEBASE_AUDIT.md) for findings, severity, and remedia
 | News and sentiment | RSS, Yahoo Finance, CNN/Alternative.me Fear & Greed, StockTwits, Reddit RSS, and optional Alpha Vantage/Finnhub/FRED sources |
 | Persistence | Atomic per-user dotenv settings, local JSON, and non-secret browser `localStorage`; no database |
 | Tests | Vitest with V8 coverage |
-| Packaging | Next.js standalone output plus a compiled launcher in one npm package |
-| Deployment | Local npm/npx launcher or Docker/Compose |
+| Packaging | Per-user NSIS installer with Tauri, exact Node.js 24.15.0, and sanitized Next.js standalone output |
+| Deployment | Windows 11 x64/ARM64 desktop installer; Docker/Compose remains a development/operator option |
 
-Architecturally, BOZ is a **local-first modular monolith with a browser-facing backend-for-frontend**:
+Architecturally, BOZ is a **local-first desktop modular monolith with a WebView-facing backend-for-frontend**:
 
 - React pages own presentation and browser state.
 - Next.js route handlers translate HTTP requests into service calls.
 - Service classes and pure shared modules implement data acquisition, indicators, scoring, and LLM integration.
-- A small Node launcher starts the packaged standalone server and opens a browser.
+- The Rust host starts the packaged standalone server and navigates the WebView only after token-authenticated readiness succeeds.
 
 The code is modular by directory, but it is not cleanly layered. Route handlers still construct concrete services, orchestration lives inside a route directory, and process-wide mutable configuration is used as request state. Treat the diagram below as the current dependency flow, not as an endorsement of every dependency.
 
 ```mermaid
 flowchart LR
-    Browser[React UI] --> Routes[Next.js route handlers]
-    Launcher[Node launcher] --> Server[Next.js standalone server]
+    WebView[React UI in WebView2] --> Routes[Next.js route handlers]
+    Desktop[Tauri Rust host] --> Server[Bundled Node and Next.js server]
     Server --> Routes
     Routes --> Domain[Scoring, trade planning, patterns]
     Routes --> Services[Market, macro, news, sentiment services]
@@ -67,20 +67,20 @@ flowchart LR
     Services --> External[Yahoo, RSS, social and macro providers]
     LLM --> Providers[GitHub, NVIDIA, Ollama or custom]
     Routes --> LocalState[dotenv and JSON files]
-    Browser --> BrowserState[localStorage]
+    WebView --> WebViewState[localStorage]
 ```
 
 ## Runtime Workflows
 
 ### Packaged startup
 
-1. `src/main.ts` loads the per-user environment file and build-version marker.
-2. `src/cli/mode.ts` resolves help, version, web mode, and the requested port.
-3. `src/cli/start-web.ts` spawns `.next/standalone/server.js` on `127.0.0.1`.
-4. The launcher polls `/` with bounded requests and a hard readiness deadline until it receives a 2xx response, then opens the default browser.
-5. Development uses `src/cli/dev-web.ts` to spawn the installed Next.js CLI instead.
+1. `src-tauri/src/lib.rs` enforces a single application instance and initializes the tray, autostart manager, navigation guard, and signed updater.
+2. The host reserves the fixed storage origin `http://127.0.0.1:21526`, creates the Tauri application configuration directory, and spawns bundled `node.exe server.js` with `BOZ_CONFIG_DIR` and a random health token.
+3. The host polls `/api/desktop/health` for up to 30 seconds and navigates to the dashboard only after the BOZ name, version distribution, readiness status, and token are valid.
+4. A port collision presents Retry/Quit. An unexpected server exit presents Restart/Quit and never enters an automatic restart loop.
+5. Window close hides BOZ in the tray. Quit, updater installation, and process exit terminate the complete Node process tree.
 
-The launcher and standalone web server are intentionally separate processes. Signal handlers in `src/main.ts` stop the child server when the launcher exits.
+Development uses Tauri's `beforeDevCommand` to run `npm run dev:web` on the same fixed loopback origin. `npm run dev:web` can also be used alone for browser-only frontend work.
 
 ### Dashboard analysis
 
@@ -127,14 +127,15 @@ The named “sub-agents” are role-specific LLM calls made by the same process,
 ```text
 BOZ/
 ├── .github/
-│   ├── workflows/                 CI and npm trusted-publishing workflows
+│   ├── workflows/                 CI and signed native desktop release workflows
 │   └── dependabot.yml             Weekly npm dependency updates
 ├── docs/
 │   ├── ARCHITECTURE.md            This source-of-truth system map
 │   ├── CODEBASE_AUDIT.md          Current risks and remediation priorities
 │   └── wiki/                      User-facing product and deployment guides
 ├── public/                        Logos, screenshots, and public web assets
-├── scripts/                       Build, packaging, sanitization, and install helpers
+├── scripts/                       Web build, desktop staging, sanitization, and release helpers
+├── src-tauri/                     Tauri configuration, Rust host, loading UI, and icons
 ├── src/
 │   ├── app/                       Next.js App Router UI and HTTP transport
 │   │   ├── api/                   Route handlers; keep them thin and transport-focused
@@ -145,7 +146,6 @@ BOZ/
 │   │   ├── lib/                   Browser/API helpers; `hooks.ts` is currently unused
 │   │   └── styles/                Global design tokens and CSS layers
 │   ├── analyzers/                 Deterministic chart and candle-pattern analysis
-│   ├── cli/                       Development and production server process control
 │   ├── config/                    Provider config plus process-wide active state
 │   ├── services/
 │   │   ├── ai/                    LLM gateway, custom egress client, schemas, verdicts
@@ -158,16 +158,14 @@ BOZ/
 │   ├── shared/                    Cross-layer scoring, prompts, symbols, and trade levels
 │   ├── tools/                     Chat tool definitions, execution helpers, fact extraction
 │   ├── types/                     Legacy shared market/LLM types
-│   ├── utils/                     Environment, version, retry, HTML, logging utilities
-│   └── main.ts                    npm `boz` executable entry point
-├── tests/                         Vitest unit and launcher integration tests
+│   └── utils/                     Environment, version, retry, HTML, logging utilities
+├── tests/                         Vitest unit, route, and packaging contract tests
 ├── next.config.mjs               Standalone build and package tracing configuration
-├── package.json                  npm contract, scripts, engines, and published files
-├── tsconfig.json                 Strict application type checking
-└── tsconfig.launcher.json        Emitting build for the launcher-only dependency graph
+├── package.json                  Private npm development contract and desktop version source
+└── tsconfig.json                 Strict application type checking
 ```
 
-Generated directories such as `.next/`, `dist/`, `coverage/`, `data/`, and `artifacts/releases/` are not source. Do not commit them.
+Generated directories such as `.next/`, `coverage/`, `data/`, `src-tauri/resources/`, `src-tauri/target/`, and `artifacts/releases/` are not source. Do not commit them.
 
 ## Where to Make Changes
 
@@ -184,11 +182,11 @@ Generated directories such as `.next/`, `dist/`, `coverage/`, `data/`, and `arti
 | LLM provider | `src/services/ai/llm.adapter.ts` | provider config, settings UI/routes, fallback behavior |
 | Structured verdict | `src/services/ai/ai.service.ts`, `llm.schemas.ts` | both analysis route families and response types |
 | Chat tools or orchestration | `src/app/api/chat/chat.engine.ts` | `src/tools/`, SSE route, client event parser |
-| Settings or credentials | `src/app/api/settings/`, `src/services/settings/`, `src/config/` | launcher env loading, redacted DTOs, settings UI, repository tests |
+| Settings or credentials | `src/app/api/settings/`, `src/services/settings/`, `src/config/` | Tauri-provided config directory, redacted DTOs, settings UI, repository tests |
 | Custom-provider egress | `src/services/security/outbound-url-policy.ts`, `src/services/ai/custom-provider.client.ts` | discovery/test routes, LLM adapter, SSRF regression tests |
 | Browser chat storage | `src/app/chat/ChatComponent.tsx` | sidebar session management and storage migration |
-| CLI behavior | `src/main.ts`, `src/cli/` | launcher tests, package build, README commands |
-| Package contents | `package.json`, `next.config.mjs`, `scripts/copy-static.js` | dry-run package inventory and release workflow |
+| Desktop lifecycle | `src-tauri/src/lib.rs`, `src-tauri/tauri.conf.json` | Rust tests, package build, tray/update/startup acceptance tests |
+| Package contents | `package.json`, `next.config.mjs`, `scripts/copy-static.js`, `scripts/prepare-desktop.js` | resource inventory and desktop release workflow |
 | Next.js API/convention | Relevant file under `src/app/` | installed guide under `node_modules/next/dist/docs/` before editing |
 
 ## State, Persistence, and Trust Boundaries
@@ -201,20 +199,20 @@ Generated directories such as `.next/`, `dist/`, `coverage/`, `data/`, and `arti
 
 | Data | Current location | Notes |
 | --- | --- | --- |
-| Launcher-loaded credentials | `~/.boz/.env` or `BOZ_CONFIG_DIR` | Loaded by `src/main.ts` |
-| Settings-route writes | `~/.boz/.env` or `BOZ_CONFIG_DIR/.env` | Serialized atomic replacement with restrictive file mode where supported |
-| User memory | `~/.boz/memory.json` | Unbounded arrays; injected into the chat system prompt |
+| Desktop credentials | Tauri application config directory through `BOZ_CONFIG_DIR` | Fresh desktop profile; legacy `~/.boz` data is untouched |
+| Settings-route writes | `BOZ_CONFIG_DIR/.env` | Serialized atomic replacement with restrictive file mode where supported |
+| User memory | `BOZ_CONFIG_DIR/memory.json` | Unbounded arrays; injected into the chat system prompt |
 | News cache | `BOZ_CACHE_DIR`, OS temp, or current directory | JSON cache with source-specific TTLs |
-| IDX universe cache | `~/.boz/idx-universe-cache.json` or `BOZ_CONFIG_DIR` | Atomic per-user runtime cache; excluded from source/package tracing |
+| IDX universe cache | `BOZ_CONFIG_DIR/idx-universe-cache.json` | Atomic per-user runtime cache; excluded from source/package tracing |
 | Legacy session log | `data/session.log.json` | Tested but not connected to current runtime flow |
 
-### Browser state
+### WebView state
 
-Chat history, favorites, and UI preferences are stored in `localStorage`. Provider credentials are write-only through the settings API and are not returned to or persisted by the browser. The settings UI removes the legacy `boz_provider_keys` entry when it mounts.
+Chat history, favorites, and UI preferences are stored in the dedicated WebView profile's `localStorage`. Provider credentials are write-only through the settings API and are not returned to or persisted by the WebView. Existing browser storage is not imported or deleted.
 
 ### Deployment boundary
 
-The npm launcher binds to `127.0.0.1`, and Compose publishes the container on host `127.0.0.1`. The container process itself listens on `0.0.0.0`, which is required for port forwarding, so a different publish configuration can still expose it. Route handlers currently have no authentication, authorization, comprehensive CSRF protection, rate limiting, or per-user isolation. Therefore:
+The desktop host binds its sidecar to fixed loopback port `127.0.0.1:21526`, and Compose publishes the container on host `127.0.0.1`. The private readiness endpoint additionally requires an unpredictable per-process token. Dashboard routes still have no general authentication, authorization, comprehensive CSRF protection, rate limiting, or per-user isolation. Therefore:
 
 - localhost single-user operation is the current supported trust boundary;
 - internet-facing deployment is unsafe without an authenticated gateway and secret-management redesign; and
@@ -259,7 +257,7 @@ npm run typecheck
 npm test
 ```
 
-Run `npm run build:package` for launcher, Next.js, packaging, runtime-tracing, or release changes. Release verification additionally requires both npm audit commands and the built launcher version check.
+Run `npm run build:package` for Tauri, Next.js, sidecar, packaging, runtime-tracing, or release changes. Release verification additionally requires Rust tests, Cargo audit, both npm audit commands, resource inspection, and native architecture checks.
 
 At the baseline audit and subsequent security-hardening validation:
 
@@ -278,7 +276,7 @@ The current structure can evolve incrementally toward feature-oriented clean bou
 ```text
 src/
 ├── app/                             Next.js pages and thin route adapters only
-├── bootstrap/                       Runtime composition and launcher wiring
+├── bootstrap/                       Server runtime composition
 ├── features/
 │   ├── dashboard/                   Use cases, contracts, scoring, UI adapters
 │   ├── market-analysis/             Intraday/long-term workflows and prompts
@@ -297,12 +295,12 @@ src/
 │   ├── persistence/                 Atomic config, memory, session repositories
 │   └── security/                    Auth, egress policy, redaction, rate limits
 ├── ui/                              Reusable presentation components and typed clients
-└── cli/                             Launcher process control
+└── desktop/                         Shared contracts used by the Tauri host
 tests/
 ├── unit/                            Pure domain and parser tests
 ├── integration/                     Provider adapters with fixtures/mocks
 ├── contract/                        Route and LLM/provider schema tests
-└── e2e/                             Packaged launcher and critical user journeys
+└── e2e/                             Packaged desktop lifecycle and critical user journeys
 ```
 
 Migrate by vertical slice. Do not perform a repository-wide rename without compatibility tests and a documented decision record.

@@ -1,42 +1,23 @@
 {
   "name": "@agr77/boz",
-  "version": "2.5.7",
-  "description": "Web-first AI market intelligence dashboard for technical, macro, news, sentiment, and risk-aware analysis.",
-  "main": "dist/main.js",
-  "bin": {
-    "boz": "./dist/main.js"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "files": [
-    "dist/",
-    ".next/standalone/",
-    ".next/static/",
-    "public/",
-    "scripts/copy-static.js",
-    "README.md",
-    "LICENSE"
-  ],
+  "version": "2.7.0",
+  "description": "Windows desktop AI market intelligence dashboard for technical, macro, news, sentiment, and risk-aware analysis.",
+  "private": true,
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "scripts": {
-    "postinstall": "node scripts/copy-static.js",
-    "dev": "cross-env BOZ_DEV=1 tsx src/main.ts",
-    "dev:web": "next dev --webpack --hostname 127.0.0.1",
-    "build": "npm run build:web",
-    "build:web": "next build --webpack",
-    "build:launcher": "node scripts/clean-dist.js && tsc -p tsconfig.launcher.json && node scripts/build-env.js",
-    "build:package": "npm run build:launcher && npm run build:web && node scripts/copy-static.js",
-    "start": "next start --hostname 127.0.0.1",
+    "dev": "tauri dev",
+    "dev:web": "next dev --webpack --hostname 127.0.0.1 --port 21526",
+    "build": "npm run build:package",
+    "build:web": "node scripts/build-web.js",
+    "prepare:desktop": "npm run build:web && node scripts/copy-static.js && node scripts/prepare-desktop.js",
+    "build:desktop": "tauri build --bundles nsis",
+    "build:package": "npm run build:desktop",
     "typecheck": "tsc --noEmit",
-    "prepack": "npm run build:package",
-    "prepublishOnly": "npm test && npm run typecheck",
-    "test:install": "npm install -g . && boz --version && boz --help",
     "test": "vitest run",
     "test:watch": "vitest",
-    "coverage": "vitest run --coverage --exclude tests/cli/*-web.test.ts"
+    "coverage": "vitest run --coverage"
   },
   "keywords": [
     "ai",
@@ -73,15 +54,14 @@
     "yahoo-finance2": "^4.0.2"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^26.1.1",
     "@types/react": "19.2.18",
     "@vitest/coverage-v8": "^4.1.10",
-    "cross-env": "^10.1.0",
     "next": "^16.3.3",
     "postcss": "^8.5.23",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "tsx": "^4.23.12",
     "typescript": "^7.0.2",
     "vitest": "^4.1.9"
   },

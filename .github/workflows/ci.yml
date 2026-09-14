@@ -3,25 +3,38 @@ on: [push, pull_request]
 
 permissions:
   contents: read
+  checks: write
 
 jobs:
-  typecheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.22.2'
-      - run: npm ci
-      - run: npx tsc --noEmit
-
   test:
     runs-on: ubuntu-latest
-    needs: typecheck
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.22.2'
+          node-version: '24.15.0'
+          cache: npm
       - run: npm ci
+      - run: npm run typecheck
       - run: npm test
+      - run: npm run build:web
+      - run: npm audit
+      - run: npm audit --omit=dev
+
+  desktop-shell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: cargo check --release --manifest-path src-tauri/Cargo.toml
+
+  cargo-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          working-directory: src-tauri
+          token: ${{ secrets.GITHUB_TOKEN }}

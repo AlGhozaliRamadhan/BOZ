@@ -3,11 +3,25 @@ node_modules/
 .pnpm-store/
 
 # Build output
-dist/
-.next/
-out/
-build/
+/dist/
+/.next/
+/out/
+/build/
 *.tsbuildinfo
+
+# Generated Tauri host, bundled Node sidecar, and standalone Next.js resources.
+# Keep only the tracked directory marker and its packaging guidance.
+/src-tauri/target/
+/src-tauri/gen/
+/src-tauri/resources/*
+!/src-tauri/resources/.gitkeep
+!/src-tauri/resources/README.md
+src-tauri/icons/android/
+src-tauri/icons/ios/
+src-tauri/icons/icon.icns
+src-tauri/icons/64x64.png
+src-tauri/icons/Square*.png
+src-tauri/icons/StoreLogo.png
 
 # Environment variables and secrets
 .env
@@ -61,7 +75,11 @@ tmp/
 # Runtime data caches
 src/data/
 
-# Generated release artifacts (the only allowed archive location)
+# Generated desktop smoke profiles and release staging. Final release archives
+# belong only under artifacts/releases/v<VERSION>/ and are never committed.
+/artifacts/desktop-smoke/
+/artifacts/staged/
+/artifacts/release/
 /artifacts/releases/
 
 # Local Developer Caches

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockState = vi.hoisted(() => ({
   ticker: 'BTC-USD',
@@ -34,10 +34,16 @@ vi.mock('../src/utils/logger.js', () => ({
 }));
 
 describe('SentimentService', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    delete (globalThis as { __redditCache?: unknown }).__redditCache;
+  });
+
   afterEach(() => {
     mockState.ticker = 'BTC-USD';
     mockState.get.mockReset();
     vi.unstubAllGlobals();
+    delete (globalThis as { __redditCache?: unknown }).__redditCache;
   });
 
   it('normalizes Yahoo crypto symbols for StockTwits and Reddit', async () => {
@@ -71,10 +77,9 @@ describe('SentimentService', () => {
       throw new Error(`Unexpected URL: ${url}`);
     });
 
-    const fetchMock = vi.fn(async () => new Response(
-      '<?xml version="1.0"?><rss version="2.0"><channel><title>Reddit</title></channel></rss>',
-      { status: 200, headers: { 'content-type': 'application/rss+xml' } },
-    )) as unknown as typeof fetch;
+    // This test only verifies the generated Reddit URL. A non-retryable response
+    // avoids involving RSS parser timing in an unrelated normalization contract.
+    const fetchMock = vi.fn(async () => new Response('', { status: 404 })) as unknown as typeof fetch;
     vi.stubGlobal('fetch', fetchMock);
 
     const { SentimentService } = await import('../src/services/market/sentiment.service.js');

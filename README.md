@@ -9,13 +9,12 @@
 </p>
 
 <p align="center">
-  Analyze stocks, crypto, and IDX-listed companies from one focused web workspace.
+  Analyze stocks, crypto, and IDX-listed companies from one focused desktop workspace.
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@agr77/boz"><img src="https://img.shields.io/npm/v/@agr77/boz?style=flat-square&color=00c853" alt="npm version" /></a>
-  <a href="https://www.npmjs.com/package/@agr77/boz"><img src="https://img.shields.io/npm/dm/@agr77/boz?style=flat-square&color=00c853" alt="npm downloads" /></a>
-  <img src="https://img.shields.io/badge/Node.js-22.22.2%20%7C%2024.15.0%20%7C%2026%2B-339933?style=flat-square&logo=nodedotjs&logoColor=white" alt="Supported Node.js versions: 22.22.2, 24.15.0, or 26 and newer" />
+  <img src="https://img.shields.io/badge/Windows-11-0078D4?style=flat-square&logo=windows11&logoColor=white" alt="Windows 11" />
+  <img src="https://img.shields.io/badge/Desktop-x64%20%7C%20ARM64-00bcd4?style=flat-square" alt="Windows x64 and ARM64" />
   <img src="https://img.shields.io/badge/TypeScript-7.x-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript 7" />
   <img src="https://img.shields.io/badge/license-ISC-7c3aed?style=flat-square" alt="ISC license" />
 </p>
@@ -35,9 +34,9 @@
 
 ## What is BOZ?
 
-BOZ is an open-source market intelligence web app that combines price data, technical indicators, macro context, news, and crowd sentiment. Its job is to turn scattered signals into a structured view: market bias, conviction, entry conditions, targets, stop levels, invalidation criteria, and risks.
+BOZ is an open-source Windows desktop market intelligence app that combines price data, technical indicators, macro context, news, and crowd sentiment. Its job is to turn scattered signals into a structured view: market bias, conviction, entry conditions, targets, stop levels, invalidation criteria, and risks.
 
-Version 2.5 is web-only: install it, run `boz`, and the complete dashboard opens in your browser.
+The desktop host uses Tauri and the Windows WebView2 runtime. BOZ bundles a native Node.js 24.15.0 sidecar for its Next.js API and streaming features, so users do not need to install Node.js.
 
 > [!IMPORTANT]
 > BOZ is a research and educational tool, not financial advice. Market data can be delayed or incomplete; verify important information independently before acting.
@@ -69,7 +68,7 @@ Start with a suggested workflow or ask BOZ a free-form market question. The agen
 
 ```mermaid
 flowchart LR
-    U[Web dashboard] --> I[Intent and symbol resolution]
+    U[Desktop dashboard] --> I[Intent and symbol resolution]
     I --> M[Market and macro data]
     I --> N[News and crowd sentiment]
     M --> T[Indicators and market structure]
@@ -82,44 +81,22 @@ flowchart LR
 
 ## Quick start
 
-BOZ requires **Node.js `^22.22.2`, `^24.15.0`, or `>=26.0.0`**.
+Download the installer for your Windows 11 computer from the [latest GitHub Release](https://github.com/AlGhozaliRamadhan/BOZ/releases/latest):
 
-Run the packaged web app immediately without installing:
+- `boz-v<VERSION>-windows-x64-setup.exe` for Intel and AMD PCs.
+- `boz-v<VERSION>-windows-arm64-setup.exe` for ARM64 PCs.
 
-```bash
-npx @agr77/boz
-```
+The per-user installer does not require administrator privileges. Early beta installers are not Authenticode-signed, so Windows SmartScreen may display an **Unknown publisher** warning. BOZ application updates are still cryptographically signed and are rejected if they are modified.
 
-Or install the web launcher globally:
+Closing the window keeps BOZ running in the system tray. The tray menu can reopen BOZ, check for signed updates, opt in to **Start with Windows**, or quit completely. Autostart is disabled by default and starts BOZ hidden when enabled.
 
-```bash
-npm install --global @agr77/boz
-boz
-```
-
-Running `boz` starts the dashboard and opens it in your browser. The default address is [http://127.0.0.1:21526](http://127.0.0.1:21526). Run `boz menu` when you want the terminal launcher with setup details and launch choices; choosing **Run in background** starts BOZ without a separate Next.js terminal window.
-
-Background mode uses the native Windows system tray. Double-click the BOZ icon to open the dashboard, or right-click it to open BOZ, choose whether it starts when you sign in, or exit cleanly. `boz web` remains available for scripts and for starting the foreground server directly.
-
-The npm release includes the compiled launcher, Next.js standalone server, static assets, and public assets. Installing from npm does not require cloning the repository or building the app yourself.
-
-### Launcher commands
-
-| Command | Description |
-| --- | --- |
-| `boz` | Start the dashboard and open it in your browser. |
-| `boz menu` | Show the terminal launcher and wait for a launch choice. |
-| `boz web` | Start the foreground dashboard and open it in your browser. |
-| `boz background` | Start the dashboard in the Windows system tray. |
-| `boz --port 3001` | Start the dashboard on a custom port. |
-| `boz --version` | Print the installed version. |
-| `boz --help` | Show command help. |
+Linux packages are not produced yet. The desktop supervision code uses platform-neutral paths and process boundaries so AppImage/deb support can be added later.
 
 ## Configuration
 
-Configure BOZ from **Settings** in the web interface or with environment variables. Installed settings are stored in `~/.boz/.env`; local development can also use a `.env` file in the project root.
+Configure BOZ from **Settings** in the desktop interface. Desktop settings use Tauri's per-user application configuration directory (normally `%APPDATA%\com.agr77.boz`); local web development can also use a `.env` file in the project root.
 
-Credentials entered through Settings are write-only: the browser sends a replacement value to BOZ but cannot read saved values back. They are stored in the per-user server configuration file and are never persisted in browser storage. Set `BOZ_CONFIG_DIR` to use a different per-user configuration directory.
+Credentials entered through Settings are write-only: the WebView sends a replacement value to BOZ but cannot read saved values back. They are stored in the desktop profile and are never persisted in browser storage. Existing `~/.boz` or browser data is neither imported nor deleted.
 
 ```dotenv
 # openai | anthropic | groq | openrouter | github | nvidia | offline | custom
@@ -187,19 +164,21 @@ git clone https://github.com/AlGhozaliRamadhan/BOZ.git
 cd BOZ
 npm ci
 
-# Start the web dashboard
-npm run dev:web
+# Start the Tauri desktop app and Next.js development server
+npm run dev
 ```
+
+Desktop development requires Node.js 24.15.0 for release-equivalent packaging, the stable Rust toolchain, Microsoft C++ Build Tools, and WebView2. `npm run dev:web` remains available for browser-only frontend work.
 
 ### Useful scripts
 
 | Script | Purpose |
 | --- | --- |
-| `npm run dev` | Start the web-only launcher with the Next.js development server. |
-| `npm run dev:web` | Run the Next.js dashboard with hot reload. |
+| `npm run dev` | Start Tauri with the Next.js development server. |
+| `npm run dev:web` | Run the browser-only Next.js dashboard on `127.0.0.1:21526`. |
 | `npm run build:web` | Create the production web build. |
-| `npm run build:launcher` | Compile the lightweight `boz` web launcher. |
-| `npm run build:package` | Build every artifact included in the npm package. |
+| `npm run prepare:desktop` | Build and sanitize the standalone server, then bundle the pinned Node runtime. |
+| `npm run build:package` | Build the per-user NSIS desktop installer and updater signature. |
 | `npm run typecheck` | Type-check the application without emitting files. |
 | `npm test` | Run the Vitest test suite once. |
 | `npm run test:watch` | Run tests in watch mode. |
