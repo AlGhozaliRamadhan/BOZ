@@ -53,7 +53,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU1MTlBQThDNjY0OUZDNTAKUldSUS9FbG1qS29aNVhqQWZ5cHdQQ2kxTStsSGI2MzBDL0xnM1IyTXdxWlpmc2NxdDN4bkMvV2kK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM5MkI4ODdENzYwNEZGMzUKUldRMS93UjJmWWdyT2U2RVVSTEFiSDBTYkxkcmlOcW1lUHkwTkV2dFQvdms2SmsxTHM3cGZKa08K",
       "endpoints": [
         "https://github.com/AlGhozaliRamadhan/BOZ/releases/latest/download/latest.json"
       ],
