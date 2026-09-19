@@ -222,17 +222,39 @@ fn terminate_process_tree(pid: u32) {
 #[cfg(not(windows))]
 fn terminate_process_tree(_pid: u32) {}
 
-/// Free BOZ_PORT by stopping whatever currently listens on it (stale sidecar,
-/// leftover dev server, ...). Never touches our own process. Returns true
+/// Decide which PIDs holding BOZ_PORT may be reclaimed: only Node.js processes
+/// (bundled sidecar or leftover dev server). Anything else — test harnesses,
+/// user software, system services — must be left alone so startup fails fast
+/// with "already in use" instead of killing an unrelated process.
+/// Returns `None` when any occupant is not reclaimable. Pure function so the
+/// safety contract stays unit-tested.
+fn reclaimable_node_pids(occupants: Vec<(u32, Option<String>)>) -> Option<Vec<(u32, String)>> {
+    let mut result = Vec::new();
+    for (pid, name) in occupants {
+        let name = name.unwrap_or_else(|| "unknown".to_string());
+        if !name.eq_ignore_ascii_case("node.exe") {
+            return None;
+        }
+        result.push((pid, name));
+    }
+    Some(result)
+}
+
+/// Free BOZ_PORT by stopping a stale Node.js sidecar or leftover dev server.
+/// Never touches our own process or any non-Node process. Returns true
 /// once the port is free for our sidecar.
 fn reclaim_boz_port<R: Runtime>(app: &AppHandle<R>) -> bool {
     if !port_is_occupied() {
         return true;
     }
     let own = std::process::id();
-    let occupants: Vec<u32> = listening_pids()
+    let occupants: Vec<(u32, Option<String>)> = listening_pids()
         .into_iter()
         .filter(|pid| *pid != own)
+        .map(|pid| {
+            let name = process_image_name(pid);
+            (pid, name)
+        })
         .collect();
     if occupants.is_empty() {
         desktop_log(
@@ -241,8 +263,14 @@ fn reclaim_boz_port<R: Runtime>(app: &AppHandle<R>) -> bool {
         );
         return false;
     }
-    for pid in occupants {
-        let name = process_image_name(pid).unwrap_or_else(|| "unknown".to_string());
+    let Some(reclaimable) = reclaimable_node_pids(occupants) else {
+        desktop_log(
+            app,
+            "BOZ port is held by a non-Node process; leaving it alone",
+        );
+        return false;
+    };
+    for (pid, name) in reclaimable {
         desktop_log(
             app,
             &format!("Reclaiming {BOZ_ORIGIN}: stopping {name} pid={pid}"),
@@ -779,6 +807,36 @@ mod tests {
         assert_eq!(parse_listening_pids(output, 21_526), vec![1234, 5678, 4321]);
         assert_eq!(parse_listening_pids(output, 3000), vec![9999]);
         assert!(parse_listening_pids("not netstat output", 21_526).is_empty());
+    }
+
+    #[test]
+    fn port_reclaim_is_limited_to_node_processes() {
+        // Stale sidecar / dev server: reclaimable.
+        assert_eq!(
+            reclaimable_node_pids(vec![
+                (1234, Some("node.exe".to_string())),
+                (5678, Some("NODE.EXE".to_string())),
+            ]),
+            Some(vec![
+                (1234, "node.exe".to_string()),
+                (5678, "NODE.EXE".to_string()),
+            ])
+        );
+        // Test harness or user software holding the port: never touch it.
+        assert_eq!(
+            reclaimable_node_pids(vec![(1234, Some("pwsh.exe".to_string()))]),
+            None
+        );
+        assert_eq!(
+            reclaimable_node_pids(vec![
+                (1234, Some("node.exe".to_string())),
+                (5678, Some("pwsh.exe".to_string())),
+            ]),
+            None
+        );
+        // Unidentified process: never touch it.
+        assert_eq!(reclaimable_node_pids(vec![(1234, None)]), None);
+        assert_eq!(reclaimable_node_pids(vec![]), Some(vec![]));
     }
 
     #[test]
