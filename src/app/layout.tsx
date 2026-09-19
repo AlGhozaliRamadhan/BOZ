@@ -1,9 +1,7 @@
 import type { Metadata } from 'next';
 import { Outfit } from 'next/font/google';
 import './globals.css';
-import Sidebar from './components/layout/Sidebar';
-import GlobalSettings from './components/layout/GlobalSettings';
-import MarketTicker from './components/layout/MarketTicker';
+import AppShell from './components/layout/AppShell';
 const outfit = Outfit({
   subsets: ['latin'],
   variable: '--font-outfit',
@@ -40,14 +38,7 @@ export default function RootLayout({
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
       </head>
       <body>
-        <div className="app-layout">
-          <Sidebar />
-          <div className="app-main">
-            <GlobalSettings />
-            <MarketTicker />
-            <main className="app-content">{children}</main>
-          </div>
-        </div>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

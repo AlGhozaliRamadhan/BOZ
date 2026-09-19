@@ -883,7 +883,7 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                       }}>
                         <div>
                           <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
-                            BOZ desktop v{process.env.NEXT_PUBLIC_BOZ_VERSION || '2.7.0'}
+                            BOZ desktop v{process.env.NEXT_PUBLIC_BOZ_VERSION || '2.7.1'}
                           </div>
                           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>
                             Use <strong>Check for updates</strong> from the BOZ system tray.

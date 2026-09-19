@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SentimentService } from '../src/services/market/sentiment.service.js';
 
 const mockState = vi.hoisted(() => ({
   ticker: 'BTC-USD',
@@ -35,7 +36,6 @@ vi.mock('../src/utils/logger.js', () => ({
 
 describe('SentimentService', () => {
   beforeEach(() => {
-    vi.resetModules();
     delete (globalThis as { __redditCache?: unknown }).__redditCache;
   });
 
@@ -82,7 +82,6 @@ describe('SentimentService', () => {
     const fetchMock = vi.fn(async () => new Response('', { status: 404 })) as unknown as typeof fetch;
     vi.stubGlobal('fetch', fetchMock);
 
-    const { SentimentService } = await import('../src/services/market/sentiment.service.js');
     await new SentimentService().fetchCrowdSentiment();
 
     const urls = mockState.get.mock.calls.map(([url]) => String(url));

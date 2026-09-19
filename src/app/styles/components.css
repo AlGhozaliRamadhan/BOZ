@@ -469,13 +469,17 @@
 
 /* === CHAT ================================================================== */
 .chat-page-root {
-  height: calc(100vh - var(--ticker-height) - var(--space-6) * 2);
+  height: calc(100vh - var(--topbar-height) - var(--ticker-height) - var(--space-6) * 2);
   display: flex;
   flex-direction: column;
   position: relative;
   width: calc(100% + var(--space-6) + var(--space-6));
   margin-inline: calc(0px - var(--space-6));
   overflow: hidden;
+}
+
+.app-shell-ticker-hidden .chat-page-root {
+  height: calc(100vh - var(--topbar-height) - var(--space-6) * 2);
 }
 
 .chat-container {
@@ -1964,11 +1968,15 @@
   font-family: var(--font-mono);
   color: var(--term-text);
   background: var(--term-bg);
-  min-height: calc(100vh - var(--topbar-height));
+  min-height: calc(100vh - var(--topbar-height) - var(--ticker-height));
   display: flex;
   flex-direction: column;
   font-size: 12px;
   letter-spacing: 0.02em;
+}
+
+.app-shell-ticker-hidden .terminal-page {
+  min-height: calc(100vh - var(--topbar-height));
 }
 
 /* === SCROLLING TICKER TAPE (top + bottom) ================================= */
@@ -2515,20 +2523,18 @@
    - `.bb-up/.bb-down/.bb-amber`  up/down/amber color utilities
    ════════════════════════════════════════════════════════════════════════════ */
 
-/* Ticker dashboards are data-dense workspaces, so use the complete content
-   canvas rather than the standard page gutters. The sidebar and top bar remain
-   outside this area; only the unused left/right gap inside `.app-content` is
-   reclaimed. */
+/* Ticker dashboards are data-dense workspaces. Keep the standard content
+   gutters so the header/search never sits flush against the sidebar. */
 .bbg-page {
-  width: calc(100% + var(--space-6) + var(--space-6));
-  margin-inline: calc(-1 * var(--space-6));
+  width: 100%;
+  margin-inline: 0;
 }
 
 /* Page-wide: when .bb-shell is on the page root, pull it flush against
    the topbar and the viewport edges — no floating gap. */
 .bb-shell {
-  /* Negate the full padding-top (topbar-height + space-6) + side padding */
-  margin: calc(-1 * (var(--topbar-height) + var(--space-6))) calc(-1 * var(--space-6)) calc(-1 * var(--space-6));
+  /* Negate the shell header, ticker, and standard content padding. */
+  margin: calc(-1 * (var(--topbar-height) + var(--ticker-height) + var(--space-6))) calc(-1 * var(--space-6)) calc(-1 * var(--space-6));
   background: var(--term-bg);
   color: var(--term-text);
   font-family: var(--font-mono);
@@ -2546,6 +2552,10 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+.app-shell-ticker-hidden .bb-shell {
+  margin-top: calc(-1 * (var(--topbar-height) + var(--space-6)));
 }
 
 .bb-shell .page-title,
@@ -3797,10 +3807,10 @@
 
 @media (max-width: 768px) {
   .bbg-page {
-    width: calc(100% + var(--space-4) + var(--space-4));
-    margin-inline: calc(-1 * var(--space-4));
+    width: 100%;
+    margin-inline: 0;
   }
-  .bb-shell { margin: calc(-1 * (var(--topbar-height) + var(--space-4))) calc(-1 * var(--space-4)) calc(-1 * var(--space-4)); width: calc(100% + 2 * var(--space-4)); max-width: calc(100% + 2 * var(--space-4)); }
+  .bb-shell { margin: calc(-1 * (var(--topbar-height) + var(--ticker-height) + var(--space-4))) calc(-1 * var(--space-4)) calc(-1 * var(--space-4)); width: calc(100% + 2 * var(--space-4)); max-width: calc(100% + 2 * var(--space-4)); }
   .bb-quote { grid-template-columns: 1fr; }
   .bb-quote-left { border-right: none; border-bottom: 1px solid var(--term-border-bold); }
   .bb-quote-right { grid-template-columns: repeat(2, 1fr); }

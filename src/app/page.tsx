@@ -79,7 +79,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="bbg-page" style={{ padding: '0 0 var(--space-6)', minHeight: '100vh', background: '#000' }}>
+    <div className="bbg-page" style={{ padding: '0 var(--space-4) var(--space-6)', background: 'var(--bg-primary)' }}>
       {/* ── HEADER ────────────────────────────────────────────────────────── */}
       <div className="bbg-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 0', borderBottom: '1px solid #1f1f1f' }}>
         <div>
