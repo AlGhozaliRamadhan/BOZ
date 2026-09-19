@@ -6,17 +6,17 @@
 /* === DESIGN TOKENS ========================================================= */
 :root {
   /* ── Backgrounds ─────────────────────────────────────────────────────────── */
-  --bg-primary:       #000000;
-  --bg-secondary:     #0a0a0a;
-  --bg-tertiary:      #111111;
-  --bg-elevated:      #1a1a1a;
+  --bg-primary:       #181818;
+  --bg-secondary:     #1f1f1f;
+  --bg-tertiary:      #252525;
+  --bg-elevated:      #2b2b2b;
 
   /* ── Glass Surfaces (Removed for Terminal Look) ──────────────────────────── */
-  --surface-glass:        #0d0d0d;
-  --surface-glass-hover:  #1a1a1a;
-  --surface-glass-active: #2a2a2a;
-  --border-glass:         #1f1f1f;
-  --border-glass-hover:   #333333;
+  --surface-glass:        #202020;
+  --surface-glass-hover:  #292929;
+  --surface-glass-active: #333333;
+  --border-glass:         #2d2d2d;
+  --border-glass-hover:   #414141;
   --border-glass-accent:  #ffffff;
 
   /* ── Accent Colors ──────────────────────────────────────────────────────── */
@@ -60,8 +60,8 @@
   --text-inverse:   #000000;
 
   /* ── Typography ──────────────────────────────────────────────────────────── */
-  --font-sans: 'JetBrains Mono', 'Consolas', 'Fira Code', monospace;
-  --font-mono: 'JetBrains Mono', 'Consolas', 'Fira Code', monospace;
+  --font-sans: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Consolas', 'Fira Code', monospace;
 
   --text-xs:  0.6875rem;
   --text-sm:  0.75rem;
@@ -85,11 +85,11 @@
   --space-12: 3rem;
 
   /* ── Border Radius ───────────────────────────────────────────────────────── */
-  --radius-sm: 0px;
-  --radius-md: 0px;
-  --radius-lg: 0px;
-  --radius-xl: 0px;
-  --radius-full: 0px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-full: 999px;
 
   /* ── Shadows ─────────────────────────────────────────────────────────────── */
   --shadow-sm:  none;
@@ -101,10 +101,10 @@
   --shadow-glow-bear:   none;
 
   /* ── Layout ──────────────────────────────────────────────────────────────── */
-  --sidebar-width:     260px;
-  --sidebar-collapsed: 72px;
-  --topbar-height:     64px;
-  --ticker-height:     36px;
+  --sidebar-width:     240px;
+  --sidebar-collapsed: 60px;
+  --topbar-height:     44px;
+  --ticker-height:     32px;
 
   /* ── Transitions ─────────────────────────────────────────────────────────── */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);

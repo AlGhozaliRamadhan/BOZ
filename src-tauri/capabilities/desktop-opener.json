@@ -1,13 +1,18 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop-opener",
-  "description": "Allow the fixed BOZ dashboard origin to open ordinary web links in the system browser.",
+  "description": "Allow the fixed BOZ dashboard origin to open ordinary web links in the system browser and to operate its frameless window chrome (minimize / maximize / close).",
   "windows": ["main"],
   "remote": {
     "urls": ["http://127.0.0.1:21526/*"]
   },
   "permissions": [
     "opener:allow-open-url",
-    "opener:allow-default-urls"
+    "opener:allow-default-urls",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close"
   ]
 }

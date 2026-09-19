@@ -40,7 +40,15 @@ describe('security-sensitive repository contracts', () => {
     expect(config.app.security.capabilities).toEqual(['desktop-opener']);
     const capability = JSON.parse(readFileSync(resolve('src-tauri/capabilities/desktop-opener.json'), 'utf8'));
     expect(capability.remote.urls).toEqual(['http://127.0.0.1:21526/*']);
-    expect(capability.permissions).toEqual(['opener:allow-open-url', 'opener:allow-default-urls']);
+    expect(capability.permissions).toEqual([
+      'opener:allow-open-url',
+      'opener:allow-default-urls',
+      'core:window:allow-minimize',
+      'core:window:allow-toggle-maximize',
+      'core:window:allow-is-maximized',
+      'core:window:allow-start-dragging',
+      'core:window:allow-close',
+    ]);
     expect(JSON.stringify(capability)).not.toMatch(/filesystem|shell|process|updater|autostart/);
     expect(config.bundle.windows.webviewInstallMode.type).toBe('downloadBootstrapper');
     expect(config.bundle.copyright).toBe('© 2026 BOZ');

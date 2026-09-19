@@ -74,7 +74,11 @@ function buildRenderItems(tickers: TickerItem[]): RenderItem[] {
 
 const RENDER_ITEMS = buildRenderItems(MOCK_TICKERS);
 
-export default function MarketTicker() {
+interface MarketTickerProps {
+  visible?: boolean;
+}
+
+export default function MarketTicker({ visible = true }: MarketTickerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [clock, setClock] = useState('');
@@ -108,6 +112,8 @@ export default function MarketTicker() {
 
   const handleMouseEnter = useCallback(() => setIsPaused(true), []);
   const handleMouseLeave = useCallback(() => setIsPaused(false), []);
+
+  if (!visible) return null;
 
   return (
     <div

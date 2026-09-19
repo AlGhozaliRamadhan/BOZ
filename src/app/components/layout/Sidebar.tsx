@@ -10,6 +10,12 @@ interface NavItem {
   icon: React.ReactNode;
 }
 
+interface SidebarProps {
+  collapsed: boolean;
+  mobileOpen: boolean;
+  onToggle: () => void;
+}
+
 const navItems: NavItem[] = [
   {
     label: 'Dashboard',
@@ -28,9 +34,8 @@ const navItems: NavItem[] = [
   },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProps) {
   const router = useRouter();
-  const [collapsed, setCollapsed] = useState(false);
   const [chatSessions, setChatSessions] = useState<{id: string, title: string}[]>([]);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
@@ -106,12 +111,10 @@ export default function Sidebar() {
   }, []);
 
   useEffect(() => {
-    if (collapsed) {
-      document.body.classList.add('sidebar-collapsed');
-    } else {
-      document.body.classList.remove('sidebar-collapsed');
-    }
-  }, [collapsed]);
+    const handleOpenAbout = () => setIsUpdateModalOpen(true);
+    window.addEventListener('boz_open_about', handleOpenAbout);
+    return () => window.removeEventListener('boz_open_about', handleOpenAbout);
+  }, []);
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -119,15 +122,11 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
-      <div className="sidebar-logo" style={{ justifyContent: collapsed ? 'center' : 'space-between' }}>
-        <Link href="/" className="sidebar-brand" aria-label="BOZ home">
-          <img src="/logo-boz-transparant-white.png" alt="BOZ" />
-          {!collapsed && <span className="sidebar-logo-text">BOZ</span>}
-        </Link>
+    <aside className={`sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' mobile-open' : ''}`}>
+      <div className="sidebar-toolbar" style={{ justifyContent: collapsed ? 'center' : 'flex-end' }}>
         <button
           className="sidebar-collapse-btn"
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={onToggle}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
@@ -147,6 +146,8 @@ export default function Sidebar() {
             <Link
               href={item.href}
               className={`sidebar-link${isActive(item.href) ? ' active' : ''}`}
+              title={collapsed ? item.label : undefined}
+              aria-label={item.label}
             >
               <span className="sidebar-link-icon">{item.icon}</span>
               <span className="sidebar-link-label">{item.label}</span>
@@ -239,8 +240,16 @@ export default function Sidebar() {
         <div 
           className="sidebar-profile" 
           onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              setIsProfileMenuOpen(current => !current);
+            }
+          }}
           role="button"
           tabIndex={0}
+          aria-expanded={isProfileMenuOpen}
+          title={collapsed ? 'Open profile menu' : undefined}
         >
           <div className="sidebar-profile-avatar" style={{ position: 'relative' }} aria-hidden="true">
             <i className="fa-solid fa-user" style={{ fontSize: '13px', opacity: 0.85 }}></i>
@@ -260,7 +269,7 @@ export default function Sidebar() {
         </div>
         <div className="sidebar-version-row">
           <span className="sidebar-version">
-            v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.7.0'}
+            v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.7.1'}
           </span>
         </div>
       </div>
@@ -291,7 +300,7 @@ export default function Sidebar() {
                   BOZ Intelligence
                 </div>
                 <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                  Desktop version v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.7.0'}
+                  Desktop version v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.7.1'}
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6, marginTop: '4px' }}>
                   Signed updates are managed by the BOZ desktop application. Use <strong>Check for updates</strong> from the system tray.

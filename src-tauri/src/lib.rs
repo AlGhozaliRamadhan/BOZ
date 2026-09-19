@@ -135,6 +135,131 @@ fn port_is_occupied() -> bool {
     TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok()
 }
 
+/// Parse `netstat -ano -p TCP` output and return the PIDs in LISTENING state
+/// on `port`. Pure function so the parsing contract stays unit-tested.
+fn parse_listening_pids(netstat_output: &str, port: u16) -> Vec<u32> {
+    let suffix = format!(":{port}");
+    let mut pids = Vec::new();
+    for line in netstat_output.lines() {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        // TCP <local address> <remote address> <state> <pid>
+        if fields.len() != 5 || fields[0] != "TCP" || fields[3] != "LISTENING" {
+            continue;
+        }
+        if !fields[1].ends_with(&suffix) {
+            continue;
+        }
+        if let Ok(pid) = fields[4].parse::<u32>() {
+            if pid != 0 && !pids.contains(&pid) {
+                pids.push(pid);
+            }
+        }
+    }
+    pids
+}
+
+#[cfg(windows)]
+fn listening_pids() -> Vec<u32> {
+    let mut netstat = Command::new("netstat.exe");
+    netstat
+        .args(["-ano", "-p", "TCP"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    hide_process_window(&mut netstat);
+    let Ok(output) = netstat.output() else {
+        return Vec::new();
+    };
+    parse_listening_pids(&String::from_utf8_lossy(&output.stdout), BOZ_PORT)
+}
+
+#[cfg(not(windows))]
+fn listening_pids() -> Vec<u32> {
+    Vec::new()
+}
+
+#[cfg(windows)]
+fn process_image_name(pid: u32) -> Option<String> {
+    let mut tasklist = Command::new("tasklist.exe");
+    tasklist
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    hide_process_window(&mut tasklist);
+    let output = tasklist.output().ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let name = text
+        .lines()
+        .next()?
+        .split(',')
+        .next()?
+        .trim_matches('"')
+        .trim();
+    if name.is_empty() || name.starts_with("INFO") {
+        return None;
+    }
+    Some(name.to_string())
+}
+
+#[cfg(not(windows))]
+fn process_image_name(_pid: u32) -> Option<String> {
+    None
+}
+
+#[cfg(windows)]
+fn terminate_process_tree(pid: u32) {
+    let mut taskkill = Command::new("taskkill.exe");
+    taskkill
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    hide_process_window(&mut taskkill);
+    let _ = taskkill.status();
+}
+
+#[cfg(not(windows))]
+fn terminate_process_tree(_pid: u32) {}
+
+/// Free BOZ_PORT by stopping whatever currently listens on it (stale sidecar,
+/// leftover dev server, ...). Never touches our own process. Returns true
+/// once the port is free for our sidecar.
+fn reclaim_boz_port<R: Runtime>(app: &AppHandle<R>) -> bool {
+    if !port_is_occupied() {
+        return true;
+    }
+    let own = std::process::id();
+    let occupants: Vec<u32> = listening_pids()
+        .into_iter()
+        .filter(|pid| *pid != own)
+        .collect();
+    if occupants.is_empty() {
+        desktop_log(
+            app,
+            "BOZ port is occupied but no owning process was identified; leaving it alone",
+        );
+        return false;
+    }
+    for pid in occupants {
+        let name = process_image_name(pid).unwrap_or_else(|| "unknown".to_string());
+        desktop_log(
+            app,
+            &format!("Reclaiming {BOZ_ORIGIN}: stopping {name} pid={pid}"),
+        );
+        terminate_process_tree(pid);
+    }
+    for _ in 0..20 {
+        if !port_is_occupied() {
+            desktop_log(app, "BOZ port reclaimed");
+            return true;
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+    desktop_log(app, "BOZ port is still occupied after reclaim attempt");
+    false
+}
+
 fn normalize_resource_path(path: PathBuf) -> PathBuf {
     #[cfg(windows)]
     {
@@ -266,7 +391,7 @@ fn wait_for_server<R: Runtime>(app: &AppHandle<R>, token: &str) -> Result<(), St
 
 fn launch_sidecar<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     desktop_log(app, "Starting bundled Node sidecar");
-    if port_is_occupied() {
+    if port_is_occupied() && !reclaim_boz_port(app) {
         return Err(format!(
             "BOZ cannot start because {BOZ_ORIGIN} is already in use. Close the other program and retry."
         ));
@@ -639,6 +764,21 @@ mod tests {
         let runtime = DesktopRuntime::default();
         assert!(claim_tray_slot(&runtime));
         assert!(!claim_tray_slot(&runtime));
+    }
+
+    #[test]
+    fn netstat_parsing_finds_only_listening_pids_on_boz_port() {
+        let output = "Active Connections\r\n\
+             \r\n\
+             \x20 Proto  Local Address          Foreign Address        State           PID\r\n\
+             \x20 TCP    127.0.0.1:21526        0.0.0.0:0              LISTENING       1234\r\n\
+             \x20 TCP    127.0.0.1:21526        127.0.0.1:5678         ESTABLISHED     1234\r\n\
+             \x20 TCP    0.0.0.0:21526          0.0.0.0:0              LISTENING       5678\r\n\
+             \x20 TCP    [::]:21526             [::]:0                 LISTENING       4321\r\n\
+             \x20 TCP    127.0.0.1:3000         0.0.0.0:0              LISTENING       9999\r\n";
+        assert_eq!(parse_listening_pids(output, 21_526), vec![1234, 5678, 4321]);
+        assert_eq!(parse_listening_pids(output, 3000), vec![9999]);
+        assert!(parse_listening_pids("not netstat output", 21_526).is_empty());
     }
 
     #[test]

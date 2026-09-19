@@ -7,9 +7,9 @@
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
       * { box-sizing: border-box; }
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; color: #e8f7fb; background: radial-gradient(circle at 50% 35%, #12313a 0, #071115 38%, #030708 76%); }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; color: #e8f7fb; background: #080b0d; }
       main { text-align: center; }
-      .mark { width: 76px; height: 76px; margin: 0 auto 22px; border-radius: 20px; display: grid; place-items: center; color: #041014; background: linear-gradient(135deg, #71ecff, #11b9d4); font-size: 31px; font-weight: 800; letter-spacing: -2px; box-shadow: 0 18px 60px rgba(17,185,212,.24); }
+      .mark { display: block; width: 112px; height: 112px; margin: 0 auto 22px; object-fit: contain; }
       h1 { margin: 0; font-size: 22px; letter-spacing: .02em; }
       p { margin: 9px 0 24px; color: #8ca4aa; font-size: 13px; }
       .track { width: 210px; height: 3px; margin: auto; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.09); }
@@ -17,9 +17,9 @@
       @keyframes load { from { transform: translateX(-100%); } to { transform: translateX(240%); } }
     </style>
   </head>
-  <body>
-    <main aria-live="polite">
-      <div class="mark" aria-hidden="true">B</div>
+  <body data-tauri-drag-region>
+    <main aria-live="polite" data-tauri-drag-region>
+      <img class="mark" src="logo-boz-transparant-white.png" alt="BOZ" />
       <h1>Starting BOZ</h1>
       <p>Preparing your private market workspace…</p>
       <div class="track" aria-hidden="true"><div class="bar"></div></div>
