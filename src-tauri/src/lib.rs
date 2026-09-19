@@ -836,10 +836,7 @@ mod tests {
         );
         // Unidentified process: never touch it.
         assert_eq!(reclaimable_node_pids(vec![(1234, None)]), None);
-        assert_eq!(
-            reclaimable_node_pids(vec![]),
-            Some(vec![])
-        );
+        assert_eq!(reclaimable_node_pids(vec![]), Some(vec![]));
     }
 
     #[test]
