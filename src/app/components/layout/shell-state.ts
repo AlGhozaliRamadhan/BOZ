@@ -10,7 +10,7 @@ export interface ShellPreferences {
 
 export const DEFAULT_SHELL_PREFERENCES: ShellPreferences = {
   sidebarCollapsed: false,
-  tickerVisible: true,
+  tickerVisible: false,
 };
 
 export interface ShellStorage {

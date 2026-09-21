@@ -18,7 +18,7 @@ function createStorage(initial: Record<string, string> = {}): ShellStorage & { v
 }
 
 describe('shell layout preferences', () => {
-  it('uses the expanded sidebar and visible ticker by default', () => {
+  it('uses the expanded sidebar and hidden ticker by default', () => {
     expect(readShellPreferences(createStorage())).toEqual(DEFAULT_SHELL_PREFERENCES);
   });
 
