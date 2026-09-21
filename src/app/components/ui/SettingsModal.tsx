@@ -874,7 +874,7 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                     <div>
                       <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Version & Updates</h3>
                       <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>Signed updates download and apply from the desktop app, with no manual reinstall required.</p>
-                      <DesktopUpdateControl version={process.env.NEXT_PUBLIC_BOZ_VERSION || '2.7.1'} />
+                      <DesktopUpdateControl version={process.env.NEXT_PUBLIC_BOZ_VERSION || '2.7.2'} />
                     </div>
                   </div>
                 )}
