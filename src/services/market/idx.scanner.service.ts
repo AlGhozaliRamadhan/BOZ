@@ -1,176 +1,122 @@
-// ─── services/idx.scanner.service.ts ─────────────────────────────────────────
-// IDX (Indonesia Stock Exchange) momentum scanner.
-// Quote-screens the full IDX universe, then scores selected candidates on price-momentum,
-// volume-surge, and 52-week range signals, then surfaces ranked setups.
-//
-// Intentionally lives here, not in agents/, so it can be reused by any
-// analyzer, agent, or future CLI command without duplication.
-
-import { yahooFinance } from './yahoo.service.js';
-import { idxUniverseService } from './idx.universe.service.js';
+import { ChartAnalyzer } from '../../analyzers/chart.analyzer.js';
+import { buildDashboardAnalysis, type QuoteSnapshot } from '../../shared/dashboard-analysis.js';
+import { buildExpertSignal } from '../../shared/expert-signal.js';
+import { scoreScreenerPreset } from '../../shared/screener-scoring.js';
+import type {
+  ScreenerDirection,
+  ScreenerMode,
+  ScreenerPreset,
+  ScreenerResult,
+} from '../../shared/screener-contract.js';
+import type { Candle } from '../../types/types.js';
 import { log } from '../../utils/logger.js';
 import { deepScanWorkloadGate, WorkloadBusyError } from '../security/workload-gate.js';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { IndicatorsService } from './indicators.service.js';
+import { idxUniverseService } from './idx.universe.service.js';
+import { yahooFinance } from './yahoo.service.js';
 
 export type ScanSignal = 'BUY' | 'WATCH' | 'AVOID';
-export type SignalFilter = 'buy' | 'sell' | 'any';
-export type SetupFilter = 'momentum' | 'rebound' | 'all_time_low' | 'downtrend' | 'breakout' | 'oversold';
-export type ScanMode = 'fast' | 'deep';
+export type SignalFilter = ScreenerDirection;
+export type SetupFilter = ScreenerPreset | 'all_time_low';
+export type ScanMode = ScreenerMode;
 export type IdxSector =
   | 'all' | 'banking' | 'consumer' | 'mining' | 'energy'
   | 'tech' | 'property' | 'telecom' | 'healthcare' | 'industrial';
 
 export interface StockEntry {
   ticker: string;
-  name:   string;
+  name: string;
   sector: string;
 }
 
-export interface StockResult extends StockEntry {
-  price:       number;
-  chg1d:       number;  // % change today
-  chg5d:       number;  // % change over 5 trading days
-  chg20d:      number;  // % change over 20 trading days
-  volRatio:    number;  // today volume / 20-day avg volume
-  from52wHigh: number;  // % distance below 52-week high (negative value)
-  from52wLow:  number;  // % distance above 52-week low  (positive value)
-  score:       number;  // composite momentum score  -100 → +100
-  signal:      ScanSignal;
-  reason:      string;
-  setupType:   SetupFilter | 'none';
+/** Compatibility shape retained for the chat tool and older API consumers. */
+export interface StockResult extends ScreenerResult {
+  price: number;
+  chg1d: number;
+  chg5d: number;
+  chg20d: number;
+  volRatio: number;
+  from52wHigh: number;
+  from52wLow: number;
+  rsi: number | null;
+  macdSignal: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  score: number;
+  signal: ScanSignal;
+  reason: string;
+  setupType: ScreenerPreset | 'none';
 }
 
 export interface ScanResult {
-  sector:        string;
-  mode:          ScanMode;
+  sector: string;
+  preset: ScreenerPreset;
+  signalFilter: SignalFilter;
+  mode: ScanMode;
+  startedAt: string;
+  completedAt: string;
   universeCount: number;
-  candidateCount:number;
-  totalScanned:  number;
-  buyCount:      number;
-  watchCount:    number;
-  avoidCount:    number;
-  avgScore:      number;
+  candidateCount: number;
+  totalScanned: number;
+  buyCount: number;
+  sellCount: number;
+  watchCount: number;
+  avoidCount: number;
+  bullishCount: number;
+  bearishCount: number;
+  neutralCount: number;
+  avgScore: number;
   breadthSignal: string;
-  buys:          StockResult[];
-  watches:       StockResult[];
-  avoids:        StockResult[];
-  skipped:       string[];   // tickers that failed to fetch
-  formatted:     string;     // pre-rendered text for the agent observation
+  partial: boolean;
+  cacheHit: boolean;
+  results: StockResult[];
+  buys: StockResult[];
+  watches: StockResult[];
+  avoids: StockResult[];
+  skipped: string[];
+  formatted: string;
 }
 
 interface QuoteCandidate extends StockEntry {
-  quote:    any;
+  quote: any;
   preScore: number;
 }
 
-const QUOTE_BATCH_SIZE     = 100;
-const CHART_BATCH_SIZE     = 8;
-const FAST_FULL_SCAN_LIMIT = 120;
-const FAST_CANDIDATE_LIMIT = 180;
-const FAST_MIN_CANDIDATES  = 60;
-
-
-
-// ─── Scoring logic ────────────────────────────────────────────────────────────
-// Composite score: -100 → +100.  Higher = stronger bullish momentum.
-//
-// The key design goal: reward stocks that are quietly recovering (10-40% below
-// their 52w high, well above their 52w low, building volume) rather than ones
-// that have already made a big move everyone already knows about.
-
-function scoreStock(
-  chg1d:       number,
-  chg5d:       number,
-  chg20d:      number,
-  volRatio:    number,
-  from52wHigh: number,  // negative number: -20 means 20% below 52w high
-  from52wLow:  number,  // positive number: +30 means 30% above 52w low
-): number {
-  let score = 0;
-
-  // ── 1-day momentum (weight 20) ──────────────────────────────────────────
-  // Moderate gain beats a huge spike — spike = late-entry risk
-  if      (chg1d > 0  && chg1d <= 3)  score += 20;
-  else if (chg1d > 3  && chg1d <= 6)  score += 12;
-  else if (chg1d > 6)                 score += 5;
-  else if (chg1d < 0  && chg1d >= -2) score -= 5;
-  else if (chg1d < -2)                score -= 15;
-
-  // ── 5-day trend (weight 25) ─────────────────────────────────────────────
-  // Shows whether momentum is building over a week, not just today
-  if      (chg5d > 2  && chg5d <= 8)  score += 25;
-  else if (chg5d > 8)                 score += 10;
-  else if (chg5d > 0)                 score += 12;
-  else if (chg5d < -5)                score -= 20;
-  else if (chg5d < 0)                 score -= 8;
-
-  // ── 20-day trend (weight 20) ────────────────────────────────────────────
-  if      (chg20d > 5)   score += 20;
-  else if (chg20d > 0)   score += 8;
-  else if (chg20d < -10) score -= 20;
-  else if (chg20d < 0)   score -= 8;
-
-  // ── Volume surge (weight 20) ────────────────────────────────────────────
-  // Volume spike on an up day = institutional buying signal
-  // Volume spike on a down day = distribution / exit signal
-  if      (volRatio > 2.0 && chg1d > 0) score += 20;
-  else if (volRatio > 1.5 && chg1d > 0) score += 12;
-  else if (volRatio > 1.2 && chg1d > 0) score += 6;
-  else if (volRatio > 2.0 && chg1d < 0) score -= 15;
-  else if (volRatio < 0.5)               score -= 5;
-
-  // ── 52-week range position (weight 15) ─────────────────────────────────
-  // Sweet spot: 10-40% below 52w high AND 20%+ above 52w low.
-  // That's the hidden-mover zone — recovering but not yet crowded.
-  const distFromHigh = Math.abs(from52wHigh);
-  const distFromLow  = from52wLow;
-
-  if      (distFromHigh >= 10 && distFromHigh <= 40 && distFromLow >= 20) score += 15;
-  else if (distFromHigh < 5)   score -= 10;  // near ATH = late entry
-  else if (distFromHigh > 60)  score -= 10;  // too far = probably broken
-  else if (distFromLow < 5)    score -= 10;  // near 52w low = avoid
-
-  return score;
+export interface ScanOptions {
+  minimumConviction?: 'LOW' | 'MEDIUM' | 'HIGH';
+  signal?: AbortSignal;
 }
 
-function classifySignal(
-  score:       number,
-  chg5d:       number,
-  chg1d:       number,
-  volRatio:    number,
-  from52wHigh: number,
-  from52wLow:  number,
-): { signal: ScanSignal; reason: string } {
-  const distFromHigh = Math.abs(from52wHigh);
+const QUOTE_BATCH_SIZE = 100;
+const CHART_BATCH_SIZE = 8;
+const FAST_FULL_SCAN_LIMIT = 60;
+const FAST_CANDIDATE_LIMIT = 60;
+const MIN_SCREEN_SCORE = 35;
+const HISTORY_DAYS = 420;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 16;
 
-  if (score >= 35) {
-    const parts: string[] = [];
-    if (chg5d > 2)                                    parts.push(`${chg5d.toFixed(1)}% in 5d`);
-    if (volRatio > 1.5)                               parts.push(`vol ${volRatio.toFixed(1)}x avg`);
-    if (distFromHigh >= 10 && distFromHigh <= 40)     parts.push(`${distFromHigh.toFixed(0)}% below 52wH (room to run)`);
-    return { signal: 'BUY', reason: parts.join(' · ') || 'momentum building' };
-  }
+const scanCache = new Map<string, { expiresAt: number; value: ScanResult }>();
 
-  if (score >= 10) {
-    const parts: string[] = [];
-    if (chg5d > 0)  parts.push(`mild 5d gain ${chg5d.toFixed(1)}%`);
-    if (chg1d > 0)  parts.push(`today +${chg1d.toFixed(1)}%`);
-    return { signal: 'WATCH', reason: parts.join(' · ') || 'mixed signals, monitor' };
-  }
-
-  const parts: string[] = [];
-  if (chg5d < 0)        parts.push(`5d loss ${chg5d.toFixed(1)}%`);
-  if (distFromHigh < 5) parts.push('near 52wH (late entry)');
-  if (from52wLow < 5)   parts.push('near 52w low (weakness)');
-  return { signal: 'AVOID', reason: parts.join(' · ') || 'no momentum' };
+export function normalizeSetupFilter(setup: SetupFilter): ScreenerPreset {
+  return setup === 'all_time_low' ? 'near_52w_low' : setup;
 }
 
-// ─── IdxScannerService ────────────────────────────────────────────────────────
+function convictionRank(value: 'LOW' | 'MEDIUM' | 'HIGH'): number {
+  return value === 'HIGH' ? 3 : value === 'MEDIUM' ? 2 : 1;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new Error('Scan cancelled');
+}
+
+function changePercent(current: number, previous?: number): number {
+  return previous && previous > 0 ? ((current - previous) / previous) * 100 : 0;
+}
+
+function finiteNumber(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
 
 export class IdxScannerService {
-
-  /** Return the cached IDX stock universe for a given sector. */
   async getUniverse(sector: string): Promise<StockEntry[]> {
     const all = await idxUniverseService.getUniverse();
     const filtered = idxUniverseService.filterBySector(all, sector);
@@ -179,112 +125,95 @@ export class IdxScannerService {
   }
 
   private sleep(ms: number): Promise<void> {
-    return new Promise(r => setTimeout(r, ms));
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   private chunks<T>(items: T[], size: number): T[][] {
-    const out: T[][] = [];
-    for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-    return out;
+    const chunks: T[][] = [];
+    for (let index = 0; index < items.length; index += size) {
+      chunks.push(items.slice(index, index + size));
+    }
+    return chunks;
   }
 
-  private quoteNumber(quote: any, key: string, fallback = 0): number {
-    const value = quote?.[key];
-    return typeof value === 'number' && isFinite(value) ? value : fallback;
-  }
+  private preScoreQuote(quote: any, direction: SignalFilter, preset: ScreenerPreset): number {
+    const price = finiteNumber(quote?.regularMarketPrice);
+    const chg1d = finiteNumber(quote?.regularMarketChangePercent);
+    const volume = finiteNumber(quote?.regularMarketVolume);
+    const averageVolume = finiteNumber(quote?.averageDailyVolume10Day)
+      || finiteNumber(quote?.averageDailyVolume3Month)
+      || 1;
+    const high52w = finiteNumber(quote?.fiftyTwoWeekHigh);
+    const low52w = finiteNumber(quote?.fiftyTwoWeekLow);
+    if (price <= 0 || volume <= 0) return -999;
 
-  private preScoreQuote(quote: any, signalFilter: SignalFilter, setup: SetupFilter): number {
-    const price   = this.quoteNumber(quote, 'regularMarketPrice');
-    const chg1d   = this.quoteNumber(quote, 'regularMarketChangePercent');
-    const vol     = this.quoteNumber(quote, 'regularMarketVolume');
-    const avgVol  = this.quoteNumber(quote, 'averageDailyVolume10Day') ||
-      this.quoteNumber(quote, 'averageDailyVolume3Month') ||
-      1;
-    const high52w = this.quoteNumber(quote, 'fiftyTwoWeekHigh');
-    const low52w  = this.quoteNumber(quote, 'fiftyTwoWeekLow');
+    const volumeRatio = averageVolume > 0 ? volume / averageVolume : 1;
+    const fromHigh = high52w > 0 ? ((price - high52w) / high52w) * 100 : -50;
+    const fromLow = low52w > 0 ? ((price - low52w) / low52w) * 100 : 50;
+    const distanceFromHigh = Math.abs(fromHigh);
+    const liquidity = Math.min(20, Math.log10(Math.max(volume, 1)) * 2);
+    let score = liquidity;
 
-    if (price <= 0 || vol <= 0) return -999;
-
-    const volRatio      = avgVol > 0 ? vol / avgVol : 1;
-    const from52wHigh   = high52w > 0 ? ((price - high52w) / high52w) * 100 : 0;
-    const from52wLow    = low52w > 0 ? ((price - low52w) / low52w) * 100 : 0;
-    const distFromHigh  = Math.abs(from52wHigh);
-    const liquidityBump = Math.min(20, Math.log10(Math.max(vol, 1)) * 2);
-
-    let score = liquidityBump;
-
-    if (setup === 'breakout') {
-      score += from52wHigh > -7 ? 35 : 0;
+    if (preset === 'breakout') {
+      score += fromHigh > -7 ? 35 : 0;
       score += chg1d > 0 ? Math.min(25, chg1d * 6) : -20;
-      score += volRatio > 1.2 ? Math.min(25, volRatio * 8) : 0;
-      return score;
-    }
-
-    if (setup === 'rebound') {
-      score += from52wLow >= 3 && from52wLow <= 18 ? 35 : 0;
+      score += volumeRatio > 1.2 ? Math.min(25, volumeRatio * 8) : 0;
+    } else if (preset === 'rebound') {
+      score += fromLow >= 3 && fromLow <= 20 ? 35 : 0;
       score += chg1d > 0 ? Math.min(25, chg1d * 7) : -15;
-      score += distFromHigh > 15 ? 10 : 0;
-      score += volRatio > 1.1 ? Math.min(20, volRatio * 6) : 0;
-      return score;
-    }
-
-    if (setup === 'all_time_low') {
-      score += from52wLow < 5 ? 45 : Math.max(0, 20 - from52wLow);
+      score += distanceFromHigh > 15 ? 10 : 0;
+      score += volumeRatio > 1.1 ? Math.min(20, volumeRatio * 6) : 0;
+    } else if (preset === 'near_52w_low') {
+      score += fromLow < 5 ? 45 : Math.max(0, 20 - fromLow);
       score += chg1d <= 1 ? 10 : -10;
-      return score;
-    }
-
-    if (setup === 'downtrend' || signalFilter === 'sell') {
+    } else if (preset === 'downtrend' || direction === 'sell') {
       score += chg1d < 0 ? Math.min(30, Math.abs(chg1d) * 8) : -20;
-      score += distFromHigh > 20 ? 20 : 0;
-      score += from52wLow < 15 ? 15 : 0;
-      score += volRatio > 1.2 ? Math.min(20, volRatio * 6) : 0;
-      return score;
-    }
-
-    if (setup === 'oversold') {
+      score += distanceFromHigh > 20 ? 20 : 0;
+      score += fromLow < 15 ? 15 : 0;
+      score += volumeRatio > 1.2 ? Math.min(20, volumeRatio * 6) : 0;
+    } else if (preset === 'oversold') {
       score += chg1d < -2 ? Math.min(35, Math.abs(chg1d) * 7) : 0;
-      score += distFromHigh > 25 ? 20 : 0;
-      score += from52wLow < 20 ? 15 : 0;
-      score += volRatio > 1.2 ? Math.min(20, volRatio * 6) : 0;
-      return score;
+      score += distanceFromHigh > 25 ? 20 : 0;
+      score += fromLow < 20 ? 15 : 0;
+      score += volumeRatio > 1.2 ? Math.min(20, volumeRatio * 6) : 0;
+    } else {
+      score += chg1d > 0 && chg1d <= 4 ? 30 : chg1d > 4 ? 12 : -15;
+      score += volumeRatio > 1.2 ? Math.min(25, volumeRatio * 7) : 0;
+      score += distanceFromHigh >= 10 && distanceFromHigh <= 45 && fromLow >= 15 ? 25 : 0;
+      score += fromHigh > -5 ? -10 : 0;
     }
 
-    score += chg1d > 0 && chg1d <= 4 ? 30 : chg1d > 4 ? 12 : -15;
-    score += volRatio > 1.2 ? Math.min(25, volRatio * 7) : 0;
-    score += distFromHigh >= 10 && distFromHigh <= 45 && from52wLow >= 15 ? 25 : 0;
-    score += from52wHigh > -5 ? -10 : 0;
     return score;
   }
 
-  private async fetchQuoteCandidates(universe: StockEntry[], signalFilter: SignalFilter, setup: SetupFilter, skipped: string[]): Promise<QuoteCandidate[]> {
+  private async fetchQuoteCandidates(
+    universe: StockEntry[],
+    direction: SignalFilter,
+    preset: ScreenerPreset,
+    skipped: string[],
+    signal?: AbortSignal,
+  ): Promise<QuoteCandidate[]> {
     const candidates: QuoteCandidate[] = [];
 
     for (const batch of this.chunks(universe, QUOTE_BATCH_SIZE)) {
+      throwIfAborted(signal);
       try {
-        const quotes = await yahooFinance.quote(batch.map(s => s.ticker), {
+        const quotes = await yahooFinance.quote(batch.map(stock => stock.ticker), {
           return: 'array',
           fields: [
-            'symbol',
-            'shortName',
-            'longName',
-            'regularMarketPrice',
-            'regularMarketChangePercent',
-            'regularMarketVolume',
-            'averageDailyVolume10Day',
-            'averageDailyVolume3Month',
-            'fiftyTwoWeekHigh',
-            'fiftyTwoWeekLow',
+            'symbol', 'shortName', 'longName', 'regularMarketPrice',
+            'regularMarketChangePercent', 'regularMarketVolume',
+            'averageDailyVolume10Day', 'averageDailyVolume3Month',
+            'fiftyTwoWeekHigh', 'fiftyTwoWeekLow', 'marketState',
+            'quoteType', 'fullExchangeName', 'exchange', 'currency',
           ] as any,
-        } as any).catch(() => []);
-
+        } as any);
         const bySymbol = new Map<string, any>();
         if (Array.isArray(quotes)) {
-          for (const q of quotes) {
-            if (q?.symbol) bySymbol.set(String(q.symbol).toUpperCase(), q);
+          for (const quote of quotes) {
+            if (quote?.symbol) bySymbol.set(String(quote.symbol).toUpperCase(), quote);
           }
         }
-
         for (const stock of batch) {
           const quote = bySymbol.get(stock.ticker.toUpperCase());
           if (!quote || quote.regularMarketPrice == null) {
@@ -294,12 +223,13 @@ export class IdxScannerService {
           candidates.push({
             ...stock,
             quote,
-            preScore: this.preScoreQuote(quote, signalFilter, setup),
+            preScore: this.preScoreQuote(quote, direction, preset),
           });
         }
       } catch {
         for (const retryBatch of this.chunks(batch, 10)) {
-          await Promise.all(retryBatch.map(async (stock) => {
+          throwIfAborted(signal);
+          await Promise.all(retryBatch.map(async stock => {
             const quote = await yahooFinance.quote(stock.ticker).catch(() => null);
             if (!quote || (quote as any).regularMarketPrice == null) {
               skipped.push(stock.ticker);
@@ -308,13 +238,12 @@ export class IdxScannerService {
             candidates.push({
               ...stock,
               quote,
-              preScore: this.preScoreQuote(quote, signalFilter, setup),
+              preScore: this.preScoreQuote(quote, direction, preset),
             });
           }));
           await this.sleep(100);
         }
       }
-
       if (batch.length === QUOTE_BATCH_SIZE) await this.sleep(150);
     }
 
@@ -323,252 +252,318 @@ export class IdxScannerService {
 
   private selectChartCandidates(candidates: QuoteCandidate[], mode: ScanMode): QuoteCandidate[] {
     if (mode === 'deep' || candidates.length <= FAST_FULL_SCAN_LIMIT) return candidates;
-
-    const limit = Math.min(candidates.length, Math.max(FAST_MIN_CANDIDATES, FAST_CANDIDATE_LIMIT));
-    const sorted = [...candidates].sort((a, b) => b.preScore - a.preScore);
-    const viable = sorted.filter(c => c.preScore > -100);
-    return (viable.length >= FAST_MIN_CANDIDATES ? viable : sorted).slice(0, limit);
+    return [...candidates]
+      .filter(candidate => candidate.preScore > -100)
+      .sort((left, right) => right.preScore - left.preScore)
+      .slice(0, FAST_CANDIDATE_LIMIT);
   }
 
-  /** Run the IDX momentum scan and return a structured result + pre-rendered text. */
+  private chartCandles(chartResult: any): Candle[] {
+    const quotes = Array.isArray(chartResult?.quotes) ? chartResult.quotes : [];
+    return quotes.flatMap((quote: any): Candle[] => {
+      const open = finiteNumber(quote?.open, Number.NaN);
+      const high = finiteNumber(quote?.high, Number.NaN);
+      const low = finiteNumber(quote?.low, Number.NaN);
+      const close = finiteNumber(quote?.close, Number.NaN);
+      if (![open, high, low, close].every(Number.isFinite)) return [];
+      return [{
+        date: quote?.date instanceof Date ? quote.date : new Date(quote?.date ?? Date.now()),
+        open,
+        high,
+        low,
+        close,
+        volume: Math.max(0, finiteNumber(quote?.volume)),
+      }];
+    });
+  }
+
+  private async enrichCandidate(
+    candidate: QuoteCandidate,
+    preset: ScreenerPreset,
+    abortSignal?: AbortSignal,
+  ): Promise<StockResult | null> {
+    throwIfAborted(abortSignal);
+    const period1 = new Date(Date.now() - HISTORY_DAYS * 86_400_000);
+    const chartResult = await yahooFinance.chart(candidate.ticker, {
+      period1,
+      interval: '1d',
+    }).catch(() => null);
+    const rawCandles = this.chartCandles(chartResult);
+    if (rawCandles.length < 20) return null;
+
+    const indicators = new IndicatorsService();
+    const chartAnalyzer = new ChartAnalyzer();
+    const candles = indicators.calculateAll(rawCandles);
+    const quote = candidate.quote;
+    const price = finiteNumber(quote?.regularMarketPrice, candles.at(-1)?.close ?? 0);
+    const volume = finiteNumber(quote?.regularMarketVolume, candles.at(-1)?.volume ?? 0);
+    const previousVolumes = candles.slice(-21, -1).map(candle => candle.volume).filter(value => value > 0);
+    const averageVolume = previousVolumes.length > 0
+      ? previousVolumes.reduce((sum, value) => sum + value, 0) / previousVolumes.length
+      : finiteNumber(quote?.averageDailyVolume10Day) || finiteNumber(quote?.averageDailyVolume3Month) || 1;
+    const volumeRatio = averageVolume > 0 ? volume / averageVolume : 1;
+    const last = candles.at(-1);
+    if (!last || price <= 0) return null;
+    last.Volume_Ratio = volumeRatio;
+
+    const high52w = finiteNumber(quote?.fiftyTwoWeekHigh);
+    const low52w = finiteNumber(quote?.fiftyTwoWeekLow);
+    const from52wHigh = high52w > 0 ? ((price - high52w) / high52w) * 100 : null;
+    const from52wLow = low52w > 0 ? ((price - low52w) / low52w) * 100 : null;
+    const chg1d = finiteNumber(quote?.regularMarketChangePercent, changePercent(price, candles.at(-2)?.close));
+    const chg5d = changePercent(price, candles.at(-6)?.close);
+    const chg20d = changePercent(price, candles.at(-21)?.close);
+    const patterns = chartAnalyzer.analyzeChartPatterns(candles);
+    const quoteSnapshot: QuoteSnapshot = {
+      name: quote?.longName ?? quote?.shortName ?? candidate.name,
+      fiftyTwoWeekHigh: high52w || null,
+      fiftyTwoWeekLow: low52w || null,
+      marketState: quote?.marketState ?? null,
+      quoteType: quote?.quoteType ?? null,
+      exchange: quote?.fullExchangeName ?? quote?.exchange ?? null,
+      currency: quote?.currency ?? null,
+      averageVolume,
+    };
+    const analysis = buildDashboardAnalysis({
+      ticker: candidate.ticker,
+      candles,
+      quote: quoteSnapshot,
+      patterns,
+    });
+    const asOf = last.date instanceof Date && !Number.isNaN(last.date.getTime())
+      ? last.date.toISOString()
+      : new Date().toISOString();
+    const expertSignal = buildExpertSignal(analysis, asOf);
+    const metrics = {
+      price,
+      chg1d,
+      chg5d,
+      chg20d,
+      volumeRatio,
+      rsi: analysis.structure.rsi,
+      macdHistogram: analysis.structure.macdHist,
+      from52wHigh,
+      from52wLow,
+      atrPercent: analysis.structure.atrPercent,
+    };
+    const screenScore = scoreScreenerPreset(preset, metrics);
+    const legacySignal: ScanSignal = expertSignal.action === 'BUY'
+      ? 'BUY'
+      : expertSignal.action === 'SELL'
+        ? 'AVOID'
+        : 'WATCH';
+    const macdSignal = metrics.macdHistogram == null
+      ? 'NEUTRAL'
+      : metrics.macdHistogram > 0
+        ? 'BULLISH'
+        : metrics.macdHistogram < 0
+          ? 'BEARISH'
+          : 'NEUTRAL';
+
+    return {
+      ticker: candidate.ticker,
+      name: candidate.name,
+      sector: candidate.sector,
+      metrics,
+      screenScore,
+      matchedPreset: preset,
+      expertSignal,
+      price,
+      chg1d,
+      chg5d,
+      chg20d,
+      volRatio: volumeRatio,
+      from52wHigh: from52wHigh ?? 0,
+      from52wLow: from52wLow ?? 0,
+      rsi: metrics.rsi,
+      macdSignal,
+      score: screenScore,
+      signal: legacySignal,
+      reason: expertSignal.reasons[0] ?? expertSignal.plan.setup,
+      setupType: screenScore >= MIN_SCREEN_SCORE ? preset : 'none',
+    };
+  }
+
+  private cacheKey(
+    sector: IdxSector,
+    direction: SignalFilter,
+    preset: ScreenerPreset,
+    mode: ScanMode,
+    minimumConviction: 'LOW' | 'MEDIUM' | 'HIGH',
+  ): string {
+    return [sector, direction, preset, mode, minimumConviction].join(':');
+  }
+
+  private getCached(key: string): ScanResult | null {
+    const cached = scanCache.get(key);
+    if (!cached) return null;
+    if (cached.expiresAt <= Date.now()) {
+      scanCache.delete(key);
+      return null;
+    }
+    return { ...cached.value, cacheHit: true };
+  }
+
+  private setCached(key: string, value: ScanResult): void {
+    if (scanCache.size >= MAX_CACHE_ENTRIES) {
+      const oldestKey = scanCache.keys().next().value;
+      if (oldestKey) scanCache.delete(oldestKey);
+    }
+    scanCache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+  }
+
   async scan(
     sector: IdxSector = 'all',
     signalFilter: SignalFilter = 'buy',
     setup: SetupFilter = 'momentum',
     mode: ScanMode = 'fast',
+    options: ScanOptions = {},
   ): Promise<ScanResult> {
+    const preset = normalizeSetupFilter(setup);
+    const minimumConviction = options.minimumConviction ?? 'LOW';
+    const cacheKey = this.cacheKey(sector, signalFilter, preset, mode, minimumConviction);
+    const cached = this.getCached(cacheKey);
+    if (cached) return cached;
+
     const release = mode === 'deep' ? deepScanWorkloadGate.tryAcquire() : () => undefined;
     if (!release) throw new WorkloadBusyError('A deep IDX scan is already running');
+    const startedAt = new Date().toISOString();
+
     try {
-    const universe = await this.getUniverse(sector);
-    const results:  StockResult[] = [];
-    const skipped:  string[] = [];
-    const quoted = await this.fetchQuoteCandidates(universe, signalFilter, setup, skipped);
-    const chartCandidates = this.selectChartCandidates(quoted, mode);
+      throwIfAborted(options.signal);
+      const universe = await this.getUniverse(sector);
+      const skipped: string[] = [];
+      const quoted = await this.fetchQuoteCandidates(universe, signalFilter, preset, skipped, options.signal);
+      const chartCandidates = this.selectChartCandidates(quoted, mode);
+      const enriched: StockResult[] = [];
 
-    log.info(
-      'idx-scanner',
-      `${mode} quote prefilter: ${chartCandidates.length}/${quoted.length} chart candidates from ${universe.length} universe`,
-    );
+      log.info(
+        'idx-scanner',
+        `${mode} quote prefilter: ${chartCandidates.length}/${quoted.length} chart candidates from ${universe.length} universe`,
+      );
 
-    // Fetch in small concurrent batches — polite to Yahoo Finance
-    const BATCH_SIZE = CHART_BATCH_SIZE;
-    for (let i = 0; i < chartCandidates.length; i += BATCH_SIZE) {
-      const batch = chartCandidates.slice(i, i + BATCH_SIZE);
-
-      await Promise.all(batch.map(async (stock) => {
-        try {
-          const quote = stock.quote;
-          const chartResult = await yahooFinance.chart(stock.ticker, {
-            period1:  new Date(Date.now() - 35 * 86_400_000),
-            interval: '1d',
-          }).catch(() => null);
-          const history: any[] = chartResult?.quotes ?? [];
-
-          if (!quote || (quote as any).regularMarketPrice == null) {
-            skipped.push(stock.ticker);
-            return;
+      for (const batch of this.chunks(chartCandidates, CHART_BATCH_SIZE)) {
+        throwIfAborted(options.signal);
+        const results = await Promise.all(batch.map(async candidate => {
+          try {
+            return await this.enrichCandidate(candidate, preset, options.signal);
+          } catch (error) {
+            if (options.signal?.aborted) throw error;
+            return null;
           }
-
-          const price   = (quote as any).regularMarketPrice        as number;
-          const chg1d   = (quote as any).regularMarketChangePercent as number ?? 0;
-          const high52w = (quote as any).fiftyTwoWeekHigh          as number | undefined;
-          const low52w  = (quote as any).fiftyTwoWeekLow           as number | undefined;
-          const vol     = (quote as any).regularMarketVolume        as number ?? 0;
-
-          const closes: number[] = (Array.isArray(history) ? history : [])
-            .map((d: any) => d.close as number)
-            .filter((c: number) => c != null && isFinite(c));
-
-          const chg5d  = closes.length >= 6
-            ? ((price - closes[closes.length - 6]) / closes[closes.length - 6]) * 100 : 0;
-          const chg20d = closes.length >= 21
-            ? ((price - closes[closes.length - 21]) / closes[closes.length - 21]) * 100 : 0;
-
-          const vols: number[] = (Array.isArray(history) ? history : [])
-            .map((d: any) => d.volume as number)
-            .filter((v: number) => v != null && v > 0);
-          const avgVol20  = vols.length > 0
-            ? vols.slice(-20).reduce((a, b) => a + b, 0) / Math.min(vols.length, 20) : 1;
-          const volRatio  = avgVol20 > 0 ? vol / avgVol20 : 1;
-
-          const from52wHigh = high52w != null && high52w > 0 ? ((price - high52w) / high52w) * 100 : 0;
-          const from52wLow  = low52w  != null && low52w  > 0 ? ((price - low52w)  / low52w)  * 100 : 0;
-
-          const score              = scoreStock(chg1d, chg5d, chg20d, volRatio, from52wHigh, from52wLow);
-          const { signal, reason } = classifySignal(score, chg5d, chg1d, volRatio, from52wHigh, from52wLow);
-
-          let setupType: SetupFilter | 'none' = 'none';
-          if (from52wHigh > -5 && chg1d > 0 && volRatio > 1.5) setupType = 'breakout';
-          else if (chg20d < -15) setupType = 'oversold';
-          else if (from52wLow < 8 && chg1d > 0.5 && chg5d <= 2) setupType = 'rebound';
-          else if (from52wLow < 3) setupType = 'all_time_low';
-          else if (chg5d < -3 && chg20d < -5) setupType = 'downtrend';
-          else if (score > 10) setupType = 'momentum';
-
-          results.push({
-            ticker: stock.ticker, name: stock.name, sector: stock.sector,
-            price, chg1d, chg5d, chg20d, volRatio,
-            from52wHigh, from52wLow, score, signal, reason, setupType,
-          });
-
-        } catch {
-          skipped.push(stock.ticker);
-        }
-      }));
-
-      if (i + BATCH_SIZE < chartCandidates.length) {
-        await this.sleep(250);
+        }));
+        results.forEach((result, index) => {
+          if (result) enriched.push(result);
+          else skipped.push(batch[index].ticker);
+        });
+        if (batch.at(-1) !== chartCandidates.at(-1)) await this.sleep(250);
       }
-    }
 
-    let finalResults = results;
-    if (setup !== 'momentum') {
-      finalResults = results.filter(r => r.setupType === setup);
-      if (setup === 'rebound') finalResults.sort((a,b) => (b.chg1d * b.volRatio) - (a.chg1d * a.volRatio));
-      if (setup === 'all_time_low') finalResults.sort((a,b) => a.from52wLow - b.from52wLow);
-      if (setup === 'downtrend') finalResults.sort((a,b) => a.chg20d - b.chg20d);
-      if (setup === 'breakout') finalResults.sort((a,b) => (b.chg1d * b.volRatio) - (a.chg1d * a.volRatio));
-      if (setup === 'oversold') finalResults.sort((a,b) => a.chg20d - b.chg20d);
+      const matched = enriched
+        .filter(result => result.screenScore >= MIN_SCREEN_SCORE)
+        .filter(result => convictionRank(result.expertSignal.conviction) >= convictionRank(minimumConviction))
+        .filter(result => {
+          if (signalFilter === 'buy') {
+            return result.expertSignal.action === 'BUY'
+              || (result.expertSignal.action === 'WATCH' && result.expertSignal.bias === 'BULL');
+          }
+          if (signalFilter === 'sell') {
+            return result.expertSignal.action === 'SELL'
+              || (result.expertSignal.action === 'WATCH' && result.expertSignal.bias === 'BEAR');
+          }
+          return true;
+        })
+        .sort((left, right) =>
+          right.screenScore - left.screenScore
+          || Math.abs(right.expertSignal.score) - Math.abs(left.expertSignal.score),
+        )
+        .slice(0, 100);
 
-      finalResults.forEach((r, i) => {
-        if (i < 8) { r.signal = 'BUY'; r.reason = `Top ${setup} match`; }
-        else if (i < 14) { r.signal = 'WATCH'; r.reason = `Good ${setup} match`; }
-        else { r.signal = 'AVOID'; }
-      });
-    } else {
-      finalResults.sort((a, b) => b.score - a.score);
-    }
-
-    const allBuys   = finalResults.filter(r => r.signal === 'BUY');
-    const allWatches = finalResults.filter(r => r.signal === 'WATCH');
-    const allAvoids  = finalResults.filter(r => r.signal === 'AVOID');
-
-    const filtered = signalFilter === 'sell' ? allAvoids
-      : signalFilter === 'buy' ? [...allBuys, ...allWatches]
-      : finalResults;
-
-    const buys   = filtered.filter(r => r.signal === 'BUY').slice(0, 8);
-    const watches = filtered.filter(r => r.signal === 'WATCH').slice(0, 6);
-    const avoids  = filtered.filter(r => r.signal === 'AVOID').slice(0, 4);
-
-    const avgScore = results.length > 0
-      ? results.reduce((a, r) => a + r.score, 0) / results.length : 0;
-
-    const breadthSignal =
-      allBuys.length >= results.length * 0.4 ? 'BROAD RALLY — many stocks moving' :
-      allBuys.length >= results.length * 0.2 ? 'SELECTIVE MOMENTUM — rotate carefully' :
-      allAvoids.length >= results.length * 0.5 ? 'WEAK MARKET — few safe entries' :
-      'MIXED — stock-picking environment';
-
-    const formatted = this.format(
-      sector,
-      mode,
-      universe.length,
-      chartCandidates.length,
-      results.length,
-      buys,
-      watches,
-      avoids,
-      skipped,
-      avgScore,
-      breadthSignal,
-      signalFilter,
-    );
-
-    return {
-      sector,
-      mode,
-      universeCount: universe.length,
-      candidateCount: chartCandidates.length,
-      totalScanned:  results.length,
-      buyCount:      allBuys.length,
-      watchCount:    allWatches.length,
-      avoidCount:    allAvoids.length,
-      avgScore,
-      breadthSignal,
-      buys, watches, avoids, skipped,
-      formatted,
-    };
+      const buyCount = enriched.filter(result => result.expertSignal.action === 'BUY').length;
+      const sellCount = enriched.filter(result => result.expertSignal.action === 'SELL').length;
+      const watchCount = enriched.filter(result => result.expertSignal.action === 'WATCH').length;
+      const bullishCount = enriched.filter(result => result.expertSignal.bias === 'BULL').length;
+      const bearishCount = enriched.filter(result => result.expertSignal.bias === 'BEAR').length;
+      const neutralCount = enriched.filter(result => result.expertSignal.bias === 'NEUTRAL').length;
+      const avgScore = enriched.length > 0
+        ? enriched.reduce((sum, result) => sum + result.expertSignal.score, 0) / enriched.length
+        : 0;
+      const breadthSignal = this.breadthSignal(enriched.length, bullishCount, bearishCount);
+      const buys = matched.filter(result => result.expertSignal.action === 'BUY').slice(0, 8);
+      const watches = matched.filter(result => result.expertSignal.action === 'WATCH').slice(0, 8);
+      const avoids = matched.filter(result => result.expertSignal.action === 'SELL').slice(0, 8);
+      const completedAt = new Date().toISOString();
+      const result: ScanResult = {
+        sector,
+        preset,
+        signalFilter,
+        mode,
+        startedAt,
+        completedAt,
+        universeCount: universe.length,
+        candidateCount: chartCandidates.length,
+        totalScanned: enriched.length,
+        buyCount,
+        sellCount,
+        watchCount,
+        avoidCount: sellCount,
+        bullishCount,
+        bearishCount,
+        neutralCount,
+        avgScore,
+        breadthSignal,
+        partial: chartCandidates.length < quoted.length || skipped.length > 0,
+        cacheHit: false,
+        results: matched,
+        buys,
+        watches,
+        avoids,
+        skipped: [...new Set(skipped)],
+        formatted: this.format(
+          sector,
+          preset,
+          mode,
+          universe.length,
+          enriched.length,
+          matched,
+          breadthSignal,
+        ),
+      };
+      this.setCached(cacheKey, result);
+      return result;
     } finally {
       release();
     }
   }
 
-  // ─── Pre-rendered text for agent observations ─────────────────────────────
-
-  private fmt(n: number, sign = false): string {
-    return (sign && n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+  private breadthSignal(total: number, bullish: number, bearish: number): string {
+    if (total === 0) return 'UNAVAILABLE — no enriched candidates';
+    if (bullish >= total * 0.5) return 'BROAD RALLY — bullish evidence dominates';
+    if (bullish >= total * 0.3) return 'SELECTIVE MOMENTUM — rotate carefully';
+    if (bearish >= total * 0.5) return 'WEAK MARKET — bearish evidence dominates';
+    return 'MIXED — stock-picking environment';
   }
 
   private format(
-    sector:        string,
-    mode:          ScanMode,
+    sector: string,
+    preset: ScreenerPreset,
+    mode: ScanMode,
     universeCount: number,
-    candidateCount:number,
-    total:         number,
-    buys:          StockResult[],
-    watches:       StockResult[],
-    avoids:        StockResult[],
-    skipped:       string[],
-    avgScore:      number,
+    enrichedCount: number,
+    results: StockResult[],
     breadthSignal: string,
-    signalFilter:  string,
   ): string {
-    const lines: string[] = [
-      `IDX MOMENTUM SCAN — ${sector.toUpperCase()} (${total} stocks scanned)`,
-      '',
-    ];
-
-    lines[0] = `IDX MOMENTUM SCAN - ${sector.toUpperCase()} (${mode.toUpperCase()} mode)`;
-    lines.splice(1, 0, `Universe: ${universeCount} stocks  |  quote-screened: ${candidateCount}  |  chart-scanned: ${total}`);
-
-    if (buys.length === 0 && watches.length === 0) {
-      lines.push('No strong momentum setups found right now.');
-      lines.push('Market may be consolidating — consider waiting for a cleaner trigger.');
-    } else {
-      if (buys.length > 0) {
-        lines.push('── BUY MOMENTUM (hidden movers, scored by strength) ──────────');
-        for (const r of buys) {
-          lines.push(`  [SCORE ${r.score.toFixed(0).padStart(3)}] ${r.ticker.replace('.JK', '')} · ${r.name} [${r.sector}]`);
-          lines.push(`    price: IDR ${r.price.toLocaleString()}  1d: ${this.fmt(r.chg1d, true)}  5d: ${this.fmt(r.chg5d, true)}  20d: ${this.fmt(r.chg20d, true)}`);
-          lines.push(`    vol: ${r.volRatio.toFixed(2)}x avg  |  from 52wH: ${r.from52wHigh.toFixed(1)}%  from 52wL: +${r.from52wLow.toFixed(1)}%`);
-          lines.push(`    signal: ${r.reason}`);
-          lines.push('');
-        }
-      }
-
-      if (watches.length > 0) {
-        lines.push('── WATCH LIST (momentum warming up) ─────────────────────────');
-        for (const r of watches) {
-          lines.push(
-            `  [SCORE ${r.score.toFixed(0).padStart(3)}] ${r.ticker.replace('.JK', '')} · ${r.name}` +
-            `  |  ${this.fmt(r.chg1d, true)} today  ${this.fmt(r.chg5d, true)} 5d` +
-            `  |  vol ${r.volRatio.toFixed(2)}x  |  ${r.reason}`,
-          );
-        }
-        lines.push('');
-      }
-
-      if (avoids.length > 0 && signalFilter === 'any') {
-        lines.push('── AVOID (weak momentum / downtrend) ────────────────────────');
-        for (const r of avoids) {
-          lines.push(`  ${r.ticker.replace('.JK', '')} · ${r.name}  |  ${this.fmt(r.chg5d, true)} 5d  |  ${r.reason}`);
-        }
-        lines.push('');
-      }
-    }
-
-    lines.push('── SECTOR BREADTH ───────────────────────────────────────────');
-    lines.push(`  chart-scanned: ${total}  |  BUY: ${buys.length}  WATCH: ${watches.length}  AVOID: ${avoids.length}`);
-    lines.push(`  avg momentum score: ${avgScore.toFixed(1)} / 100`);
-    lines.push(`  breadth signal: ${breadthSignal}`);
-
-    if (skipped.length > 0) {
-      lines.push(`  (${skipped.length} tickers skipped: ${skipped.slice(0, 5).join(', ')})`);
-    }
-
-    return lines.join('\n');
+    const lines = results.slice(0, 12).map((result, index) => {
+      const signal = result.expertSignal;
+      const warning = signal.warnings[0] ? ` | Warning: ${signal.warnings[0]}` : '';
+      return `${index + 1}. ${result.ticker} — screen ${result.screenScore}/100 | ${signal.action} ${signal.conviction} (${signal.score >= 0 ? '+' : ''}${signal.score}) | ${signal.reasons[0] ?? signal.plan.setup}${warning}`;
+    });
+    return [
+      `IDX SCREENER — ${preset.replaceAll('_', ' ').toUpperCase()} (${sector}, ${mode})`,
+      `Coverage: ${enrichedCount} enriched from ${universeCount} symbols. Breadth: ${breadthSignal}.`,
+      lines.length > 0 ? lines.join('\n') : 'No candidates met the selected screen and direction filters.',
+      'Expert Signal is deterministic technical confluence, not a forecast. Confirm entries with current price and volume.',
+    ].join('\n');
   }
 }
 

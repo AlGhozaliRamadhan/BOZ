@@ -293,9 +293,9 @@ function ToolResultCard({ result }: { result: ToolResult }) {
       <div className="tool-card animate-fadeIn">
         <div className="tool-card-kicker">
           <i className="fa-solid fa-radar" style={{ marginRight: '5px' }}></i>
-          IDX Momentum Scanner
+          IDX Screeners & Expert Signal
         </div>
-        <div className="tool-card-title" style={{ fontSize: '13px' }}>{result.fact || 'Momentum scan'}</div>
+        <div className="tool-card-title" style={{ fontSize: '13px' }}>{result.fact || 'Market screen'}</div>
         {lines.length > 0 && (
           <ul className="tool-card-list">
             {(expanded ? lines : lines.slice(0, 4)).map((line, i) => (

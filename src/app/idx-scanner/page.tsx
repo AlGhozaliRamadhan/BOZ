@@ -1,291 +1,367 @@
 'use client';
 
-import { useState } from 'react';
-import { ThoughtAccordion } from '@/app/components/ui/ThoughtAccordion';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import type {
+  ScreenerDirection,
+  ScreenerMode,
+  ScreenerPreset,
+  ScreenerResponse,
+  ScreenerResult,
+} from '@/shared/screener-contract';
 
-interface ScanResult {
-  ticker: string;
-  price: number;
-  changePercent: number;
-  rsi: number;
-  macdSignal: string;
-  volumeRatio: number;
-  pattern: string;
-  score: number;
-}
-
-type SortKey = keyof ScanResult;
+type ConvictionFilter = 'LOW' | 'MEDIUM' | 'HIGH';
+type SortKey = 'ticker' | 'price' | 'chg1d' | 'rsi' | 'volume' | 'screenScore' | 'expertScore';
 type SortDirection = 'asc' | 'desc';
 
+const PRESETS: Array<{ value: ScreenerPreset; label: string; description: string }> = [
+  { value: 'momentum', label: 'Momentum', description: 'Sustained price strength with participation' },
+  { value: 'breakout', label: 'Breakout', description: 'Price pressing highs with volume confirmation' },
+  { value: 'rebound', label: 'Rebound', description: 'Recovery from a recent low or pullback' },
+  { value: 'oversold', label: 'Oversold', description: 'Stretched weakness with reversal potential' },
+  { value: 'downtrend', label: 'Downtrend', description: 'Deteriorating trend and bearish continuation' },
+  { value: 'near_52w_low', label: 'Near 52W Low', description: 'Price trading near its 52-week floor' },
+];
+
+const SECTORS = [
+  ['all', 'All sectors'],
+  ['banking', 'Banking'],
+  ['consumer', 'Consumer'],
+  ['mining', 'Mining'],
+  ['energy', 'Energy'],
+  ['tech', 'Technology'],
+  ['property', 'Property'],
+  ['telecom', 'Telecom'],
+  ['healthcare', 'Healthcare'],
+  ['industrial', 'Industrial'],
+] as const;
+
+function formatNumber(value: number | null | undefined, digits = 1): string {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '—';
+}
+
+function formatPrice(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value.toLocaleString(undefined, { maximumFractionDigits: 2 })
+    : '—';
+}
+
+function signed(value: number | null | undefined, digits = 1): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  return `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`;
+}
+
+function sortValue(result: ScreenerResult, key: SortKey): string | number {
+  switch (key) {
+    case 'ticker': return result.ticker;
+    case 'price': return result.metrics.price;
+    case 'chg1d': return result.metrics.chg1d;
+    case 'rsi': return result.metrics.rsi ?? Number.NEGATIVE_INFINITY;
+    case 'volume': return result.metrics.volumeRatio ?? Number.NEGATIVE_INFINITY;
+    case 'expertScore': return result.expertSignal.score;
+    case 'screenScore':
+    default: return result.screenScore;
+  }
+}
+
 export default function IdxScannerPage() {
-  const [results, setResults] = useState<ScanResult[]>([]);
+  const router = useRouter();
+  const abortRef = useRef<AbortController | null>(null);
+  const [preset, setPreset] = useState<ScreenerPreset>('momentum');
+  const [sector, setSector] = useState('all');
+  const [direction, setDirection] = useState<ScreenerDirection>('buy');
+  const [minimumConviction, setMinimumConviction] = useState<ConvictionFilter>('LOW');
+  const [mode, setMode] = useState<ScreenerMode>('fast');
+  const [response, setResponse] = useState<ScreenerResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasScanned, setHasScanned] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>('score');
-  const [sortDir, setSortDir] = useState<SortDirection>('desc');
-  const [scanThoughts, setScanThoughts] = useState<string[]>([]);
+  const [expandedTicker, setExpandedTicker] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>('screenScore');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const selectedPreset = PRESETS.find(item => item.value === preset) ?? PRESETS[0];
+  const sortedResults = useMemo(() => {
+    if (!response) return [];
+    return [...response.results].sort((left, right) => {
+      const a = sortValue(left, sortKey);
+      const b = sortValue(right, sortKey);
+      const comparison = typeof a === 'number' && typeof b === 'number'
+        ? a - b
+        : String(a).localeCompare(String(b));
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [response, sortDirection, sortKey]);
 
   const handleScan = async () => {
+    if (loading) {
+      abortRef.current?.abort();
+      return;
+    }
+
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
     setError(null);
+    setExpandedTicker(null);
 
     try {
-      const res = await fetch('/api/idx/scan');
-      if (!res.ok) throw new Error('Scanner failed. Please try again.');
-
-      const data = await res.json();
-      // The API returns { buys, watches, avoids } — flatten into a single array
-      const allResults: ScanResult[] = [];
-      for (const item of [...(data.buys ?? []), ...(data.watches ?? []), ...(data.avoids ?? [])]) {
-        allResults.push({
-          ticker: item.ticker ?? item.symbol ?? '—',
-          price: item.price ?? item.last_price ?? 0,
-          changePercent: item.change_pct ?? item.changePercent ?? 0,
-          rsi: item.rsi ?? item.RSI ?? 0,
-          macdSignal: item.macd_signal ?? item.macdSignal ?? '—',
-          volumeRatio: item.volume_ratio ?? item.volumeRatio ?? 0,
-          pattern: item.pattern ?? item.setup ?? '—',
-          score: item.score ?? item.total_score ?? 0,
-        });
+      const params = new URLSearchParams({
+        preset,
+        sector,
+        direction,
+        minimumConviction,
+        mode,
+      });
+      const apiResponse = await fetch(`/api/idx/scan?${params.toString()}`, {
+        signal: controller.signal,
+      });
+      const data = await apiResponse.json().catch(() => ({}));
+      if (!apiResponse.ok) {
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Scanner failed. Please try again.');
       }
-      setResults(allResults);
-
-      const generatedThoughts: string[] = [];
-      if (data.summary) {
-        generatedThoughts.push(`[MARKET BREADTH] Indonesia universe screening complete. Breadth signal: ${data.summary.breadthSignal || 'NEUTRAL'} | Avg momentum score: ${data.summary.avgScore?.toFixed(1) || '--'}/100.`);
-        generatedThoughts.push(`[CANDIDATE DISTRIBUTION] Identified ${data.summary.buyCount ?? data.buys?.length ?? 0} high-conviction BUY setups, ${data.summary.watchCount ?? data.watches?.length ?? 0} WATCH candidates, and ${data.summary.avoidCount ?? data.avoids?.length ?? 0} AVOID stocks out of ${data.universeCount || data.totalScanned || 0} scanned.`);
-      }
-      if (data.buys && data.buys.length > 0) {
-        const topBuys = data.buys.slice(0, 3).map((b: any) => `${b.ticker || b.symbol} (${b.setup || b.pattern || 'Momentum'} - Score: ${b.score || b.total_score})`).join(', ');
-        generatedThoughts.push(`[TOP SETUP RATIONALE] Prime momentum setups: ${topBuys}. Filtered with strict volume confirmation (Volume Ratio > 1.2x) and healthy RSI levels.`);
-      }
-      setScanThoughts(generatedThoughts);
-      setHasScanned(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setResponse(data as ScreenerResponse);
+    } catch (scanError) {
+      if (controller.signal.aborted) return;
+      setError(scanError instanceof Error ? scanError.message : 'Scanner failed. Please try again.');
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
       setLoading(false);
     }
   };
 
   const handleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
-    } else {
+    if (sortKey === key) setSortDirection(current => current === 'asc' ? 'desc' : 'asc');
+    else {
       setSortKey(key);
-      setSortDir('desc');
+      setSortDirection('desc');
     }
   };
 
-  const sortedResults = [...results].sort((a, b) => {
-    const aVal = a[sortKey];
-    const bVal = b[sortKey];
-    if (typeof aVal === 'number' && typeof bVal === 'number') {
-      return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
-    }
-    const aStr = String(aVal);
-    const bStr = String(bVal);
-    return sortDir === 'asc' ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
-  });
-
-  const getSortIcon = (key: SortKey) => {
-    if (sortKey !== key) return '↕';
-    return sortDir === 'asc' ? '↑' : '↓';
-  };
-
-  const getRsiClass = (rsi: number): string => {
-    if (rsi > 70) return 'table-cell-negative';
-    if (rsi < 30) return 'table-cell-positive';
-    return '';
-  };
-
-  const getScoreBadgeClass = (score: number): string => {
-    if (score >= 70) return 'badge-high';
-    if (score >= 40) return 'badge-medium';
-    return 'badge-low';
-  };
+  const sortIcon = (key: SortKey) => sortKey === key ? (sortDirection === 'asc' ? '↑' : '↓') : '↕';
 
   return (
-    <div className="animate-fadeIn">
-      {/* Header */}
-      <div className="page-header">
-        <h1 className="page-title">IDX Momentum Scanner</h1>
-        <p className="page-subtitle">Indonesia Stock Exchange momentum screening</p>
-      </div>
+    <div className="screeners-page animate-fadeIn">
+      <header className="screeners-header">
+        <div>
+          <div className="screeners-eyebrow">IDX research workspace</div>
+          <h1>Screeners</h1>
+          <p>Find candidates by setup, then separate screen fit from BOZ&apos;s evidence-based Expert Signal.</p>
+        </div>
+        <div className="screeners-disclaimer">Research signal · not a forecast</div>
+      </header>
 
-      {/* Controls */}
-      <div className="scanner-controls">
-        <button
-          className="btn btn-primary btn-lg"
-          onClick={handleScan}
-          disabled={loading}
-        >
-          {loading ? (
-            <>
-              <span className="spinner spinner-sm"></span>
-              Scanning...
-            </>
-          ) : (
-            <>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-              Scan IDX
-            </>
-          )}
+      <section className="screeners-presets" aria-label="Screener presets">
+        {PRESETS.map(item => (
+          <button
+            key={item.value}
+            type="button"
+            className={`screeners-preset${preset === item.value ? ' is-active' : ''}`}
+            onClick={() => setPreset(item.value)}
+            disabled={loading}
+          >
+            <span>{item.label}</span>
+            <small>{item.description}</small>
+          </button>
+        ))}
+      </section>
+
+      <section className="screeners-control-panel" aria-label="Scan controls">
+        <label>
+          <span>Sector</span>
+          <select value={sector} onChange={event => setSector(event.target.value)} disabled={loading}>
+            {SECTORS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Direction</span>
+          <select value={direction} onChange={event => setDirection(event.target.value as ScreenerDirection)} disabled={loading}>
+            <option value="buy">Bullish / buy</option>
+            <option value="sell">Bearish / sell</option>
+            <option value="any">Any direction</option>
+          </select>
+        </label>
+        <label>
+          <span>Minimum conviction</span>
+          <select value={minimumConviction} onChange={event => setMinimumConviction(event.target.value as ConvictionFilter)} disabled={loading}>
+            <option value="LOW">Low or better</option>
+            <option value="MEDIUM">Medium or better</option>
+            <option value="HIGH">High only</option>
+          </select>
+        </label>
+        <label>
+          <span>Coverage</span>
+          <select value={mode} onChange={event => setMode(event.target.value as ScreenerMode)} disabled={loading}>
+            <option value="fast">Fast · top 60 enriched</option>
+            <option value="deep">Deep · full universe</option>
+          </select>
+        </label>
+        <button type="button" className={`screeners-run${loading ? ' is-cancel' : ''}`} onClick={handleScan}>
+          {loading ? 'Cancel scan' : `Run ${selectedPreset.label}`}
         </button>
-        {hasScanned && !loading && (
-          <span className="badge badge-cyan">{results.length} stocks found</span>
-        )}
-      </div>
+      </section>
 
-      {/* Loading */}
+      {mode === 'deep' && !loading && (
+        <p className="screeners-mode-note">Deep mode enriches every valid quote and can take several minutes. Only one deep scan runs at a time.</p>
+      )}
+
       {loading && (
-        <div className="loading-overlay">
-          <div className="spinner spinner-lg"></div>
-          <p>Scanning IDX markets...</p>
-          <p className="page-subtitle">Analyzing momentum, volume, and technical patterns</p>
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div className="glass-card">
-          <div className="empty-state">
-            <div className="empty-state-icon">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="15" y1="9" x2="9" y2="15" />
-                <line x1="9" y1="9" x2="15" y2="15" />
-              </svg>
-            </div>
-            <h3 className="empty-state-title">Scan Failed</h3>
-            <p className="empty-state-text">{error}</p>
-            <button className="btn btn-primary" onClick={handleScan}>Retry</button>
+        <section className="screeners-loading" aria-live="polite">
+          <span className="spinner spinner-lg" />
+          <div>
+            <strong>Screening IDX equities</strong>
+            <p>Quote prefilter → 420-day indicators → chart structure → Expert Signal</p>
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Results Table */}
-      {hasScanned && !loading && !error && (
+      {error && (
+        <section className="screeners-error" role="alert">
+          <strong>Scan failed</strong>
+          <span>{error}</span>
+          <button type="button" onClick={handleScan}>Retry</button>
+        </section>
+      )}
+
+      {response && !loading && !error && (
         <>
-          {scanThoughts.length > 0 && (
-            <div style={{ marginBottom: 'var(--space-4)' }}>
-              <ThoughtAccordion
-                thoughts={scanThoughts}
-                title="IDX Scanner AI Momentum Deductions & Breadth Analysis"
-                defaultOpen={false}
-                accent="cyan"
-              />
+          <section className="screeners-summary" aria-label="Scan summary">
+            <article>
+              <span>Matches</span>
+              <strong>{response.results.length}</strong>
+              <small>{response.query.preset.replaceAll('_', ' ')}</small>
+            </article>
+            <article>
+              <span>Enriched</span>
+              <strong>{response.meta.enrichedCount}</strong>
+              <small>of {response.meta.universeCount} symbols</small>
+            </article>
+            <article>
+              <span>Active setups</span>
+              <strong>{response.summary.buyCount + response.summary.sellCount}</strong>
+              <small>{response.summary.buyCount} buy · {response.summary.sellCount} sell across enriched</small>
+            </article>
+            <article>
+              <span>Average signal</span>
+              <strong>{signed(response.summary.averageScore, 0)}</strong>
+              <small>-100 bearish · +100 bullish</small>
+            </article>
+          </section>
+
+          <section className="screeners-breadth">
+            <div>
+              <span>Market breadth</span>
+              <strong>{response.summary.breadthSignal}</strong>
             </div>
-          )}
+            <div className="screeners-breadth__meta">
+              <span>{response.summary.bullish} bullish</span>
+              <span>{response.summary.neutral} neutral</span>
+              <span>{response.summary.bearish} bearish</span>
+              {response.meta.partial && <span className="is-warning">Partial coverage</span>}
+              {response.meta.cacheHit && <span>Cached result</span>}
+            </div>
+          </section>
 
           {sortedResults.length > 0 ? (
-            <div className="scanner-table-wrapper animate-slideUp">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th onClick={() => handleSort('ticker')} style={{ cursor: 'pointer' }}>
-                      Ticker {getSortIcon('ticker')}
-                    </th>
-                    <th onClick={() => handleSort('price')} style={{ cursor: 'pointer' }}>
-                      Price {getSortIcon('price')}
-                    </th>
-                    <th onClick={() => handleSort('changePercent')} style={{ cursor: 'pointer' }}>
-                      Change% {getSortIcon('changePercent')}
-                    </th>
-                    <th onClick={() => handleSort('rsi')} style={{ cursor: 'pointer' }}>
-                      RSI {getSortIcon('rsi')}
-                    </th>
-                    <th onClick={() => handleSort('macdSignal')} style={{ cursor: 'pointer' }}>
-                      MACD Signal {getSortIcon('macdSignal')}
-                    </th>
-                    <th onClick={() => handleSort('volumeRatio')} style={{ cursor: 'pointer' }}>
-                      Volume Ratio {getSortIcon('volumeRatio')}
-                    </th>
-                    <th onClick={() => handleSort('pattern')} style={{ cursor: 'pointer' }}>
-                      Pattern {getSortIcon('pattern')}
-                    </th>
-                    <th onClick={() => handleSort('score')} style={{ cursor: 'pointer' }}>
-                      Score {getSortIcon('score')}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedResults.map((row, i) => (
-                    <tr key={i}>
-                      <td>
-                        <span style={{ fontWeight: 700, color: 'var(--accent-cyan)' }}>{row.ticker}</span>
-                      </td>
-                      <td>{row.price?.toLocaleString()}</td>
-                      <td className={row.changePercent >= 0 ? 'table-cell-positive' : 'table-cell-negative'}>
-                        {row.changePercent >= 0 ? '+' : ''}{row.changePercent?.toFixed(2)}%
-                      </td>
-                      <td className={getRsiClass(row.rsi)}>
-                        {row.rsi?.toFixed(1)}
-                      </td>
-                      <td>
-                        <span className={`badge ${
-                          row.macdSignal?.toLowerCase() === 'bullish' ? 'badge-bull' :
-                          row.macdSignal?.toLowerCase() === 'bearish' ? 'badge-bear' :
-                          'badge-neutral'
-                        }`}>
-                          {row.macdSignal}
-                        </span>
-                      </td>
-                      <td className={row.volumeRatio > 1.5 ? 'table-cell-positive' : ''}>
-                        {row.volumeRatio?.toFixed(2)}x
-                      </td>
-                      <td>
-                        {row.pattern ? (
-                          <span className="badge badge-violet">{row.pattern}</span>
-                        ) : (
-                          <span className="badge badge-neutral">—</span>
-                        )}
-                      </td>
-                      <td>
-                        <span className={`badge ${getScoreBadgeClass(row.score)}`}>
-                          {row.score}
-                        </span>
-                      </td>
+            <section className="screeners-results" aria-label="Screener results">
+              <div className="screeners-table-wrap">
+                <table className="screeners-table">
+                  <thead>
+                    <tr>
+                      <th><button onClick={() => handleSort('ticker')}>Ticker {sortIcon('ticker')}</button></th>
+                      <th>Expert Signal</th>
+                      <th><button onClick={() => handleSort('price')}>Price {sortIcon('price')}</button></th>
+                      <th><button onClick={() => handleSort('chg1d')}>1D {sortIcon('chg1d')}</button></th>
+                      <th><button onClick={() => handleSort('rsi')}>RSI {sortIcon('rsi')}</button></th>
+                      <th><button onClick={() => handleSort('volume')}>Volume {sortIcon('volume')}</button></th>
+                      <th><button onClick={() => handleSort('screenScore')}>Match {sortIcon('screenScore')}</button></th>
+                      <th><button onClick={() => handleSort('expertScore')}>Signal {sortIcon('expertScore')}</button></th>
+                      <th><span className="sr-only">Actions</span></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="glass-card">
-              <div className="empty-state">
-                <div className="empty-state-icon">
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="11" cy="11" r="8" />
-                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                  </svg>
-                </div>
-                <h3 className="empty-state-title">No Results</h3>
-                <p className="empty-state-text">No momentum stocks found matching the criteria. Try scanning again later.</p>
+                  </thead>
+                  <tbody>
+                    {sortedResults.map(result => {
+                      const isExpanded = expandedTicker === result.ticker;
+                      const signal = result.expertSignal;
+                      return (
+                        <Fragment key={result.ticker}>
+                          <tr className={isExpanded ? 'is-expanded' : undefined}>
+                            <td>
+                              <button className="screeners-ticker" onClick={() => setExpandedTicker(isExpanded ? null : result.ticker)}>
+                                <strong>{result.ticker.replace(/\.JK$/i, '')}</strong>
+                                <span>{result.sector}</span>
+                              </button>
+                            </td>
+                            <td>
+                              <span className={`expert-signal expert-signal--${signal.action.toLowerCase()}`}>{signal.action}</span>
+                              <small className="expert-conviction">{signal.conviction}</small>
+                            </td>
+                            <td>{formatPrice(result.metrics.price)}</td>
+                            <td className={result.metrics.chg1d >= 0 ? 'is-positive' : 'is-negative'}>{signed(result.metrics.chg1d)}%</td>
+                            <td>{formatNumber(result.metrics.rsi)}</td>
+                            <td>{formatNumber(result.metrics.volumeRatio, 2)}{result.metrics.volumeRatio != null ? 'x' : ''}</td>
+                            <td><strong>{result.screenScore}</strong><span className="screeners-score-denom">/100</span></td>
+                            <td className={signal.score > 0 ? 'is-positive' : signal.score < 0 ? 'is-negative' : undefined}>{signed(signal.score, 0)}</td>
+                            <td><button className="screeners-expand" onClick={() => setExpandedTicker(isExpanded ? null : result.ticker)} aria-expanded={isExpanded}>{isExpanded ? '−' : '+'}</button></td>
+                          </tr>
+                          {isExpanded && (
+                            <tr key={`${result.ticker}-details`} className="screeners-detail-row">
+                              <td colSpan={9}>
+                                <div className="screeners-detail">
+                                  <div className="screeners-detail__evidence">
+                                    <h3>Why this signal</h3>
+                                    <ul>{signal.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
+                                  </div>
+                                  <div className="screeners-detail__plan">
+                                    <h3>Risk-defined plan</h3>
+                                    <dl>
+                                      <div><dt>Status</dt><dd>{signal.status}</dd></div>
+                                      <div><dt>Setup</dt><dd>{signal.plan.setup}</dd></div>
+                                      <div><dt>Entry</dt><dd>{signal.plan.entryLabel}</dd></div>
+                                      <div><dt>Stop</dt><dd>{formatPrice(signal.plan.stop)}</dd></div>
+                                      <div><dt>Targets</dt><dd>{formatPrice(signal.plan.target1)} / {formatPrice(signal.plan.target2)}</dd></div>
+                                      <div><dt>R/R</dt><dd>{signal.plan.riskReward != null ? `${signal.plan.riskReward.toFixed(2)}R` : '—'}</dd></div>
+                                    </dl>
+                                  </div>
+                                  <div className="screeners-detail__quality">
+                                    <h3>Quality & risk</h3>
+                                    <p>Data completeness: <strong>{signal.dataQuality}%</strong></p>
+                                    <p>Technical candle: {new Date(signal.asOf).toLocaleString()}</p>
+                                    <p>{signal.plan.invalidation}</p>
+                                    {signal.warnings.map(warning => <p className="screeners-warning" key={warning}>{warning}</p>)}
+                                    <button type="button" onClick={() => router.push(`/dashboard/${encodeURIComponent(result.ticker)}`)}>Open full intelligence brief</button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-            </div>
+              <footer className="screeners-results-footer">
+                <span>Completed {new Date(response.meta.completedAt).toLocaleString()}</span>
+                <span>{response.meta.skippedCount} unavailable symbols</span>
+              </footer>
+            </section>
+          ) : (
+            <section className="screeners-empty">
+              <h2>No candidates met every filter</h2>
+              <p>Try lowering minimum conviction, selecting any direction, or switching to deep coverage.</p>
+            </section>
           )}
         </>
       )}
 
-      {/* Initial Empty State */}
-      {!hasScanned && !loading && !error && (
-        <div className="glass-card">
-          <div className="empty-state">
-            <div className="empty-state-icon">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-            </div>
-            <h3 className="empty-state-title">IDX Momentum Scanner</h3>
-            <p className="empty-state-text">Click &quot;Scan IDX&quot; to screen Indonesia Stock Exchange stocks for momentum, volume breakouts, and technical patterns.</p>
-          </div>
-        </div>
+      {!response && !loading && !error && (
+        <section className="screeners-empty screeners-empty--initial">
+          <div className="screeners-empty__icon">⌁</div>
+          <h2>Choose a screen and run it</h2>
+          <p>Fast mode quote-screens the IDX universe and performs full technical enrichment on the strongest 60 candidates.</p>
+        </section>
       )}
     </div>
   );

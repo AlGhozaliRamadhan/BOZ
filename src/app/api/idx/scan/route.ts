@@ -1,24 +1,27 @@
 import { NextRequest } from 'next/server';
 import { jsonResponse, errorResponse } from '@/app/lib/api-helpers';
-import { IdxScannerService } from '@/services/market/idx.scanner.service';
+import { idxScannerService } from '@/services/market/idx.scanner.service';
 import type { IdxSector, SignalFilter, SetupFilter, ScanMode } from '@/services/market/idx.scanner.service';
 import { WorkloadBusyError } from '@/services/security/workload-gate';
+import { log } from '@/utils/logger';
 
 const VALID_SECTORS: IdxSector[] = [
   'all', 'banking', 'consumer', 'mining', 'energy',
   'tech', 'property', 'telecom', 'healthcare', 'industrial',
 ];
 const VALID_SIGNALS: SignalFilter[] = ['buy', 'sell', 'any'];
-const VALID_SETUPS: SetupFilter[] = ['momentum', 'rebound', 'all_time_low', 'downtrend', 'breakout', 'oversold'];
+const VALID_SETUPS: SetupFilter[] = ['momentum', 'rebound', 'near_52w_low', 'all_time_low', 'downtrend', 'breakout', 'oversold'];
 const VALID_MODES: ScanMode[] = ['fast', 'deep'];
+const VALID_CONVICTIONS = ['LOW', 'MEDIUM', 'HIGH'] as const;
 
 export async function GET(request: NextRequest) {
   try {
     const params = request.nextUrl.searchParams;
     const sector = (params.get('sector') ?? 'all') as IdxSector;
-    const signal = (params.get('signal') ?? 'buy') as SignalFilter;
-    const setup = (params.get('setup') ?? 'momentum') as SetupFilter;
+    const signal = (params.get('direction') ?? params.get('signal') ?? 'buy') as SignalFilter;
+    const setup = (params.get('preset') ?? params.get('setup') ?? 'momentum') as SetupFilter;
     const mode = (params.get('mode') ?? 'fast') as ScanMode;
+    const minimumConviction = (params.get('minimumConviction') ?? 'LOW').toUpperCase() as typeof VALID_CONVICTIONS[number];
 
     if (!VALID_SECTORS.includes(sector)) {
       return errorResponse(`Invalid sector. Valid: ${VALID_SECTORS.join(', ')}`, 400);
@@ -32,24 +35,55 @@ export async function GET(request: NextRequest) {
     if (!VALID_MODES.includes(mode)) {
       return errorResponse(`Invalid mode. Valid: ${VALID_MODES.join(', ')}`, 400);
     }
+    if (!VALID_CONVICTIONS.includes(minimumConviction)) {
+      return errorResponse(`Invalid minimumConviction. Valid: ${VALID_CONVICTIONS.join(', ')}`, 400);
+    }
 
-    const scanner = new IdxScannerService();
-    const result = await scanner.scan(sector, signal, setup, mode);
+    const result = await idxScannerService.scan(sector, signal, setup, mode, {
+      minimumConviction,
+      signal: request.signal,
+    });
 
     return jsonResponse({
-      timestamp: new Date().toISOString(),
+      schemaVersion: 1,
+      timestamp: result.completedAt,
+      query: {
+        sector: result.sector,
+        preset: result.preset,
+        direction: result.signalFilter,
+        mode: result.mode,
+        minimumConviction,
+      },
+      meta: {
+        startedAt: result.startedAt,
+        completedAt: result.completedAt,
+        universeCount: result.universeCount,
+        candidateCount: result.candidateCount,
+        enrichedCount: result.totalScanned,
+        skippedCount: result.skipped.length,
+        partial: result.partial,
+        cacheHit: result.cacheHit,
+      },
+      summary: {
+        bullish: result.bullishCount,
+        bearish: result.bearishCount,
+        neutral: result.neutralCount,
+        buyCount: result.buyCount,
+        sellCount: result.sellCount,
+        watchCount: result.watchCount,
+        avoidCount: result.avoidCount,
+        averageScore: result.avgScore,
+        avgScore: result.avgScore,
+        breadthSignal: result.breadthSignal,
+      },
+      results: result.results,
+
+      // Compatibility fields for clients using the pre-v1 scanner response.
       sector: result.sector,
       mode: result.mode,
       universeCount: result.universeCount,
       candidateCount: result.candidateCount,
       totalScanned: result.totalScanned,
-      summary: {
-        buyCount: result.buyCount,
-        watchCount: result.watchCount,
-        avoidCount: result.avoidCount,
-        avgScore: result.avgScore,
-        breadthSignal: result.breadthSignal,
-      },
       buys: result.buys,
       watches: result.watches,
       avoids: result.avoids,
@@ -57,8 +91,9 @@ export async function GET(request: NextRequest) {
     });
   } catch (err: unknown) {
     if (err instanceof WorkloadBusyError) return errorResponse(err.message, 429);
-    const msg = err instanceof Error ? err.message : 'Unknown error';
-    return errorResponse(msg);
+    if (request.signal.aborted) return errorResponse('Scan cancelled', 499);
+    log.error('idx-scan', err instanceof Error ? err.message : 'Unknown scanner error');
+    return errorResponse('IDX scan failed. Please try again.');
   }
 }
 

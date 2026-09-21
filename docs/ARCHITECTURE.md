@@ -120,7 +120,7 @@ The named “sub-agents” are role-specific LLM calls made by the same process,
 
 `NewsFetchService` aggregates category-specific feeds with in-memory and disk caching. `NewsService` adds symbol-focused Yahoo results and search fallback.
 
-`IdxUniverseService` fetches sector CSV files from a public GitHub repository and caches the resulting universe. `IdxScannerService` quote-screens the universe, chart-fetches candidates in batches, applies heuristic scoring, and returns ranked BUY/WATCH/AVOID groups. The referenced static fallback file is currently absent, so remote-dataset failure can leave the scanner with an empty universe.
+`IdxUniverseService` fetches sector CSV files from a public GitHub repository, caches the resulting universe, and falls back to a smaller bundled representative universe when the remote dataset is unavailable. `IdxScannerService` quote-screens the universe, enriches selected candidates with 420 days of indicators and chart structure, scores their preset match, and produces a separate deterministic Expert Signal with evidence, warnings, and a risk-defined plan.
 
 ## Directory Map
 

@@ -14,10 +14,12 @@ BOZ natively understands IDX market structures, conventions, and ticker notation
   - Energy & Mining (ADRO.JK, PTBA.JK, MEDC.JK, ANTM.JK)
   - Consumer & Telecommunications (TLKM.JK, ICBP.JK, UNVR.JK, ASII.JK)
 
-### 2. IDX Momentum & Volume Scanner
-- Evaluates average daily trading value and transaction volume anomalies.
-- Identifies emerging momentum candidates breaking out from multi-week accumulation bases.
-- Auto-formats currency in Indonesian Rupiah (IDR / Rp) and respects IDX trading hours and fractional ticks.
+### 2. IDX Screeners & Expert Signal
+- Screens for momentum, breakouts, rebounds, oversold conditions, downtrends, and proximity to the 52-week low.
+- Quote-prefilters the full universe, then enriches candidates with 420 days of price history, moving averages, RSI, MACD, ATR, OBV, volume, and chart structure.
+- Keeps preset match score separate from the directional Expert Signal so rank alone never becomes a buy or sell recommendation.
+- Reports action, conviction, supporting evidence, data quality, warnings, entry conditions, stops, targets, reward/risk, and invalidation.
+- Fast mode enriches the strongest 60 candidates; deep mode processes every valid quote behind a single-workload gate.
 
 ---
 

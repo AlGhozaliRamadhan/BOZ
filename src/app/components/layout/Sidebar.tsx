@@ -28,7 +28,7 @@ const navItems: NavItem[] = [
     icon: <i className="fa-regular fa-comment-dots" style={{ fontSize: '14px' }}></i>,
   },
   {
-    label: 'IDX Scanner',
+    label: 'Screeners',
     href: '/idx-scanner',
     icon: <i className="fa-regular fa-chart-bar" style={{ fontSize: '14px' }}></i>,
   },

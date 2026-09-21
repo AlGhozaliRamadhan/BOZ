@@ -50,7 +50,7 @@ The desktop host uses Tauri and the Windows WebView2 runtime. BOZ bundles a nati
 | **Omni-Agent research** | Conversational analysis with tool use, evidence gathering, reflection, and specialized quantitative, news, and risk perspectives. |
 | **Risk-aware trade plans** | Action, conviction, entry, targets, stop loss, reward/risk, invalidation, and late-signal warnings. |
 | **News and crowd intelligence** | RSS and market headlines alongside Fear & Greed, StockTwits, Reddit, and crypto community signals. |
-| **IDX momentum scanner** | Purpose-built scanning for Indonesian equities and momentum candidates. |
+| **IDX screeners and Expert Signal** | Momentum, breakout, rebound, oversold, downtrend, and 52-week-low screens with explainable technical confluence and risk-defined plans. |
 | **Flexible AI backends** | OpenAI, Anthropic, Groq, OpenRouter, GitHub Models, NVIDIA NIM, Ollama, and OpenAI-compatible local gateways. |
 | **Session memory** | Disk-backed preferences and retained context for more consistent follow-up research. |
 
