@@ -28,7 +28,13 @@ describe('shell layout preferences', () => {
     expect(parseStoredBoolean(null, true)).toBe(true);
   });
 
-  it('round-trips sidebar and ticker preferences', () => {
+  it('uses the new hidden ticker default instead of a pre-preference legacy value', () => {
+    const storage = createStorage({ boz_shell_ticker_visible: 'true' });
+
+    expect(readShellPreferences(storage)).toEqual(DEFAULT_SHELL_PREFERENCES);
+  });
+
+  it('round-trips explicitly saved sidebar and ticker preferences', () => {
     const storage = createStorage();
     const preferences = { sidebarCollapsed: true, tickerVisible: false };
 
