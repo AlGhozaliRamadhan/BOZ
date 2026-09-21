@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
+import DesktopUpdateControl from '../ui/DesktopUpdateControl';
 
 interface NavItem {
   label: string;
@@ -28,7 +29,7 @@ const navItems: NavItem[] = [
     icon: <i className="fa-regular fa-comment-dots" style={{ fontSize: '14px' }}></i>,
   },
   {
-    label: 'IDX Scanner',
+    label: 'Screeners',
     href: '/idx-scanner',
     icon: <i className="fa-regular fa-chart-bar" style={{ fontSize: '14px' }}></i>,
   },
@@ -302,11 +303,9 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
                 <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
                   Desktop version v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.7.1'}
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6, marginTop: '4px' }}>
-                  Signed updates are managed by the BOZ desktop application. Use <strong>Check for updates</strong> from the system tray.
-                </div>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <DesktopUpdateControl version={process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.7.1'} />
+              <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '12px', borderTop: '1px solid var(--border-glass)' }}>
                 <button
                   type="button"
                   onClick={() => setIsUpdateModalOpen(false)}

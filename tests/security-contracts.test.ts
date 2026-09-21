@@ -33,7 +33,7 @@ describe('security-sensitive repository contracts', () => {
     expect(workflow).not.toContain('npm publish');
   });
 
-  it('grants the localhost dashboard only scoped external-link opening', () => {
+  it('grants the localhost dashboard only scoped window, link, and signed-updater access', () => {
     const config = JSON.parse(readFileSync(resolve('src-tauri/tauri.conf.json'), 'utf8'));
     expect(config.identifier).toBe('com.agr77.boz');
     expect(config.app).not.toHaveProperty('trayIcon');
@@ -48,8 +48,9 @@ describe('security-sensitive repository contracts', () => {
       'core:window:allow-is-maximized',
       'core:window:allow-start-dragging',
       'core:window:allow-close',
+      'updater:default',
     ]);
-    expect(JSON.stringify(capability)).not.toMatch(/filesystem|shell|process|updater|autostart/);
+    expect(JSON.stringify(capability)).not.toMatch(/filesystem|shell|process|autostart/);
     expect(config.bundle.windows.webviewInstallMode.type).toBe('downloadBootstrapper');
     expect(config.bundle.copyright).toBe('© 2026 BOZ');
     expect(config.bundle.windows.nsis.uninstallerIcon).toBe('icons/icon.ico');

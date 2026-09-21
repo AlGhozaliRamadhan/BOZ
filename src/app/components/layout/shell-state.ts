@@ -1,6 +1,7 @@
 export const SHELL_STORAGE_KEYS = {
   sidebarCollapsed: 'boz_shell_sidebar_collapsed',
   tickerVisible: 'boz_shell_ticker_visible',
+  tickerPreferenceSet: 'boz_shell_ticker_preference_set',
 } as const;
 
 export interface ShellPreferences {
@@ -10,7 +11,7 @@ export interface ShellPreferences {
 
 export const DEFAULT_SHELL_PREFERENCES: ShellPreferences = {
   sidebarCollapsed: false,
-  tickerVisible: true,
+  tickerVisible: false,
 };
 
 export interface ShellStorage {
@@ -30,14 +31,14 @@ export function readShellPreferences(storage: ShellStorage): ShellPreferences {
       storage.getItem(SHELL_STORAGE_KEYS.sidebarCollapsed),
       DEFAULT_SHELL_PREFERENCES.sidebarCollapsed,
     ),
-    tickerVisible: parseStoredBoolean(
-      storage.getItem(SHELL_STORAGE_KEYS.tickerVisible),
-      DEFAULT_SHELL_PREFERENCES.tickerVisible,
-    ),
+    tickerVisible: storage.getItem(SHELL_STORAGE_KEYS.tickerPreferenceSet) === 'true'
+      ? parseStoredBoolean(storage.getItem(SHELL_STORAGE_KEYS.tickerVisible), DEFAULT_SHELL_PREFERENCES.tickerVisible)
+      : DEFAULT_SHELL_PREFERENCES.tickerVisible,
   };
 }
 
 export function writeShellPreferences(storage: ShellStorage, preferences: ShellPreferences): void {
   storage.setItem(SHELL_STORAGE_KEYS.sidebarCollapsed, String(preferences.sidebarCollapsed));
   storage.setItem(SHELL_STORAGE_KEYS.tickerVisible, String(preferences.tickerVisible));
+  storage.setItem(SHELL_STORAGE_KEYS.tickerPreferenceSet, 'true');
 }

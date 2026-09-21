@@ -11,7 +11,7 @@ Download the matching per-user NSIS installer from the [latest release](https://
 
 The installer does not require administrator privileges. Initial beta installers are not Authenticode-signed and may show a SmartScreen **Unknown publisher** warning. The in-app update files are separately signed and tampered updates are rejected.
 
-BOZ checks for updates once per launch. Use **Check for updates** from the tray for an on-demand check. Closing the main window leaves BOZ in the tray; choose **Quit** to stop the bundled server and release its memory.
+BOZ checks for updates once per launch. Use **Settings → Version & Updates** or **About BOZ** for an on-demand check; available updates download, verify, install, and restart automatically. The tray's **Check for updates** command remains available. Closing the main window leaves BOZ in the tray; choose **Quit** to stop the bundled server and release its memory.
 
 ## Build from source
 

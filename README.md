@@ -50,7 +50,7 @@ The desktop host uses Tauri and the Windows WebView2 runtime. BOZ bundles a nati
 | **Omni-Agent research** | Conversational analysis with tool use, evidence gathering, reflection, and specialized quantitative, news, and risk perspectives. |
 | **Risk-aware trade plans** | Action, conviction, entry, targets, stop loss, reward/risk, invalidation, and late-signal warnings. |
 | **News and crowd intelligence** | RSS and market headlines alongside Fear & Greed, StockTwits, Reddit, and crypto community signals. |
-| **IDX momentum scanner** | Purpose-built scanning for Indonesian equities and momentum candidates. |
+| **IDX screeners and Expert Signal** | Momentum, breakout, rebound, oversold, downtrend, and 52-week-low screens with explainable technical confluence and risk-defined plans. |
 | **Flexible AI backends** | OpenAI, Anthropic, Groq, OpenRouter, GitHub Models, NVIDIA NIM, Ollama, and OpenAI-compatible local gateways. |
 | **Session memory** | Disk-backed preferences and retained context for more consistent follow-up research. |
 
@@ -88,7 +88,7 @@ Download the installer for your Windows 11 computer from the [latest GitHub Rele
 
 The per-user installer does not require administrator privileges. Early beta installers are not Authenticode-signed, so Windows SmartScreen may display an **Unknown publisher** warning. BOZ application updates are still cryptographically signed and are rejected if they are modified.
 
-Closing the window keeps BOZ running in the system tray. The tray menu can reopen BOZ, check for signed updates, opt in to **Start with Windows**, or quit completely. Autostart is disabled by default and starts BOZ hidden when enabled.
+Closing the window keeps BOZ running in the system tray. Check and apply signed updates from **Settings → Version & Updates** or **About BOZ**; BOZ downloads, verifies, installs, and restarts automatically. The tray menu remains available to reopen BOZ, check for updates, opt in to **Start with Windows**, or quit completely. Autostart is disabled by default and starts BOZ hidden when enabled.
 
 Linux packages are not produced yet. The desktop supervision code uses platform-neutral paths and process boundaries so AppImage/deb support can be added later.
 

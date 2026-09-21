@@ -19,7 +19,7 @@ It is not production-ready as an internet-facing or multi-user service. The firs
 | Risk-aware trade levels | Implemented as heuristics | Deterministic plans exist; no backtest or portfolio-risk model establishes predictive validity |
 | Omni-agent research | Implemented | Tool loop, evidence ledger, model fallback, and SSE streaming exist; orchestration is large, expensive, and prompt-injection-sensitive |
 | News and crowd intelligence | Partially implemented | Multiple fallbacks exist, but provider reliability, source attribution, and stale/partial data handling are inconsistent |
-| IDX momentum scanner | Implemented with a single-source dependency | Scans and ranks candidates, but the declared static universe fallback is missing |
+| IDX screeners and Expert Signal | Implemented with a live dataset and bundled fallback | Quote-prefilters the universe, enriches candidates, and separates preset match from deterministic directional confluence |
 | Flexible AI backends | Implemented with constrained custom egress | Four provider modes exist; custom endpoint discovery and LLM calls now enforce loopback-or-public-HTTPS destination policy |
 | Session memory | Partially implemented | Browser chat history and JSON memory exist; the tested session-log service is not used by runtime code |
 | Professional long-term company research | Not fully achieved | Long-term prompts request moat, revenue, and valuation conclusions without a structured fundamentals pipeline |
@@ -181,9 +181,9 @@ Use a typed result model with source, freshness, status, and error category. Res
 
 ### AUD-013 — IDX universe has no real fallback and writes beside bundled source
 
-**Remediation status:** Partially mitigated. Mutable universe cache now uses the per-user BOZ directory, writes through atomic replacement, and is no longer sourced from the code tree. The declared reviewed static fallback is still absent.
+**Remediation status:** Mitigated. Mutable universe cache uses the per-user BOZ directory, writes through atomic replacement, and is no longer sourced from the code tree. A smaller bundled representative universe provides an offline fallback when the remote dataset is unavailable.
 
-`IdxUniverseService` documents a fallback to `src/data/idx-universe.json`, but that file is absent. Its cache path is derived relative to the module, causing a generated cache to be traced into the standalone package. A failed GitHub dataset fetch can therefore return an empty universe, and published packages can ship stale machine-generated scan data.
+The original implementation referenced an absent `src/data/idx-universe.json` fallback and wrote mutable cache data beside source. The current implementation uses the per-user configuration directory for the cache and a bundled in-code fallback; offline coverage is deliberately smaller than the live universe.
 
 Commit a reviewed static universe fixture or move universe acquisition behind a durable provider/cache abstraction. Store mutable cache under the per-user data directory, not beside code.
 

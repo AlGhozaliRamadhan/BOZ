@@ -7,6 +7,7 @@ import {
   setEffort,
   CHAT_OPTIONS_EVENT,
 } from '../../../shared/chat-options';
+import DesktopUpdateControl from './DesktopUpdateControl';
 
 interface SettingsConfig {
   provider: string;
@@ -872,25 +873,8 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                     {/* Desktop Version Section */}
                     <div>
                       <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Version & Updates</h3>
-                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>Desktop updates are signed and installed by the native BOZ application.</p>
-
-                      <div style={{
-                        padding: '16px',
-                        borderRadius: '10px',
-                        background: 'rgba(255, 255, 255, 0.02)',
-                        border: '1px solid rgba(255, 255, 255, 0.06)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px',
-                      }}>
-                        <div>
-                          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>
-                            BOZ desktop v{process.env.NEXT_PUBLIC_BOZ_VERSION || '2.7.1'}
-                          </div>
-                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>
-                            Use <strong>Check for updates</strong> from the BOZ system tray.
-                          </div>
-                        </div>
-                        <i className="fa-solid fa-shield-halved" style={{ color: 'var(--accent-cyan)', fontSize: '18px' }} aria-hidden="true"></i>
-                      </div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>Signed updates download and apply from the desktop app, with no manual reinstall required.</p>
+                      <DesktopUpdateControl version={process.env.NEXT_PUBLIC_BOZ_VERSION || '2.7.1'} />
                     </div>
                   </div>
                 )}

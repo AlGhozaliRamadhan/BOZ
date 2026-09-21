@@ -515,8 +515,8 @@ export class WebChatEngine {
       '  fetch_news(query, category?)      — market news; query is a free-text search string',
       '  fetch_sentiment()                 — Fear & Greed + StockTwits crowd data',
       '  web_search(query)                 — live web search; use when other tools give nothing',
-      '  scan_indonesia_momentum(sector?,  — IDX scanner; screens the full IDX universe',
-      '    signal_type?, setup?, scan_mode?)  for momentum candidates. Deep mode is exhaustive.',
+      '  scan_indonesia_momentum(sector?,  — IDX screeners with deterministic Expert Signals',
+      '    signal_type?, setup?, scan_mode?)  and risk-defined plans. Deep mode is exhaustive.',
       '',
       'INITIAL TICKER & STOCK ANALYSIS MANDATE (FOR FIRST-TIME TICKER REQUESTS):',
       '  - When analyzing a NEW stock, ETF, crypto, or index (via /intraday, /longterm, /newsintel, or a new ticker question):',
@@ -727,10 +727,10 @@ export class WebChatEngine {
         function: {
           name: 'scan_indonesia_momentum',
           description: [
-            'Scan the IDX universe for hidden momentum setups.',
+            'Screen the IDX universe for momentum, breakout, rebound, oversold, downtrend, or 52-week-low setups.',
             'Fast mode quote-screens all IDX stocks then chart-scans the strongest.',
             'Deep mode chart-scans every valid IDX quote for exhaustive coverage.',
-            'Returns ranked BUY candidates and WATCH list sorted by score.',
+            'Returns ranked matches with a deterministic Expert Signal, conviction, evidence, warnings, and risk-defined plan.',
           ].join(' '),
           parameters: {
             type: 'object',
@@ -747,7 +747,7 @@ export class WebChatEngine {
               },
               setup: {
                 type: 'string',
-                enum: ['momentum', 'rebound', 'all_time_low', 'downtrend', 'breakout', 'oversold'],
+                enum: ['momentum', 'rebound', 'near_52w_low', 'downtrend', 'breakout', 'oversold'],
                 description: 'Filter by setup type. Pick the best one based on market context.',
               },
               scan_mode: {
