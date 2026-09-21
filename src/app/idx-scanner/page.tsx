@@ -144,7 +144,7 @@ export default function IdxScannerPage() {
   return (
     <div className="screeners-page animate-fadeIn">
       <header className="screeners-header">
-        <div>
+        <div className="screeners-header__copy">
           <div className="screeners-eyebrow">IDX research workspace</div>
           <h1>Screeners</h1>
           <p>Find candidates by setup, then separate screen fit from BOZ&apos;s evidence-based Expert Signal.</p>
@@ -152,54 +152,73 @@ export default function IdxScannerPage() {
         <div className="screeners-disclaimer">Research signal · not a forecast</div>
       </header>
 
-      <section className="screeners-presets" aria-label="Screener presets">
-        {PRESETS.map(item => (
-          <button
-            key={item.value}
-            type="button"
-            className={`screeners-preset${preset === item.value ? ' is-active' : ''}`}
-            onClick={() => setPreset(item.value)}
-            disabled={loading}
-          >
-            <span>{item.label}</span>
-            <small>{item.description}</small>
-          </button>
-        ))}
-      </section>
+      <section className="screeners-workbench" aria-label="Screener setup">
+        <div className="screeners-template-bar">
+          <div className="screeners-template-bar__current">
+            <span>Active screen</span>
+            <strong>{selectedPreset.label}</strong>
+          </div>
+          <div className="screeners-presets" aria-label="Screener presets">
+            {PRESETS.map(item => (
+              <button
+                key={item.value}
+                type="button"
+                className={`screeners-preset${preset === item.value ? ' is-active' : ''}`}
+                onClick={() => setPreset(item.value)}
+                disabled={loading}
+                aria-pressed={preset === item.value}
+                title={item.description}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="screeners-preset-description">
+          <span>Screen definition</span>
+          {selectedPreset.description}
+        </p>
 
-      <section className="screeners-control-panel" aria-label="Scan controls">
-        <label>
-          <span>Sector</span>
-          <select value={sector} onChange={event => setSector(event.target.value)} disabled={loading}>
-            {SECTORS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
-        </label>
-        <label>
-          <span>Direction</span>
-          <select value={direction} onChange={event => setDirection(event.target.value as ScreenerDirection)} disabled={loading}>
-            <option value="buy">Bullish / buy</option>
-            <option value="sell">Bearish / sell</option>
-            <option value="any">Any direction</option>
-          </select>
-        </label>
-        <label>
-          <span>Minimum conviction</span>
-          <select value={minimumConviction} onChange={event => setMinimumConviction(event.target.value as ConvictionFilter)} disabled={loading}>
-            <option value="LOW">Low or better</option>
-            <option value="MEDIUM">Medium or better</option>
-            <option value="HIGH">High only</option>
-          </select>
-        </label>
-        <label>
-          <span>Coverage</span>
-          <select value={mode} onChange={event => setMode(event.target.value as ScreenerMode)} disabled={loading}>
-            <option value="fast">Fast · top 60 enriched</option>
-            <option value="deep">Deep · full universe</option>
-          </select>
-        </label>
-        <button type="button" className={`screeners-run${loading ? ' is-cancel' : ''}`} onClick={handleScan}>
-          {loading ? 'Cancel scan' : `Run ${selectedPreset.label}`}
-        </button>
+        <div className="screeners-control-panel" aria-label="Scan controls">
+          <div className="screeners-control-panel__heading">
+            <span>Refine universe</span>
+            <small>All filters apply to the next scan.</small>
+          </div>
+          <div className="screeners-controls">
+            <label>
+              <span>Sector</span>
+              <select value={sector} onChange={event => setSector(event.target.value)} disabled={loading}>
+                {SECTORS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Direction</span>
+              <select value={direction} onChange={event => setDirection(event.target.value as ScreenerDirection)} disabled={loading}>
+                <option value="buy">Bullish / buy</option>
+                <option value="sell">Bearish / sell</option>
+                <option value="any">Any direction</option>
+              </select>
+            </label>
+            <label>
+              <span>Minimum conviction</span>
+              <select value={minimumConviction} onChange={event => setMinimumConviction(event.target.value as ConvictionFilter)} disabled={loading}>
+                <option value="LOW">Low or better</option>
+                <option value="MEDIUM">Medium or better</option>
+                <option value="HIGH">High only</option>
+              </select>
+            </label>
+            <label>
+              <span>Coverage</span>
+              <select value={mode} onChange={event => setMode(event.target.value as ScreenerMode)} disabled={loading}>
+                <option value="fast">Fast · top 60 enriched</option>
+                <option value="deep">Deep · full universe</option>
+              </select>
+            </label>
+          </div>
+          <button type="button" className={`screeners-run${loading ? ' is-cancel' : ''}`} onClick={handleScan}>
+            {loading ? 'Cancel scan' : 'Run scan'}
+          </button>
+        </div>
       </section>
 
       {mode === 'deep' && !loading && (
@@ -225,32 +244,33 @@ export default function IdxScannerPage() {
       )}
 
       {response && !loading && !error && (
-        <>
-          <section className="screeners-summary" aria-label="Scan summary">
-            <article>
-              <span>Matches</span>
-              <strong>{response.results.length}</strong>
-              <small>{response.query.preset.replaceAll('_', ' ')}</small>
-            </article>
-            <article>
-              <span>Enriched</span>
-              <strong>{response.meta.enrichedCount}</strong>
-              <small>of {response.meta.universeCount} symbols</small>
-            </article>
-            <article>
-              <span>Active setups</span>
-              <strong>{response.summary.buyCount + response.summary.sellCount}</strong>
-              <small>{response.summary.buyCount} buy · {response.summary.sellCount} sell across enriched</small>
-            </article>
-            <article>
-              <span>Average signal</span>
-              <strong>{signed(response.summary.averageScore, 0)}</strong>
-              <small>-100 bearish · +100 bullish</small>
-            </article>
-          </section>
-
-          <section className="screeners-breadth">
+        <section className="screeners-results" aria-label="Screener results">
+          <header className="screeners-results__header">
             <div>
+              <span className="screeners-results__eyebrow">Scan results</span>
+              <div className="screeners-results__title">
+                <h2>{response.results.length} {response.results.length === 1 ? 'match' : 'matches'}</h2>
+                <span>{selectedPreset.label} · {response.query.direction === 'any' ? 'all directions' : `${response.query.direction} signals`}</span>
+              </div>
+            </div>
+            <dl className="screeners-results__metrics">
+              <div>
+                <dt>Enriched</dt>
+                <dd>{response.meta.enrichedCount}<small> / {response.meta.universeCount}</small></dd>
+              </div>
+              <div>
+                <dt>Active setups</dt>
+                <dd>{response.summary.buyCount + response.summary.sellCount}</dd>
+              </div>
+              <div>
+                <dt>Average signal</dt>
+                <dd className={response.summary.averageScore > 0 ? 'is-positive' : response.summary.averageScore < 0 ? 'is-negative' : undefined}>{signed(response.summary.averageScore, 0)}</dd>
+              </div>
+            </dl>
+          </header>
+
+          <div className="screeners-breadth">
+            <div className="screeners-breadth__label">
               <span>Market breadth</span>
               <strong>{response.summary.breadthSignal}</strong>
             </div>
@@ -261,10 +281,10 @@ export default function IdxScannerPage() {
               {response.meta.partial && <span className="is-warning">Partial coverage</span>}
               {response.meta.cacheHit && <span>Cached result</span>}
             </div>
-          </section>
+          </div>
 
           {sortedResults.length > 0 ? (
-            <section className="screeners-results" aria-label="Screener results">
+            <>
               <div className="screeners-table-wrap">
                 <table className="screeners-table">
                   <thead>
@@ -346,21 +366,21 @@ export default function IdxScannerPage() {
                 <span>Completed {new Date(response.meta.completedAt).toLocaleString()}</span>
                 <span>{response.meta.skippedCount} unavailable symbols</span>
               </footer>
-            </section>
+            </>
           ) : (
-            <section className="screeners-empty">
+            <section className="screeners-empty screeners-empty--no-matches">
               <h2>No candidates met every filter</h2>
               <p>Try lowering minimum conviction, selecting any direction, or switching to deep coverage.</p>
             </section>
           )}
-        </>
+        </section>
       )}
 
       {!response && !loading && !error && (
         <section className="screeners-empty screeners-empty--initial">
           <div className="screeners-empty__icon">⌁</div>
-          <h2>Choose a screen and run it</h2>
-          <p>Fast mode quote-screens the IDX universe and performs full technical enrichment on the strongest 60 candidates.</p>
+          <h2>Run your first screen</h2>
+          <p>Choose a setup, refine the universe if needed, and scan the IDX. Fast mode enriches the strongest 60 candidates.</p>
         </section>
       )}
     </div>
