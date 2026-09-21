@@ -88,7 +88,7 @@ Download the installer for your Windows 11 computer from the [latest GitHub Rele
 
 The per-user installer does not require administrator privileges. Early beta installers are not Authenticode-signed, so Windows SmartScreen may display an **Unknown publisher** warning. BOZ application updates are still cryptographically signed and are rejected if they are modified.
 
-Closing the window keeps BOZ running in the system tray. The tray menu can reopen BOZ, check for signed updates, opt in to **Start with Windows**, or quit completely. Autostart is disabled by default and starts BOZ hidden when enabled.
+Closing the window keeps BOZ running in the system tray. Check and apply signed updates from **Settings → Version & Updates** or **About BOZ**; BOZ downloads, verifies, installs, and restarts automatically. The tray menu remains available to reopen BOZ, check for updates, opt in to **Start with Windows**, or quit completely. Autostart is disabled by default and starts BOZ hidden when enabled.
 
 Linux packages are not produced yet. The desktop supervision code uses platform-neutral paths and process boundaries so AppImage/deb support can be added later.
 
