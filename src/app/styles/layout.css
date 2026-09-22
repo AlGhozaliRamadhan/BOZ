@@ -29,7 +29,10 @@
   flex: 1;
   min-height: 0;
   padding: var(--space-6);
-  padding-top: calc(var(--topbar-height) + var(--ticker-height) + var(--space-6));
+  /* app-layout already begins below the fixed app menu, so only reserve
+     space for the ticker. Including the menu height here created a second,
+     visually empty header row above every normal page. */
+  padding-top: calc(var(--ticker-height) + var(--space-6));
   width: 100%;
   min-width: 0;
   overflow-x: hidden;
@@ -37,7 +40,7 @@
 }
 
 .app-shell-ticker-hidden .app-content {
-  padding-top: calc(var(--topbar-height) + var(--space-6));
+  padding-top: var(--space-6);
 }
 
 .app-content:has(.chat-page-root),
@@ -101,7 +104,6 @@
 }
 
 .sidebar.collapsed .sidebar-logo { padding-inline: 8px; }
-.sidebar.collapsed .sidebar-toolbar { padding-inline: 8px; }
 
 .sidebar-logo img {
   width: 24px; height: 24px;
@@ -520,7 +522,7 @@
 
 .sidebar.collapsed .sidebar-profile-meta,
 .sidebar.collapsed .sidebar-profile-action { display: none; }
-.sidebar.collapsed .sidebar-version-row { display: none; }
+.sidebar.collapsed .sidebar-version { display: none; }
 
 /* Profile Popover */
 .profile-popover {
@@ -614,13 +616,18 @@
 
 .sidebar-version-row {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   width: 100%;
-  padding: 0 var(--space-1);
+  padding: 2px 4px 0 8px;
   gap: 6px;
   opacity: 0.9;
+}
+
+.sidebar.collapsed .sidebar-version-row {
+  justify-content: center;
+  padding: 2px 0 0;
 }
 
 .sidebar-version {
@@ -907,15 +914,6 @@
   align-items: stretch;
   align-self: stretch;
   margin-left: 2px;
-  flex-shrink: 0;
-}
-
-.app-menu-window-divider {
-  width: 1px;
-  height: 22px;
-  background: #383838;
-  margin: 0 4px 0 10px;
-  align-self: center;
   flex-shrink: 0;
 }
 

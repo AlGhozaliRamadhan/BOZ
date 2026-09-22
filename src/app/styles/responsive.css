@@ -9,8 +9,8 @@
   .app-main { margin-left: 0; }
   .app-shell-sidebar-collapsed .app-main { margin-left: 0; }
   .app-shell-sidebar-collapsed .bbg-ticker { left: 0; }
-  .app-content { padding: var(--space-4); padding-top: calc(var(--topbar-height) + var(--ticker-height) + var(--space-4)); }
-  .app-shell-ticker-hidden .app-content { padding-top: calc(var(--topbar-height) + var(--space-4)); }
+  .app-content { padding: var(--space-4); padding-top: calc(var(--ticker-height) + var(--space-4)); }
+  .app-shell-ticker-hidden .app-content { padding-top: var(--space-4); }
   .app-shell-mobile-sidebar-open .sidebar-backdrop {
     display: block;
     position: fixed;
