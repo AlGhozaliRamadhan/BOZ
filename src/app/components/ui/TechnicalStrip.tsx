@@ -37,9 +37,10 @@ interface TechnicalStripProps {
 
 const DASH = '—';
 
-const CATEGORIES = ['ALL', 'TREND', 'MOMENTUM', 'VOLATILITY', 'VOLUME'] as const;
+const CATEGORIES = ['OVERVIEW', 'TREND', 'MOMENTUM', 'VOLATILITY', 'VOLUME', 'ALL'] as const;
 type Category = (typeof CATEGORIES)[number];
-type CellCat = Exclude<Category, 'ALL'>;
+type CellCat = Exclude<Category, 'ALL' | 'OVERVIEW'>;
+const OVERVIEW_LABELS = new Set(['50D HIGH', 'RSI (14)', 'MACD', 'SMA 50', 'ATR', 'VOL RATIO']);
 
 interface IndicatorData {
   last: IndicatorCandle;
@@ -217,14 +218,13 @@ function Cell({ def }: { def: CellDef }) {
     def.subTone === 'down' ? 'var(--danger)' :
     def.subTone === 'warn' ? '#fff' : '#555';
   return (
-    <div style={{ 
-      background: '#0a0a0a', 
-      padding: '10px 14px', 
-      minWidth: 0, 
-      display: 'flex', 
-      flexDirection: 'column', 
+    <div style={{
+      padding: '12px 14px',
+      minWidth: 0,
+      display: 'flex',
+      flexDirection: 'column',
       justifyContent: 'center',
-      transition: 'background 0.15s ease' 
+      borderBottom: '1px solid var(--border-glass)'
     }}>
       <div style={{ color: '#555', fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {def.label}
@@ -255,7 +255,7 @@ const INTERVALS = [
 export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
   const [data, setData] = useState<IndicatorData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [cat, setCat] = useState<Category>('ALL');
+  const [cat, setCat] = useState<Category>('OVERVIEW');
   const [interval, setIntervalState] = useState<string>('1d');
   const [intervalMenuOpen, setIntervalMenuOpen] = useState(false);
   const seq = useRef(0);
@@ -273,17 +273,21 @@ export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
   }, [ticker, interval]);
 
   const allCells = buildCells(data);
-  const visible = cat === 'ALL' ? allCells : allCells.filter((c) => c.cats.includes(cat));
+  const visible = cat === 'ALL'
+    ? allCells
+    : cat === 'OVERVIEW'
+      ? allCells.filter((c) => OVERVIEW_LABELS.has(c.label))
+      : allCells.filter((c) => c.cats.includes(cat));
 
   return (
-    <div style={{ background: '#000', display: 'flex', flexDirection: 'column', width: '100%' }}>
+    <div style={{ background: 'transparent', display: 'flex', flexDirection: 'column', width: '100%' }}>
       {/* Header Toolbar */}
       <div style={{ 
         display: 'flex', 
         justifyContent: 'space-between', 
         alignItems: 'center', 
         padding: '8px 14px', 
-        borderBottom: '1px solid #1a1a1a',
+        borderBottom: '1px solid var(--border-glass)',
         flexWrap: 'wrap',
         gap: '8px'
       }}>
@@ -296,7 +300,7 @@ export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
             type="button"
             onClick={() => setIntervalMenuOpen(o => !o)}
             style={{
-              background: '#0a0a0a', border: '1px solid #2a2a2a', color: '#fff',
+              background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', color: '#fff',
               padding: '2px 8px', fontFamily: 'var(--font-mono)', fontSize: '10px',
               fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
             }}
@@ -310,7 +314,7 @@ export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
               <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setIntervalMenuOpen(false)} />
               <div style={{
                 position: 'absolute', top: 'calc(100% + 4px)', left: '120px', zIndex: 50,
-                background: '#0d0d0d', border: '1px solid #2a2a2a', minWidth: '80px',
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border-glass)', minWidth: '80px',
                 boxShadow: '0 4px 12px rgba(0,0,0,0.8)'
               }}>
                 {INTERVALS.map(int => (
@@ -334,15 +338,15 @@ export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
         </div>
 
         {/* Middle: Category filter tabs */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
           {CATEGORIES.map((k) => (
             <button
               key={k}
               type="button"
               onClick={() => setCat(k)}
               style={{
-                background: cat === k ? '#1a1a1a' : 'transparent',
-                border: `1px solid ${cat === k ? '#fff' : '#2a2a2a'}`,
+                background: cat === k ? 'var(--bg-tertiary)' : 'transparent',
+                border: `1px solid ${cat === k ? '#fff' : 'var(--border-glass)'}`,
                 color: cat === k ? '#fff' : '#888',
                 padding: '2px 9px',
                 fontFamily: 'var(--font-mono)',
@@ -375,11 +379,10 @@ export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
       </div>
 
       {/* Responsive Indicator Grid */}
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', 
-        background: '#1a1a1a', 
-        gap: '1px' 
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+        gap: 0
       }}>
         {visible.map((def) => (
           <Cell key={def.label} def={def} />

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { describeToolCall, parseWebSources } from './tool-result-details';
+import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
 
 export interface ToolResult {
   tool: string;
@@ -36,17 +37,27 @@ function parseHeadlines(preview = '') {
 function parseSentiment(preview = '', fact = '') {
   try {
     const json = JSON.parse(preview);
+    const raw = json.reddit_buzz?.stocktwits;
+    const pulse = buildStocktwitsPulse(raw ? {
+      bullish: raw.bullish ?? null,
+      bearish: raw.bearish ?? null,
+      total_with_sentiment: raw.total_with_sentiment ?? null,
+      total_messages: raw.total_messages ?? null,
+      bull_ratio: raw.bull_ratio,
+    } : null);
     return {
       fg: json.fear_greed?.value,
       fgl: json.fear_greed?.label,
-      bull: json.reddit_buzz?.stocktwits?.bull_ratio,
+      bull: pulse.bullRatio,
+      bullLabelled: pulse.labelled,
       signals: json.overall_signals || [],
     };
   } catch {
     const fg = fact.match(/Fear & Greed\s+(\d+)/)?.[1];
     const fgl = fact.match(/Fear & Greed\s+\d+\s+\(([^)]+)\)/)?.[1];
     const bull = fact.match(/StockTwits\s+([\d.]+)%/)?.[1];
-    return { fg, fgl, bull, signals: [] as string[] };
+    const bullLabelled = fact.match(/of\s+(\d+)\s+labelled/)?.[1];
+    return { fg, fgl, bull, bullLabelled, signals: [] as string[] };
   }
 }
 
@@ -242,7 +253,9 @@ function ToolResultCard({ result }: { result: ToolResult }) {
               }}>
                 {bullVal != null ? `${bullVal.toFixed(0)}%` : '--'}
               </span>
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Bullish</span>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Bullish{typeof s.bullLabelled === 'number' && s.bullLabelled > 0 ? ` of ${s.bullLabelled} labelled` : ''}
+              </span>
             </div>
           </div>
         </div>

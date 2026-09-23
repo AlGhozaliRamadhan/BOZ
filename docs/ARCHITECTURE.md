@@ -90,7 +90,7 @@ Development uses Tauri's `beforeDevCommand` to run `npm run dev:web` on the same
 2. Fetch daily candles, quote data, macro context, crowd sentiment, and headlines concurrently.
 3. Calculate indicators and chart-pattern heuristics.
 4. Run `buildDashboardAnalysis` to create confluence signals, a normalized score, and a deterministic trade plan.
-5. Return a composite response consumed by `src/app/dashboard/[ticker]/page.tsx`.
+5. Return a composite response consumed by `src/app/ticker/[ticker]/page.tsx`.
 
 The dashboard refreshes this expensive aggregate every 30 seconds while visible. Requests currently have no server-side coalescing, shared market-data cache, or overlap guard.
 
@@ -140,7 +140,8 @@ BOZ/
 │   ├── app/                       Next.js App Router UI and HTTP transport
 │   │   ├── api/                   Route handlers; keep them thin and transport-focused
 │   │   ├── chat/                  Chat UI and current chat presentation types
-│   │   ├── dashboard/[ticker]/    Composite market dashboard page
+│   │   ├── ticker/[ticker]/       Composite market dashboard page
+│   │   ├── dashboard/[ticker]/    Redirect for legacy ticker links
 │   │   ├── analyze/               Dedicated intraday/long-term pages
 │   │   ├── components/            Shared layout and UI components
 │   │   ├── lib/                   Browser/API helpers; `hooks.ts` is currently unused

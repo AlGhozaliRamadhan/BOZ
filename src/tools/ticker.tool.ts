@@ -244,7 +244,7 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
       );
     }
 
-    sections.push(`DASHBOARD DIRECT LINK: /dashboard/${encodeURIComponent(symbol)}`);
+    sections.push(`TICKER DIRECT LINK: /ticker/${encodeURIComponent(symbol)}`);
 
     return sections.join('\n\n');
   } catch (err) {

@@ -101,7 +101,7 @@
   --shadow-glow-bear:   none;
 
   /* ── Layout ──────────────────────────────────────────────────────────────── */
-  --sidebar-width:     240px;
+  --sidebar-width:     160px;
   --sidebar-collapsed: 60px;
   --topbar-height:     44px;
   --ticker-height:     32px;

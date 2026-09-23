@@ -4,6 +4,7 @@ import { NewsFetchService } from '@/services/news/news.fetch.service';
 import { SentimentService } from '@/services/market/sentiment.service';
 import { config } from '@/config/config';
 import { resolveSymbol } from '@/shared/market-constants';
+import { buildStocktwitsPulse, stocktwitsContrarianNote } from '@/shared/crowd-pulse';
 
 export async function POST(request: NextRequest) {
   try {
@@ -52,8 +53,19 @@ export async function POST(request: NextRequest) {
       thoughts.push(`[SENTIMENT DEDUCTION] Fear & Greed Index at ${fg.value} (${fg.label}). ${fg.value > 75 ? 'Extreme Greed warrants contrarian caution against chase buying.' : fg.value < 25 ? 'Extreme Fear presents high-asymmetry accumulation setups.' : 'Neutral sentiment indicates balanced market participation.'}`);
     }
     const st = sentiment?.stocktwits_data;
-    if (st && st.bull_ratio !== undefined) {
-      thoughts.push(`[CROWD CONTRARIAN] Retail sentiment is ${st.bull_ratio.toFixed(0)}% bullish across ${st.total_with_sentiment} measured posts. ${st.bull_ratio > 70 ? 'Retail euphoria detected — high probability of liquidity sweep / pullback.' : st.bull_ratio < 30 ? 'Retail panic detected — upside bounce potential elevated.' : 'Healthy retail distribution without euphoric skew.'}`);
+    if (st && (st.bull_ratio !== undefined || st.total_with_sentiment != null || st.bullish != null || st.bearish != null)) {
+      const pulse = buildStocktwitsPulse({
+        bullish: st.bullish ?? null,
+        bearish: st.bearish ?? null,
+        total_with_sentiment: st.total_with_sentiment ?? null,
+        total_messages: st.total_messages ?? null,
+        bull_ratio: st.bull_ratio,
+      });
+      const sample = pulse.totalMessages != null
+        ? `${pulse.labelled} labelled of ${pulse.totalMessages} sampled`
+        : `${pulse.labelled} labelled`;
+      const ratioText = pulse.bullRatio != null ? `${pulse.bullRatio.toFixed(0)}% bullish` : 'no audited bullish share';
+      thoughts.push(`[CROWD CONTRARIAN] Retail sentiment is ${ratioText} across ${sample} (confidence ${pulse.confidence}). ${stocktwitsContrarianNote(pulse)}`);
     }
     if (sentiment?.summary?.overall_signals?.length) {
       thoughts.push(`[MACRO THEME SIGNALS] Key cross-asset drivers: ${sentiment.summary.overall_signals.join(' · ')}`);

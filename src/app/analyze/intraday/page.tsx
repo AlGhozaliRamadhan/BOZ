@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { ThoughtAccordion } from '@/app/components/ui/ThoughtAccordion';
+import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
 import ExternalAiBriefButton from '@/app/components/ui/ExternalAiBriefButton';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -359,10 +360,22 @@ export default function IntradayAnalysisPage() {
                   <tr>
                     <td>StockTwits</td>
                     <td>
-                      <span className={`badge ${
-                        (sent?.stocktwits_data?.bull_ratio ?? 50) > 60 ? 'badge-bull' :
-                        (sent?.stocktwits_data?.bull_ratio ?? 50) < 40 ? 'badge-bear' : 'badge-neutral'
-                      }`}>{fmt(sent?.stocktwits_data?.bull_ratio, 0)}% bullish</span>
+                      {(() => {
+                        const pulse = buildStocktwitsPulse(sent?.stocktwits_data ? {
+                          bullish: sent.stocktwits_data.bullish ?? null,
+                          bearish: sent.stocktwits_data.bearish ?? null,
+                          total_with_sentiment: sent.stocktwits_data.total_with_sentiment ?? null,
+                          total_messages: sent.stocktwits_data.total_messages ?? null,
+                          bull_ratio: sent.stocktwits_data.bull_ratio,
+                        } : null);
+                        const badge = pulse.bullRatio == null || pulse.labelled < 8
+                          ? 'badge-neutral'
+                          : pulse.bullRatio > 60 ? 'badge-bull' : pulse.bullRatio < 40 ? 'badge-bear' : 'badge-neutral';
+                        const label = pulse.bullRatio == null || pulse.labelled <= 0
+                          ? 'no audited read'
+                          : `${pulse.bullRatio.toFixed(0)}% bullish of ${pulse.labelled} labelled (${pulse.confidence})`;
+                        return <span className={`badge ${badge}`}>{label}</span>;
+                      })()}
                     </td>
                   </tr>
                   <tr>

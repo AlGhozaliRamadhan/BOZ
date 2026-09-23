@@ -3,6 +3,20 @@ import { jsonResponse, errorResponse, parseBody, requestBodyErrorResponse } from
 import { AIService } from '@/services/ai/ai.service';
 import { buildTradeLevels } from '@/shared/trade-levels';
 import { formatCrowdSignalEvidence } from '@/shared/evidence-attribution';
+import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
+
+function formatStocktwitsPulseShort(stocktwits: any): string {
+  if (!stocktwits) return 'N/A';
+  const pulse = buildStocktwitsPulse({
+    bullish: stocktwits.bullish ?? null,
+    bearish: stocktwits.bearish ?? null,
+    total_with_sentiment: stocktwits.total_with_sentiment ?? null,
+    total_messages: stocktwits.total_messages ?? null,
+    bull_ratio: stocktwits.bull_ratio,
+  });
+  if (pulse.bullRatio == null || pulse.labelled <= 0) return 'no audited read';
+  return `${pulse.bullRatio.toFixed(0)}% Bullish of ${pulse.labelled} labelled (confidence ${pulse.confidence})`;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -68,7 +82,7 @@ Asset & Valuation Profile:
 Macro Regime & Monetary Backdrop:
 - Global Macro Regime: ${macro.market_regime} | Risk Sentiment: ${macro.risk_sentiment}
 - 10-Year Treasury Yield: ${macro.tnx_yield != null ? macro.tnx_yield.toFixed(2) + '%' : 'N/A'} | SPY Beta/Corr: ${macro.sp500_correlation} | VIX: ${macro.vix_level ?? 'N/A'}
-- Crowd Sentiment: Fear & Greed: ${sentiment.fear_greed?.value ?? 'N/A'} (${sentiment.fear_greed?.label ?? 'N/A'}) | StockTwits: ${sentiment.stocktwits_data?.bull_ratio != null ? sentiment.stocktwits_data.bull_ratio.toFixed(0) + '% Bullish' : 'N/A'}
+- Crowd Sentiment: Fear & Greed: ${sentiment.fear_greed?.value ?? 'N/A'} (${sentiment.fear_greed?.label ?? 'N/A'}) | StockTwits: ${formatStocktwitsPulseShort(sentiment.stocktwits_data)}
 - Crowd evidence: ${formatCrowdSignalEvidence(sentiment) || 'No source-attributed crowd signal was available.'}
 
 Multi-Month Chart Structure:

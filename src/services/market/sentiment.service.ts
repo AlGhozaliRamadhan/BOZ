@@ -201,13 +201,15 @@ export class SentimentService {
             total_messages: messages.length,
             watchlist_count: stRes.data?.symbol?.watchlist_count ?? null,
             sample_messages: sampleMessages,
-            bull_ratio: total > 0 ? (bullish / total) * 100 : 50,
+            // A zero labelled sample carries no signal — leave the ratio null so
+            // every downstream consumer renders "no read" instead of a 50/50 coin flip.
+            bull_ratio: total > 0 ? (bullish / total) * 100 : null,
             source: 'StockTwits',
             source_url: `https://api.stocktwits.com/api/2/streams/symbol/${stockTwitsSymbol}.json`,
           };
-          const ratio      = crowd.stocktwits_data.bull_ratio;
-          const ratioColor = ratio > 60 ? clr.green : ratio < 40 ? clr.red : clr.yellow;
-          log.crowd('stocktwits', `${ratioColor(ratio.toFixed(0) + '% bullish')}  ${clr.dim(`bulls ${bullish} · bears ${bearish} · total ${messages.length}`)}`);
+          const ratio      = crowd.stocktwits_data.bull_ratio ?? null;
+          const ratioColor = ratio == null ? clr.dim : ratio > 60 ? clr.green : ratio < 40 ? clr.red : clr.yellow;
+          log.crowd('stocktwits', `${ratio == null ? clr.dim('no labelled messages') : ratioColor(ratio.toFixed(0) + '% bullish')}  ${clr.dim(`bulls ${bullish} · bears ${bearish} · labelled ${total} of ${messages.length} sampled`)}`);
         }
       }
     } catch (err) {
@@ -284,7 +286,15 @@ export class SentimentService {
     }
 
     // ── Summary ────────────────────────────────────────────────────────────────
-    const bullRatio      = crowd.stocktwits_data?.bull_ratio ?? 50;
+    // Signals need a real labelled sample: a 50/50 default or an unaudited
+    // ratio must never mint CROWD_BULLISH/CROWD_BEARISH on its own.
+    const stData = crowd.stocktwits_data;
+    const stLabelled = typeof stData?.total_with_sentiment === 'number' && Number.isFinite(stData.total_with_sentiment)
+      ? Math.max(0, Math.round(stData.total_with_sentiment))
+      : ((typeof stData?.bullish === 'number' ? stData.bullish : 0) + (typeof stData?.bearish === 'number' ? stData.bearish : 0));
+    const bullRatio = typeof stData?.bull_ratio === 'number' && Number.isFinite(stData.bull_ratio) && stLabelled >= 8
+      ? stData.bull_ratio
+      : 50;
     const fgValue        = crowd.fear_greed?.value ?? 50;
     const overallSignals: string[] = [];
     if (fgValue   < 25) overallSignals.push('EXTREME_FEAR');

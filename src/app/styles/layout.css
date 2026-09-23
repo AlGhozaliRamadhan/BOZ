@@ -1,46 +1,48 @@
 /* === APP LAYOUT ============================================================ */
 .app-shell {
+  --shell-bg: #0a0a0a;
+  --sidebar-motion-duration: 320ms;
+  --sidebar-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
   min-height: 100vh;
-  background: var(--bg-primary);
+  background: var(--shell-bg);
 }
 
 .app-layout {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   padding-top: var(--topbar-height);
   box-sizing: border-box;
 }
 
 .app-main {
   flex: 1;
-  margin-left: var(--sidebar-width);
-  height: calc(100vh - var(--topbar-height));
+  margin: 8px 0 0 calc(var(--sidebar-width) + 12px);
   min-height: 0;
   display: flex;
   flex-direction: column;
-  transition: margin-left var(--duration-base) var(--ease-out);
+  transition: margin-left var(--sidebar-motion-duration) var(--sidebar-motion-ease);
   overflow: hidden;
   min-width: 0;
+  box-sizing: border-box;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-glass);
+  border-right: 0;
+  border-bottom: 0;
+  border-radius: 16px 0 0 0;
 }
 
-.app-shell-sidebar-collapsed .app-main { margin-left: var(--sidebar-collapsed); }
+.app-shell-sidebar-collapsed .app-main { margin-left: calc(var(--sidebar-collapsed) + 12px); }
 
 .app-content {
   flex: 1;
   min-height: 0;
   padding: var(--space-6);
-  /* app-layout already begins below the fixed app menu, so only reserve
-     space for the ticker. Including the menu height here created a second,
-     visually empty header row above every normal page. */
-  padding-top: calc(var(--ticker-height) + var(--space-6));
   width: 100%;
   min-width: 0;
   overflow-x: hidden;
   overflow-y: auto;
-}
-
-.app-shell-ticker-hidden .app-content {
-  padding-top: var(--space-6);
+  box-sizing: border-box;
 }
 
 .app-content:has(.chat-page-root),
@@ -57,13 +59,15 @@
   left: 0;
   width: var(--sidebar-width);
   height: calc(100vh - var(--topbar-height));
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border-glass);
+  background: var(--shell-bg);
+  /* No border — the 12px channel + content radius draws the division. */
+  border-right: none;
   display: flex;
   flex-direction: column;
   z-index: 100;
-  transition: width var(--duration-base) var(--ease-out);
-  overflow: hidden;
+  transition: width var(--sidebar-motion-duration) var(--sidebar-motion-ease),
+    transform var(--sidebar-motion-duration) var(--sidebar-motion-ease);
+  overflow: visible;
 }
 
 .sidebar.collapsed { width: var(--sidebar-collapsed); }
@@ -75,8 +79,8 @@
   align-items: center;
   gap: var(--space-3);
   padding: 0 16px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-glass);
+  background: transparent;
+  border-bottom: none;
   min-height: 48px;
 }
 
@@ -181,9 +185,16 @@
 }
 
 .sidebar.collapsed .sidebar-link {
-  justify-content: center;
-  padding-inline: 0;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  min-height: 40px;
+  padding: 0;
 }
+
+.sidebar.collapsed .sidebar-nav { align-items: center; padding-inline: 0; }
+.sidebar.collapsed .sidebar-nav-item-group { width: 44px; }
+.sidebar.collapsed .sidebar-link-icon { width: 20px; height: 20px; }
 
 .sidebar-link.active .sidebar-link-icon { opacity: 1; }
 
@@ -356,7 +367,7 @@
 
 .sidebar-footer {
   padding: 10px 8px;
-  border-top: 1px solid var(--border-glass);
+  border-top: none;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -369,7 +380,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 5px 8px;
+  padding: 5px 2px;
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all 200ms ease-in-out;
@@ -528,8 +539,9 @@
 .profile-popover {
   position: absolute;
   bottom: calc(100% + 10px);
-  left: 10px;
-  right: 10px;
+  left: 8px;
+  width: min(240px, calc(100vw - 16px));
+  box-sizing: border-box;
   background: var(--bg-secondary);
   border: 1px solid var(--border-glass);
   border-radius: 12px;
@@ -563,6 +575,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 8px 12px;
   margin: 0 4px;
   border-radius: 6px;
@@ -584,6 +597,7 @@
 .profile-popover-item-right {
   color: var(--text-muted);
   font-size: 11px;
+  white-space: nowrap;
   display: flex;
   align-items: center;
   transition: color 150ms ease-in-out;
@@ -618,9 +632,9 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   width: 100%;
-  padding: 2px 4px 0 8px;
+  padding: 2px 0 0;
   gap: 6px;
   opacity: 0.9;
 }
@@ -739,23 +753,71 @@
 }
 
 .sidebar-collapse-btn {
-  background: none;
-  border: 1px solid transparent;
-  color: var(--text-muted);
+  position: absolute;
+  top: 50%;
+  right: -6px;
+  z-index: 2;
+  width: 32px;
+  height: 44px;
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary);
   cursor: pointer;
-  padding: var(--space-2);
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--duration-fast) var(--ease-out);
+  padding: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0.82;
+  transform: translateY(-50%);
+  transition: right var(--sidebar-motion-duration) var(--sidebar-motion-ease),
+    opacity var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
   text-decoration: none;
 }
 
-.sidebar-collapse-btn:hover {
+.sidebar-collapse-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 26px;
+  border: 1px solid #303030;
+  border-left-color: transparent;
+  border-radius: 0 10px 10px 0;
+  background: var(--shell-bg);
+  pointer-events: none;
+  transition: background var(--duration-fast) var(--ease-out),
+    border-color var(--sidebar-motion-duration) var(--sidebar-motion-ease),
+    border-radius var(--sidebar-motion-duration) var(--sidebar-motion-ease);
+}
+
+.sidebar-collapse-btn svg {
+  position: absolute;
+  left: 5px;
+}
+
+.sidebar-collapse-btn:hover,
+.sidebar-collapse-btn:focus-visible {
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.05);
+  opacity: 1;
   text-decoration: none;
+}
+
+.sidebar.collapsed .sidebar-collapse-btn:hover::before,
+.sidebar.collapsed .sidebar-collapse-btn:focus-visible::before {
+  background: #181818;
+}
+
+/* When expanded, the tab belongs to the content panel across the 12px gutter. */
+.sidebar:not(.collapsed) .sidebar-collapse-btn {
+  right: -26px;
+}
+
+.sidebar:not(.collapsed) .sidebar-collapse-btn::before {
+  background: var(--bg-primary);
+  border-color: var(--border-glass);
+  border-right-color: transparent;
+  border-radius: 8px 0 0 8px;
 }
 
 /* === APPLICATION MENU BAR ================================================== */
@@ -765,8 +827,10 @@
   right: 0;
   left: 0;
   height: var(--topbar-height);
-  background: #202020;
-  border-bottom: 1px solid #2d2d2d;
+  background: var(--shell-bg);
+  /* Seamless: no hard line under the menu bar — content separation comes
+     from the 8px top channel + panel radius. */
+  border-bottom: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -942,15 +1006,10 @@
 
 /* === MARKET TICKER ========================================================= */
 .bbg-ticker {
-  position: fixed;
-  top: var(--topbar-height);
-  right: 0;
-  left: var(--sidebar-width);
-  z-index: 89;
-  transition: left var(--duration-base) var(--ease-out);
+  position: relative;
+  flex: 0 0 var(--ticker-height);
   background: #181818;
   border-bottom: 1px solid #2a2a2a;
-  height: var(--ticker-height, 36px);
   display: flex;
   align-items: center;
   font-family: 'JetBrains Mono', 'Consolas', 'SF Mono', monospace;
@@ -960,10 +1019,6 @@
   overflow: hidden;
   user-select: none;
   letter-spacing: 0.01em;
-}
-
-.app-shell-sidebar-collapsed .bbg-ticker {
-  left: var(--sidebar-collapsed);
 }
 
 .bbg-ticker__session {

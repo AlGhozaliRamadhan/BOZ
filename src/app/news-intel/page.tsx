@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { ThoughtAccordion } from '@/app/components/ui/ThoughtAccordion';
+import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -140,11 +141,28 @@ export default function NewsIntelPage() {
               </div>
               <div className="flex-col items-center gap-2">
                 <span className="card-title">StockTwits Bull %</span>
-                <span className="card-value">{sent?.stocktwits_data?.bull_ratio != null ? `${sent.stocktwits_data.bull_ratio.toFixed(0)}%` : '—'}</span>
-                <span className={`badge ${
-                  (sent?.stocktwits_data?.bull_ratio ?? 50) > 60 ? 'badge-bull' :
-                  (sent?.stocktwits_data?.bull_ratio ?? 50) < 40 ? 'badge-bear' : 'badge-neutral'
-                }`}>{(sent?.stocktwits_data?.bull_ratio ?? 50) > 60 ? 'Bullish' : (sent?.stocktwits_data?.bull_ratio ?? 50) < 40 ? 'Bearish' : 'Neutral'}</span>
+                {(() => {
+                  const pulse = buildStocktwitsPulse(sent?.stocktwits_data ? {
+                    bullish: sent.stocktwits_data.bullish ?? null,
+                    bearish: sent.stocktwits_data.bearish ?? null,
+                    total_with_sentiment: sent.stocktwits_data.total_with_sentiment ?? null,
+                    total_messages: sent.stocktwits_data.total_messages ?? null,
+                    bull_ratio: sent.stocktwits_data.bull_ratio,
+                  } : null);
+                  const value = pulse.bullRatio != null && pulse.labelled > 0 ? `${pulse.bullRatio.toFixed(0)}%` : '—';
+                  const badge = pulse.bullRatio == null || pulse.labelled < 8
+                    ? 'badge-neutral'
+                    : pulse.bullRatio > 60 ? 'badge-bull' : pulse.bullRatio < 40 ? 'badge-bear' : 'badge-neutral';
+                  const label = pulse.bullRatio == null || pulse.labelled < 8
+                    ? (pulse.labelled > 0 ? `Thin (${pulse.labelled})` : 'Neutral')
+                    : pulse.bullRatio > 60 ? 'Bullish' : pulse.bullRatio < 40 ? 'Bearish' : 'Neutral';
+                  return (
+                    <>
+                      <span className="card-value" title={pulse.labelled > 0 ? `${pulse.labelled} labelled of ${pulse.totalMessages ?? pulse.labelled} sampled · confidence ${pulse.confidence}` : 'no labelled messages'}>{value}</span>
+                      <span className={`badge ${badge}`}>{label}</span>
+                    </>
+                  );
+                })()}
               </div>
               <div className="flex-col items-center gap-2">
                 <span className="card-title">Headlines</span>

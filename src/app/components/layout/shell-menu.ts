@@ -15,6 +15,7 @@ const routeLabels: Array<{ prefix: string; label: string }> = [
   { prefix: '/analyze/intraday', label: 'Intraday Analysis' },
   { prefix: '/analyze/longterm', label: 'Long-term Analysis' },
   { prefix: '/news-intel', label: 'News Intel' },
+  { prefix: '/ticker', label: 'Market Dashboard' },
   { prefix: '/dashboard', label: 'Market Dashboard' },
 ];
 

@@ -10,9 +10,10 @@ import type {
   ScreenerResult,
   ScreenerUniverse,
 } from '@/shared/screener-contract';
+import { signalConfidence } from '@/shared/screener-confidence';
 
 type ConvictionFilter = 'LOW' | 'MEDIUM' | 'HIGH';
-type SortKey = 'screenScore' | 'expertScore' | 'chg1d' | 'price' | 'rsi';
+type SortKey = 'screenScore' | 'expertScore' | 'confidence' | 'conviction' | 'chg1d' | 'chg5d' | 'price' | 'rsi' | 'volumeRatio';
 type SortDirection = 'asc' | 'desc';
 type MarketTab = 'crypto' | 'us' | 'idx';
 
@@ -63,12 +64,24 @@ const US_SECTORS = [
 const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
   { value: 'screenScore', label: 'Best match' },
   { value: 'expertScore', label: 'Signal score' },
+  { value: 'confidence', label: 'Confidence' },
+  { value: 'conviction', label: 'Conviction' },
   { value: 'chg1d', label: '1-day change' },
+  { value: 'chg5d', label: '5-day change' },
+  { value: 'volumeRatio', label: 'Volume' },
   { value: 'price', label: 'Price' },
   { value: 'rsi', label: 'RSI' },
 ];
 
-const CONFIG_KEY = 'boz_screeners_config_v1';
+const CONVICTION_RANK: Record<ConvictionFilter, number> = { LOW: 1, MEDIUM: 2, HIGH: 3 };
+
+function confidenceTone(value: number): 'high' | 'medium' | 'low' {
+  if (value >= 70) return 'high';
+  if (value >= 45) return 'medium';
+  return 'low';
+}
+
+const CONFIG_KEY = 'boz_screeners_config_v2';
 
 function formatNumber(value: number | null | undefined, digits = 1): string {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : 'n/a';
@@ -112,11 +125,22 @@ function displayTicker(ticker: string, universe: ScreenerUniverse): string {
   return ticker.replace(/-USD$/i, '');
 }
 
+function target1Upside(result: ScreenerResult): number | null {
+  const entry = result.expertSignal.plan.entry ?? result.metrics.price;
+  const target1 = result.expertSignal.plan.target1;
+  if (!(entry > 0) || target1 == null || !Number.isFinite(target1)) return null;
+  return ((target1 - entry) / entry) * 100;
+}
+
 function sortValue(result: ScreenerResult, key: SortKey): number {
   switch (key) {
     case 'price': return result.metrics.price;
     case 'chg1d': return result.metrics.chg1d;
+    case 'chg5d': return result.metrics.chg5d;
+    case 'volumeRatio': return result.metrics.volumeRatio ?? Number.NEGATIVE_INFINITY;
     case 'rsi': return result.metrics.rsi ?? Number.NEGATIVE_INFINITY;
+    case 'confidence': return signalConfidence(result.expertSignal);
+    case 'conviction': return CONVICTION_RANK[result.expertSignal.conviction] * 1000 + Math.abs(result.expertSignal.score);
     case 'expertScore': return result.expertSignal.score;
     case 'screenScore':
     default: return result.screenScore;
@@ -167,6 +191,10 @@ export default function ScreenersPage() {
         setMinimumConviction(saved.minimumConviction);
       }
       if (saved.mode === 'fast' || saved.mode === 'deep') setMode(saved.mode);
+      if (typeof saved.sortKey === 'string' && SORT_OPTIONS.some(o => o.value === saved.sortKey)) {
+        setSortKey(saved.sortKey as SortKey);
+      }
+      if (saved.sortDirection === 'asc' || saved.sortDirection === 'desc') setSortDirection(saved.sortDirection);
     } catch {
       // Saved preferences are optional.
     }
@@ -175,12 +203,12 @@ export default function ScreenersPage() {
   useEffect(() => {
     try {
       window.localStorage.setItem(CONFIG_KEY, JSON.stringify({
-        market, preset, sector, direction, minimumConviction, mode,
+        market, preset, sector, direction, minimumConviction, mode, sortKey, sortDirection,
       }));
     } catch {
       // Ignore persistence failures.
     }
-  }, [market, preset, sector, direction, minimumConviction, mode]);
+  }, [market, preset, sector, direction, minimumConviction, mode, sortKey, sortDirection]);
 
   const universe: ScreenerUniverse = market;
   const sectorOptions = market === 'idx' ? IDX_SECTORS : US_SECTORS;
@@ -194,6 +222,7 @@ export default function ScreenersPage() {
     setResponse(null);
     setError(null);
     setExpandedTicker(null);
+    setSearch('');
   };
 
   const resetFilters = () => {
@@ -264,6 +293,8 @@ export default function ScreenersPage() {
 
   const responseUniverse = response ? toMarketTab(response.query.universe ?? universe) : market;
   const summary = response?.summary ?? null;
+  // The scan service caps matches at 100 — say so instead of implying full coverage.
+  const isCapped = (response?.results.length ?? 0) >= 100;
   const isDefaultConfig =
     preset === 'momentum' && sector === 'all' && direction === 'buy' &&
     minimumConviction === 'LOW' && mode === 'fast';
@@ -471,7 +502,9 @@ export default function ScreenersPage() {
           <>
             {/* Summary strip: one line, not three cards */}
             <div className="scn-strip" aria-label="Scan summary">
-              <strong>{response.results.length} {response.results.length === 1 ? 'match' : 'matches'}</strong>
+              <strong>
+                {isCapped ? '100+ ' : ''}{response.results.length} {response.results.length === 1 ? 'match' : 'matches'}
+              </strong>
               <span className="scn-strip__sep" aria-hidden="true">·</span>
               <span>{activePreset.label}</span>
               <span className="scn-strip__sep" aria-hidden="true">·</span>
@@ -540,14 +573,12 @@ export default function ScreenersPage() {
                     const signal = result.expertSignal;
                     const isExpanded = expandedTicker === result.ticker;
                     const tone = actionTone(signal.action);
-                    const entry = signal.plan.entry ?? result.metrics.price;
-                    const upside = entry > 0 && signal.plan.target1 != null
-                      ? ((signal.plan.target1 - entry) / entry) * 100
-                      : null;
+                    const upside = target1Upside(result);
+                    const confidence = signalConfidence(signal);
+                    const confidenceClass = confidenceTone(confidence);
                     const down1d = result.metrics.chg1d < 0;
                     return (
                       <li key={result.ticker} className={`scn-row scn-row--${tone}${isExpanded ? ' is-open' : ''}`}>
-                        <span className="scn-row__rail" aria-hidden="true" />
                         <div className="scn-row__grid">
                           <button
                             type="button"
@@ -573,6 +604,12 @@ export default function ScreenersPage() {
                           </span>
                           <span className="scn-col scn-col--signal">
                             <span className={`scn-action scn-action--${tone}`}>{signal.action}</span>
+                            <span
+                              className={`scn-confidence scn-confidence--${confidenceClass}`}
+                              title={`Signal clarity ${confidence}% — how clear the technical evidence is, not a win probability`}
+                            >
+                              {confidence}% sure
+                            </span>
                             <span className="scn-signal__sub">{signal.conviction} · {signed(signal.score, 0)}</span>
                           </span>
                           <span className={`scn-col scn-col--num${upside == null ? '' : upside >= 0 ? ' is-positive' : ' is-negative'}`}>
@@ -591,7 +628,7 @@ export default function ScreenersPage() {
                             <button
                               type="button"
                               className="scn-open"
-                              onClick={() => router.push(`/dashboard/${encodeURIComponent(result.ticker)}`)}
+                              onClick={() => router.push(`/ticker/${encodeURIComponent(result.ticker)}`)}
                               aria-label={`Open brief for ${displayTicker(result.ticker, responseUniverse)}`}
                               title="Open brief"
                             >
@@ -603,8 +640,8 @@ export default function ScreenersPage() {
                         {isExpanded && (
                           <div className="scn-detail">
                             <p className="scn-detail__meta">
-                              {signal.conviction} conviction · {selectedPresetLabel(activePreset.label)} screen · updated {timeAgo(signal.asOf)} ·{' '}
-                              {signal.dataQuality}% data quality · {signal.status}
+                              {signal.conviction} conviction · {confidence}% signal clarity · {activePreset.label} screen ·{' '}
+                              updated {timeAgo(signal.asOf)} · {signal.dataQuality}% data quality · {signal.status}
                             </p>
                             <section aria-label="Why this signal">
                               <h3>Why this signal</h3>
@@ -634,7 +671,7 @@ export default function ScreenersPage() {
                               <button
                                 type="button"
                                 className="scn-brief"
-                                onClick={() => router.push(`/dashboard/${encodeURIComponent(result.ticker)}`)}
+                                onClick={() => router.push(`/ticker/${encodeURIComponent(result.ticker)}`)}
                               >
                                 Open full brief <i className="fa-solid fa-arrow-right" aria-hidden="true" />
                               </button>
@@ -665,7 +702,10 @@ export default function ScreenersPage() {
 
             <footer className="scn-foot">
               <span>Completed {new Date(response.meta.completedAt).toLocaleString()}</span>
-              <span>{response.meta.skippedCount} unavailable · {response.meta.partial ? 'partial coverage' : 'full coverage'}</span>
+              <span>
+                {response.meta.skippedCount} unavailable · {response.meta.partial ? 'partial coverage' : 'full coverage'}
+                {isCapped ? ' · top 100 shown — sort to surface more' : ''}
+              </span>
             </footer>
           </>
         )}
@@ -684,8 +724,4 @@ export default function ScreenersPage() {
       </section>
     </div>
   );
-}
-
-function selectedPresetLabel(label: string): string {
-  return label;
 }

@@ -3,6 +3,7 @@ import type { ChartPatternResult } from '../analyzers/chart.analyzer.js';
 import { rsiLabel } from '../utils/display.js';
 import { config } from '../config/config.js';
 import { formatCrowdSignalEvidence } from './evidence-attribution.js';
+import { buildStocktwitsPulse, stocktwitsContrarianNote } from './crowd-pulse.js';
 
 export interface CrowdSentimentData {
   fear_greed?: {
@@ -95,14 +96,32 @@ export interface LongTermPromptData {
   crowdSentiment: CrowdSentimentData;
 }
 
+function formatStocktwitsPulseLine(crowdSentiment: CrowdSentimentData): string {
+  const stocktwits = crowdSentiment.stocktwits_data;
+  const pulse = buildStocktwitsPulse(stocktwits ? {
+    bullish: stocktwits.bullish ?? null,
+    bearish: stocktwits.bearish ?? null,
+    total_with_sentiment: stocktwits.total_with_sentiment ?? null,
+    total_messages: stocktwits.total_messages ?? null,
+    bull_ratio: stocktwits.bull_ratio ?? null,
+  } : null);
+  if (pulse.labelled <= 0 || pulse.bullRatio == null) return `no labelled messages (${pulse.confidenceNote})`;
+  const sampled = pulse.totalMessages ?? pulse.labelled;
+  return `${pulse.bullRatio.toFixed(1)}% bullish of labelled messages (bulls ${pulse.bullish} · bears ${pulse.bearish} · ${pulse.labelled} labelled of ${sampled} sampled · confidence ${pulse.confidence})`;
+}
+
 function buildContrarianNote(crowdSentiment: CrowdSentimentData): string {
-  const br = crowdSentiment.stocktwits_data?.bull_ratio ?? 50;
-  const fg = crowdSentiment.fear_greed?.value ?? 50;
-  if (br > 70 && fg > 60) return '⚠ HIGH CONTRARIAN RISK — retail euphoria on both metrics; historically bearish for near-term';
-  if (br > 70)            return '⚠ StockTwits crowd is euphoric (>70% bullish) — apply contrarian caution';
-  if (br < 30 && fg < 40) return '✓ HIGH CONTRARIAN OPPORTUNITY — retail fear on both metrics; historically bullish for near-term';
-  if (br < 30)            return '✓ StockTwits crowd is fearful (<30% bullish) — apply contrarian bullish bias';
-  return 'Neutral — no extreme crowd signal';
+  const stocktwits = crowdSentiment.stocktwits_data;
+  const pulse = buildStocktwitsPulse(stocktwits ? {
+    bullish: stocktwits.bullish ?? null,
+    bearish: stocktwits.bearish ?? null,
+    total_with_sentiment: stocktwits.total_with_sentiment ?? null,
+    total_messages: stocktwits.total_messages ?? null,
+    bull_ratio: stocktwits.bull_ratio ?? null,
+  } : null);
+  // Thin or unlabelled samples must not drive a contrarian call — the shared
+  // helper already encodes that refusal plus the euphoria/fear thresholds.
+  return stocktwitsContrarianNote(pulse);
 }
 
 function formatSocialBuzz(crowdSentiment: CrowdSentimentData): string {
@@ -180,7 +199,7 @@ ${newsItems.join('\n')}
 CROWD SENTIMENT (apply CONTRARIAN logic — see framework above):
 - Fear & Greed Index : ${crowdSentiment.fear_greed?.value ?? 'N/A'} / 100  (${crowdSentiment.fear_greed?.label ?? 'N/A'})
 - F&G Momentum      : ${crowdSentiment.fear_greed?.momentum ?? 'N/A'}
-- StockTwits Data   : ${crowdSentiment.stocktwits_data?.bull_ratio?.toFixed(1) ?? 'N/A'}% bullish  (bulls ${crowdSentiment.stocktwits_data?.bullish ?? 0} · bears ${crowdSentiment.stocktwits_data?.bearish ?? 0} · total tagged ${crowdSentiment.stocktwits_data?.total_with_sentiment ?? 0})
+- StockTwits Data   : ${formatStocktwitsPulseLine(crowdSentiment)}
 - Overall Signals   : ${crowdSentiment.summary?.overall_signals?.join(', ') ?? 'NEUTRAL'}
 - Contrarian Note   : ${buildContrarianNote(crowdSentiment)}
 
@@ -282,7 +301,7 @@ ${newsItems.join('\n')}
 CROWD SENTIMENT (apply CONTRARIAN logic — see framework above):
 - Fear & Greed Index : ${crowdSentiment.fear_greed?.value ?? 'N/A'} / 100  (${crowdSentiment.fear_greed?.label ?? 'N/A'})
 - F&G Momentum      : ${crowdSentiment.fear_greed?.momentum ?? 'N/A'}
-- StockTwits Data   : ${crowdSentiment.stocktwits_data?.bull_ratio?.toFixed(1) ?? 'N/A'}% bullish  (bulls ${crowdSentiment.stocktwits_data?.bullish ?? 0} · bears ${crowdSentiment.stocktwits_data?.bearish ?? 0} · total tagged ${crowdSentiment.stocktwits_data?.total_with_sentiment ?? 0})
+- StockTwits Data   : ${formatStocktwitsPulseLine(crowdSentiment)}
 - Overall Signals   : ${crowdSentiment.summary?.overall_signals?.join(', ') ?? 'NEUTRAL'}
 - Contrarian Note   : ${buildContrarianNote(crowdSentiment)}
 

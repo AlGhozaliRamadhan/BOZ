@@ -428,19 +428,6 @@
 .scn-row:hover { background: var(--surface-glass-hover); }
 .scn-row.is-open { background: var(--bg-secondary); }
 
-.scn-row__rail {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 2px;
-  background: #6f6f6f;
-}
-
-.scn-row--buy .scn-row__rail { background: var(--bull); }
-.scn-row--sell .scn-row__rail { background: var(--bear); }
-.scn-row--watch .scn-row__rail { background: #6f6f6f; }
-
 .scn-row__grid { padding: 10px 8px 10px 14px; font-size: 13px; }
 
 .scn-row__id {
@@ -489,6 +476,10 @@
 .scn-action--buy { color: var(--bull); }
 .scn-action--sell { color: #ff6b6b; }
 .scn-action--watch { color: var(--text-secondary); }
+.scn-confidence { font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.scn-confidence--high { color: var(--bull); }
+.scn-confidence--medium { color: var(--text-secondary); }
+.scn-confidence--low { color: var(--text-muted); }
 .scn-signal__sub { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 
 .scn-chevron,

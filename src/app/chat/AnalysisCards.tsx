@@ -1,5 +1,6 @@
 import React from 'react';
 import { ThoughtAccordion } from '../components/ui/ThoughtAccordion';
+import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
 import VerdictBox from '../components/ui/VerdictBox';
 import TradeLevels from '../components/ui/TradeLevels';
 
@@ -117,7 +118,7 @@ export function IntradayCard({ data }: { data: any }) {
           <span className="analysis-dashboard-cta-sub">Interactive chart, multi-timeframe indicators, order book & live news</span>
         </div>
         <a
-          href={`/dashboard/${encodeURIComponent(sym)}`}
+          href={`/ticker/${encodeURIComponent(sym)}`}
           className="analysis-dashboard-cta-btn"
         >
           <span>Open Dashboard</span>
@@ -223,7 +224,7 @@ export function LongtermCard({ data }: { data: any }) {
           <span className="analysis-dashboard-cta-sub">Interactive chart, multi-timeframe indicators, order book & live news</span>
         </div>
         <a
-          href={`/dashboard/${encodeURIComponent(sym)}`}
+          href={`/ticker/${encodeURIComponent(sym)}`}
           className="analysis-dashboard-cta-btn"
         >
           <span>Open Dashboard</span>
@@ -261,7 +262,18 @@ export function NewsIntelCard({ data }: { data: any }) {
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>SENTIMENT OVERVIEW</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Fear & Greed</span> <strong>{sent.fear_greed?.value || '--'} ({sent.fear_greed?.label || '--'})</strong></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>StockTwits Bulls</span> <strong>{sent.stocktwits_data?.bull_ratio ? sent.stocktwits_data.bull_ratio.toFixed(0) + '%' : '--'}</strong></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>StockTwits Bulls</span> <strong>{(() => {
+                const pulse = buildStocktwitsPulse(sent?.stocktwits_data ? {
+                  bullish: sent.stocktwits_data.bullish ?? null,
+                  bearish: sent.stocktwits_data.bearish ?? null,
+                  total_with_sentiment: sent.stocktwits_data.total_with_sentiment ?? null,
+                  total_messages: sent.stocktwits_data.total_messages ?? null,
+                  bull_ratio: sent.stocktwits_data.bull_ratio,
+                } : null);
+                return pulse.bullRatio != null && pulse.labelled > 0
+                  ? `${pulse.bullRatio.toFixed(0)}% (${pulse.labelled} labelled)`
+                  : '--';
+              })()}</strong></div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Headlines Analyzed</span> <strong>{data.totalHeadlines || '--'}</strong></div>
             </div>
           </div>

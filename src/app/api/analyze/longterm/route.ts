@@ -10,6 +10,20 @@ import { AIService } from '@/services/ai/ai.service';
 import { buildTradeLevels } from '@/shared/trade-levels';
 import { resolveSymbol } from '@/shared/market-constants';
 import { formatCrowdSignalEvidence } from '@/shared/evidence-attribution';
+import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
+
+function formatStocktwitsPulseShort(stocktwits: any): string {
+  if (!stocktwits) return 'N/A';
+  const pulse = buildStocktwitsPulse({
+    bullish: stocktwits.bullish ?? null,
+    bearish: stocktwits.bearish ?? null,
+    total_with_sentiment: stocktwits.total_with_sentiment ?? null,
+    total_messages: stocktwits.total_messages ?? null,
+    bull_ratio: stocktwits.bull_ratio,
+  });
+  if (pulse.bullRatio == null || pulse.labelled <= 0) return 'no audited read';
+  return `${pulse.bullRatio.toFixed(0)}% bullish of ${pulse.labelled} labelled (confidence ${pulse.confidence})`;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -138,7 +152,7 @@ Macro Context:
 
 Sentiment:
 - Fear & Greed: ${sentiment.fear_greed?.value ?? 'N/A'} (${sentiment.fear_greed?.label ?? 'N/A'})
-- StockTwits Bull Ratio: ${sentiment.stocktwits_data?.bull_ratio != null ? sentiment.stocktwits_data.bull_ratio.toFixed(0) + '%' : 'N/A'}
+- StockTwits Bull Ratio: ${formatStocktwitsPulseShort(sentiment.stocktwits_data)}
 - Crowd evidence: ${formatCrowdSignalEvidence(sentiment) || 'No source-attributed crowd signal was available.'}
 
 Chart Patterns (Daily): ${chartPatterns.patterns.join(', ')}
