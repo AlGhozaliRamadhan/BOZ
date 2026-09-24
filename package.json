@@ -50,7 +50,7 @@
     "dotenv": "^17.4.2",
     "isomorphic-dompurify": "^4.1.0",
     "marked": "^18.0.5",
-    "openai": "^7.5.0",
+    "openai": "^7.20.0",
     "rss-parser": "^3.13.0",
     "technicalindicators": "^3.1.0",
     "yahoo-finance2": "^4.0.2"
