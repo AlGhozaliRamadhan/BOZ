@@ -270,7 +270,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
         {!collapsed && (
           <div className="sidebar-version-row">
             <span className="sidebar-version">
-              v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.7.2'}
+              v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.7.3'}
             </span>
           </div>
         )}
@@ -302,10 +302,10 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
                   BOZ Intelligence
                 </div>
                 <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                  Desktop version v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.7.2'}
+                  Desktop version v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.7.3'}
                 </div>
               </div>
-              <DesktopUpdateControl version={process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.7.2'} />
+              <DesktopUpdateControl version={process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.7.3'} />
               <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '12px', borderTop: '1px solid var(--border-glass)' }}>
                 <button
                   type="button"
