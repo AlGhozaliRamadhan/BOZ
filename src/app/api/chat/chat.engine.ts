@@ -39,6 +39,7 @@ import { getThoughtPrompt, getReasoningPassPrompt, type ThoughtEffort } from '@/
 import { formatLedgerFacts } from '@/shared/ledger-facts';
 import { requiredTickerResearchQueries } from '@/shared/ticker-research';
 import { formatCrowdSignalEvidence, WEB_EVIDENCE_CITATION_RULES } from '@/shared/evidence-attribution';
+import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
 import {
   parseAnalysisPassOutput,
   PrivateReasoningStreamFilter,
@@ -542,7 +543,7 @@ export class WebChatEngine {
       '       • If the dashboard omits a level but confirmed current price plus ATR, support/resistance, or moving averages are available, calculate a reasonable level and label it as derived. Never print $-- placeholders and never invent inputs.',
       '       • Give only the 2-4 decisive technical & catalyst drivers in crisp bullet points.',
       '       • Include practical trade & money management rules (e.g., 1-2% risk budget, de-risking at TP1).',
-      '       • Direct Dashboard Link: [Open Full $TICKER Dashboard](/dashboard/$TICKER)',
+      '       • Direct Ticker Link: [Open Full $TICKER Dashboard](/ticker/$TICKER)',
       '       • Expand into multi-timeframe, scenario, macro, sentiment, and catalyst detail only when the user explicitly asks for a full or detailed breakdown.',
       '',
       'CONCISE OUTPUT & DASHBOARD LINKING RULES:',
@@ -1060,7 +1061,14 @@ export class WebChatEngine {
           stocktwits_data: st,
           social_buzz: json.reddit_buzz?.social,
         });
-        const stStr = st ? `, StockTwits ${st.bull_ratio?.toFixed(0)}% bullish` : '';
+        const pulse = st ? buildStocktwitsPulse({
+          bullish: st.bullish ?? null,
+          bearish: st.bearish ?? null,
+          total_with_sentiment: st.total_with_sentiment ?? null,
+          total_messages: st.total_messages ?? null,
+          bull_ratio: st.bull_ratio,
+        }) : null;
+        const stStr = pulse && pulse.bullRatio != null ? `, StockTwits ${pulse.bullRatio.toFixed(0)}% bullish of ${pulse.labelled} labelled` : '';
         return {
           step: 0, tool: toolName,
           fact: crowdEvidence || `Sentiment: Fear & Greed ${fg} (${fgl})${stStr}, signals: [${sig}]`,

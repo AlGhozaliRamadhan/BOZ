@@ -30,7 +30,7 @@ const navItems: NavItem[] = [
   },
   {
     label: 'Screeners',
-    href: '/idx-scanner',
+    href: '/screener',
     icon: <i className="fa-regular fa-chart-bar" style={{ fontSize: '14px' }}></i>,
   },
 ];
@@ -124,23 +124,6 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
 
   return (
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' mobile-open' : ''}`}>
-      <div className="sidebar-toolbar" style={{ justifyContent: collapsed ? 'center' : 'flex-end' }}>
-        <button
-          className="sidebar-collapse-btn"
-          onClick={onToggle}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            {collapsed ? (
-              <polyline points="6,3 11,8 6,13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            ) : (
-              <polyline points="10,3 5,8 10,13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            )}
-          </svg>
-        </button>
-      </div>
-
       <nav className="sidebar-nav">
         {navItems.map((item) => (
           <div key={item.href} className="sidebar-nav-item-group">
@@ -203,8 +186,24 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
         ))}
       </nav>
 
+      <button
+        type="button"
+        className="sidebar-collapse-btn"
+        onClick={onToggle}
+        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          {collapsed ? (
+            <polyline points="6,3 11,8 6,13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          ) : (
+            <polyline points="10,3 5,8 10,13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          )}
+        </svg>
+      </button>
+
       <div className="sidebar-footer" ref={profileRef}>
-        {isProfileMenuOpen && !collapsed && (
+        {isProfileMenuOpen && (
           <div className="profile-popover animate-fadeIn">
             <div className="profile-popover-header">
               <span className="profile-popover-email">User</span>
@@ -268,11 +267,13 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
             </div>
           )}
         </div>
-        <div className="sidebar-version-row">
-          <span className="sidebar-version">
-            v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.7.2'}
-          </span>
-        </div>
+        {!collapsed && (
+          <div className="sidebar-version-row">
+            <span className="sidebar-version">
+              v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.7.2'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Desktop About Modal */}

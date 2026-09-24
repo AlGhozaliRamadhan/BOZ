@@ -67,13 +67,13 @@ export default function AppShell({ children }: AppShellProps) {
         {mobileSidebarOpen && (
           <button type="button" className="sidebar-backdrop" onClick={() => setMobileSidebarOpen(false)} aria-label="Close navigation" />
         )}
+        <GlobalSettings />
         <Sidebar
           collapsed={preferences.sidebarCollapsed}
           mobileOpen={mobileSidebarOpen}
           onToggle={toggleSidebar}
         />
         <div className="app-main">
-          <GlobalSettings />
           <MarketTicker visible={preferences.tickerVisible} />
           <main className="app-content">{children}</main>
         </div>

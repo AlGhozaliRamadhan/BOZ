@@ -236,7 +236,6 @@ export default function AppMenuBar({
         </nav>
       </div>
 
-      {isDesktopWindow && <span className="app-menu-window-divider" aria-hidden="true" />}
       {isDesktopWindow && (
         <div className="app-menu-window-controls" aria-label="Window controls">
           <button type="button" className="app-menu-window-button" onClick={() => void runWindowCommand('minimize')} title="Minimize" aria-label="Minimize">

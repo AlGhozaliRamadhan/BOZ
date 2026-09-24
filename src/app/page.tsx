@@ -15,11 +15,45 @@ export default function HomePage() {
   // Favorites logic
   const [favorites, setFavorites] = useState<string[]>([]);
   const [favoriteQuotes, setFavoriteQuotes] = useState<Record<string, any>>({});
+  const [removingFavorite, setRemovingFavorite] = useState<string | null>(null);
+  // Two-step removal: first click arms the star so an accidental
+  // tap on remove can't silently drop the ticker from the watchlist.
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+
+  const removeFavorite = (ticker: string) => {
+    if (removingFavorite) return;
+    setRemovingFavorite(ticker);
+    try {
+      const stored: unknown = JSON.parse(localStorage.getItem('boz_favorites') || '[]');
+      const next = Array.isArray(stored) ? stored.filter((t: unknown) => t !== ticker) : [];
+      localStorage.setItem('boz_favorites', JSON.stringify(next));
+      setFavorites(next.filter((t: unknown): t is string => typeof t === 'string'));
+      setFavoriteQuotes(prev => {
+        const rest = { ...prev };
+        delete rest[ticker];
+        return rest;
+      });
+      window.dispatchEvent(new Event('boz_favorites_changed'));
+    } catch {
+      // Corrupt storage — clear it so the list recovers.
+      localStorage.setItem('boz_favorites', '[]');
+      setFavorites([]);
+    } finally {
+      setRemovingFavorite(null);
+      setConfirmRemove(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!confirmRemove) return;
+    const timer = setTimeout(() => setConfirmRemove(null), 5000);
+    return () => clearTimeout(timer);
+  }, [confirmRemove]);
 
   const loadFavorites = () => {
     try {
       const favs = JSON.parse(localStorage.getItem('boz_favorites') || '[]');
-      setFavorites(favs);
+      setFavorites(Array.isArray(favs) ? favs.filter((t: unknown): t is string => typeof t === 'string') : []);
     } catch(e) {}
   };
 
@@ -74,23 +108,25 @@ export default function HomePage() {
         newTicker = searchResults[0].symbol.toUpperCase();
       }
       setShowDropdown(false);
-      router.push(`/dashboard/${encodeURIComponent(newTicker)}`);
+      router.push(`/ticker/${encodeURIComponent(newTicker)}`);
     }
   };
 
   return (
     <div className="bbg-page" style={{ padding: '0 var(--space-4) var(--space-6)', background: 'var(--bg-primary)' }}>
       {/* ── HEADER ────────────────────────────────────────────────────────── */}
-      <div className="bbg-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 0', borderBottom: '1px solid #1f1f1f' }}>
+      <header className="bbg-header ticker-page-header">
         <div>
           <h1 style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-violet)', fontSize: '14px', fontWeight: 700, margin: 0, letterSpacing: '0.05em' }}>INTELLIGENCE DASHBOARD</h1>
           <p style={{ fontFamily: 'var(--font-mono)', color: '#555', fontSize: '10px', marginTop: '2px', textTransform: 'uppercase' }}>REAL-TIME MARKET OVERVIEW</p>
         </div>
-        <div style={{ position: 'relative', width: '280px' }}>
-          <form onSubmit={handleTickerSubmit} style={{ display: 'flex', border: '1px solid #333' }}>
+        <div className="ticker-search">
+          <form onSubmit={handleTickerSubmit} className="ticker-search__form" role="search">
+            <i className="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
             <input
               type="text"
-              placeholder="SEARCH..."
+              aria-label="Search ticker or asset"
+              placeholder="Search ticker or asset"
               value={tickerInput}
               onChange={(e) => {
                 setTickerInput(e.target.value);
@@ -100,94 +136,75 @@ export default function HomePage() {
                 if (tickerInput.trim() !== '') setShowDropdown(true);
               }}
               onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
-              style={{
-                flex: 1, background: '#000', color: '#fff', border: 'none', padding: '0 12px',
-                fontFamily: 'var(--font-mono)', fontSize: '12px', outline: 'none', textTransform: 'uppercase'
-              }}
+              className="ticker-search__input"
             />
-            <button type="submit" style={{
-              background: 'var(--accent-violet)', color: '#000', border: 'none', padding: '6px 12px',
-              fontFamily: 'var(--font-mono)', fontSize: '12px', fontWeight: 700, cursor: 'pointer'
-            }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: '4px', verticalAlign: 'text-bottom' }}>
-                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-              GO
-            </button>
+            <button type="submit" className="ticker-search__submit">GO <span aria-hidden="true">↗</span></button>
           </form>
 
           {showDropdown && (tickerInput.trim() !== '') && (
-            <div style={{ 
-              position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
-              background: '#0d0d0d', border: '1px solid #333', zIndex: 50
-            }}>
+            <div className="ticker-search__results">
               {isSearching ? (
-                <div style={{ padding: '8px', color: '#555', fontSize: '11px', textAlign: 'center' }}>SEARCHING...</div>
+                <div className="ticker-search__message">SEARCHING...</div>
               ) : searchResults.length > 0 ? (
                 searchResults.map((result, i) => (
-                  <div 
+                  <button
+                    type="button"
                     key={result.symbol + i}
-                    style={{ 
-                      padding: '8px 12px', borderBottom: i === searchResults.length - 1 ? 'none' : '1px solid #1f1f1f', 
-                      cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px'
-                    }}
-                    onMouseDown={() => {
+                    className="ticker-search__result"
+                    onClick={() => {
                       const newTicker = result.symbol.toUpperCase();
                       setShowDropdown(false);
-                      router.push(`/dashboard/${encodeURIComponent(newTicker)}`);
+                      router.push(`/ticker/${encodeURIComponent(newTicker)}`);
                     }}
                   >
-                    <span style={{ color: 'var(--accent-cyan)', fontWeight: 700 }}>{result.symbol}</span>
-                    <span style={{ color: '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60%' }}>{result.name}</span>
-                  </div>
+                    <span className="ticker-search__symbol">{result.symbol}</span>
+                    <span className="ticker-search__name">{result.name}</span>
+                    <span className="ticker-search__exchange">{result.exchange}</span>
+                  </button>
                 ))
               ) : (
-                <div style={{ padding: '8px', color: '#555', fontSize: '11px', textAlign: 'center' }}>NO RESULTS</div>
+                <div className="ticker-search__message">NO RESULTS</div>
               )}
             </div>
           )}
         </div>
-      </div>
+      </header>
 
       {favorites.length > 0 ? (
-        <div style={{ marginTop: '32px' }}>
-          <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: '#888', marginBottom: '16px', textTransform: 'uppercase' }}>YOUR WATCHLIST</h2>
-          <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', paddingBottom: '16px' }}>
+        <section className="home-watchlist">
+          <h2>YOUR WATCHLIST</h2>
+          <div className="home-watchlist-list">
             {favorites.map(t => {
               const quote = favoriteQuotes[t];
               const price = quote?.price;
               const change = quote?.change;
               const isUp = change >= 0;
               return (
-                <div 
-                  key={t}
-                  onClick={() => router.push(`/dashboard/${encodeURIComponent(t)}`)}
-                  style={{ 
-                    minWidth: '200px', background: '#0a0a0a', border: '1px solid #1f1f1f', 
-                    padding: '16px', cursor: 'pointer', display: 'flex', flexDirection: 'column'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent-violet)'}
-                  onMouseLeave={(e) => e.currentTarget.style.borderColor = '#1f1f1f'}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ color: '#fff', fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: '16px' }}>{t}</span>
-                    <i className="fa-solid fa-chevron-right" style={{ color: '#555', fontSize: '10px' }}></i>
-                  </div>
-                  {quote ? (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                      <span style={{ color: '#fff', fontSize: '18px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>${price?.toFixed(2)}</span>
-                      <span style={{ color: isUp ? '#00c853' : '#d50000', fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                        {isUp ? '+' : ''}{change?.toFixed(2)}
-                      </span>
-                    </div>
-                  ) : (
-                    <div style={{ color: '#555', fontSize: '12px', fontFamily: 'var(--font-mono)' }}>LOADING...</div>
-                  )}
+                <div key={t} className="home-watchlist-row">
+                  <button type="button" className="home-watchlist-asset" onClick={() => router.push(`/ticker/${encodeURIComponent(t)}`)}>
+                    <span className="home-watchlist-symbol">{t}</span>
+                    <span className="home-watchlist-price">{typeof price === 'number' ? `$${price.toFixed(2)}` : 'LOADING...'}</span>
+                    <span className={`home-watchlist-change${isUp ? ' is-up' : ' is-down'}`}>
+                      {typeof change === 'number' ? `${isUp ? '+' : ''}${change.toFixed(2)}` : '—'}
+                    </span>
+                    <i className="fa-solid fa-chevron-right" aria-hidden="true"></i>
+                  </button>
+                  <button
+                    type="button"
+                    className={`favorite-toggle is-saved${confirmRemove === t ? ' is-confirming' : ''}`}
+                    onClick={() => confirmRemove === t ? removeFavorite(t) : setConfirmRemove(t)}
+                    disabled={removingFavorite === t}
+                    title={confirmRemove === t ? 'Click again to remove from watchlist' : 'Remove from watchlist'}
+                    aria-label={confirmRemove === t ? `Confirm remove ${t} from watchlist` : `Remove ${t} from watchlist`}
+                    aria-pressed="true"
+                  >
+                    <i className="fa-solid fa-star" aria-hidden="true"></i>
+                  </button>
                 </div>
               );
             })}
           </div>
-        </div>
+        </section>
       ) : (
         <div style={{ padding: '60px 0', textAlign: 'center' }}>
           <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', color: '#fff' }}>ENTER A TICKER TO BEGIN</h2>

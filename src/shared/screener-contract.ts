@@ -58,12 +58,15 @@ export interface ScreenerResult {
   expertSignal: ExpertSignal;
 }
 
+export type ScreenerUniverse = 'idx' | 'us' | 'crypto' | 'global';
+
 export interface ScreenerQuery {
   sector: string;
   preset: ScreenerPreset;
   direction: ScreenerDirection;
   mode: ScreenerMode;
   minimumConviction?: Conviction;
+  universe?: ScreenerUniverse;
 }
 
 export interface ScreenerMeta {

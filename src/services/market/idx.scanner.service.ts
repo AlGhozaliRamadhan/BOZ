@@ -13,12 +13,21 @@ import { log } from '../../utils/logger.js';
 import { deepScanWorkloadGate, WorkloadBusyError } from '../security/workload-gate.js';
 import { IndicatorsService } from './indicators.service.js';
 import { idxUniverseService } from './idx.universe.service.js';
+import { globalUniverseService } from './global.universe.service.js';
 import { yahooFinance } from './yahoo.service.js';
 
 export type ScanSignal = 'BUY' | 'WATCH' | 'AVOID';
 export type SignalFilter = ScreenerDirection;
 export type SetupFilter = ScreenerPreset | 'all_time_low';
 export type ScanMode = ScreenerMode;
+export type ScannerUniverse = 'idx' | 'us' | 'crypto' | 'global';
+
+/** 'global' is a deprecated alias for 'us' kept for older clients. */
+export function normalizeScannerUniverse(value: ScannerUniverse | string): 'idx' | 'us' | 'crypto' {
+  if (value === 'crypto') return 'crypto';
+  if (value === 'us' || value === 'global') return 'us';
+  return 'idx';
+}
 export type IdxSector =
   | 'all' | 'banking' | 'consumer' | 'mining' | 'energy'
   | 'tech' | 'property' | 'telecom' | 'healthcare' | 'industrial';
@@ -50,6 +59,7 @@ export interface ScanResult {
   sector: string;
   preset: ScreenerPreset;
   signalFilter: SignalFilter;
+  universe: ScannerUniverse;
   mode: ScanMode;
   startedAt: string;
   completedAt: string;
@@ -83,6 +93,7 @@ interface QuoteCandidate extends StockEntry {
 export interface ScanOptions {
   minimumConviction?: 'LOW' | 'MEDIUM' | 'HIGH';
   signal?: AbortSignal;
+  universe?: ScannerUniverse;
 }
 
 const QUOTE_BATCH_SIZE = 100;
@@ -117,7 +128,20 @@ function finiteNumber(value: unknown, fallback = 0): number {
 }
 
 export class IdxScannerService {
-  async getUniverse(sector: string): Promise<StockEntry[]> {
+  async getUniverse(sector: string, universe: ScannerUniverse = 'idx'): Promise<StockEntry[]> {
+    const normalized = normalizeScannerUniverse(universe);
+    if (normalized === 'crypto') {
+      const all = await globalUniverseService.getCryptoUniverse();
+      const filtered = globalUniverseService.filterBySector(all, sector === 'all' ? 'all' : 'crypto');
+      log.info('crypto-scanner', `universe: ${filtered.length} symbols (${sector}) from ${all.length} total`);
+      return filtered;
+    }
+    if (normalized === 'us') {
+      const all = await globalUniverseService.getUsUniverse();
+      const filtered = globalUniverseService.filterBySector(all, sector);
+      log.info('us-scanner', `universe: ${filtered.length} symbols (${sector}) from ${all.length} total`);
+      return filtered;
+    }
     const all = await idxUniverseService.getUniverse();
     const filtered = idxUniverseService.filterBySector(all, sector);
     log.info('idx-scanner', `universe: ${filtered.length} stocks (${sector}) from ${all.length} total`);
@@ -385,13 +409,14 @@ export class IdxScannerService {
   }
 
   private cacheKey(
-    sector: IdxSector,
+    sector: string,
     direction: SignalFilter,
     preset: ScreenerPreset,
     mode: ScanMode,
     minimumConviction: 'LOW' | 'MEDIUM' | 'HIGH',
+    universe: ScannerUniverse,
   ): string {
-    return [sector, direction, preset, mode, minimumConviction].join(':');
+    return [universe, sector, direction, preset, mode, minimumConviction].join(':');
   }
 
   private getCached(key: string): ScanResult | null {
@@ -413,7 +438,7 @@ export class IdxScannerService {
   }
 
   async scan(
-    sector: IdxSector = 'all',
+    sector: string = 'all',
     signalFilter: SignalFilter = 'buy',
     setup: SetupFilter = 'momentum',
     mode: ScanMode = 'fast',
@@ -421,24 +446,30 @@ export class IdxScannerService {
   ): Promise<ScanResult> {
     const preset = normalizeSetupFilter(setup);
     const minimumConviction = options.minimumConviction ?? 'LOW';
-    const cacheKey = this.cacheKey(sector, signalFilter, preset, mode, minimumConviction);
+    const scannerUniverse = normalizeScannerUniverse(options.universe ?? 'idx');
+    const cacheKey = this.cacheKey(sector, signalFilter, preset, mode, minimumConviction, scannerUniverse);
     const cached = this.getCached(cacheKey);
     if (cached) return cached;
 
     const release = mode === 'deep' ? deepScanWorkloadGate.tryAcquire() : () => undefined;
-    if (!release) throw new WorkloadBusyError('A deep IDX scan is already running');
+    if (!release) {
+      const busyLabel = scannerUniverse === 'crypto' ? 'A deep Crypto scan is already running'
+        : scannerUniverse === 'us' ? 'A deep US scan is already running'
+        : 'A deep IDX scan is already running';
+      throw new WorkloadBusyError(busyLabel);
+    }
     const startedAt = new Date().toISOString();
 
     try {
       throwIfAborted(options.signal);
-      const universe = await this.getUniverse(sector);
+      const universe = await this.getUniverse(sector, scannerUniverse);
       const skipped: string[] = [];
       const quoted = await this.fetchQuoteCandidates(universe, signalFilter, preset, skipped, options.signal);
       const chartCandidates = this.selectChartCandidates(quoted, mode);
       const enriched: StockResult[] = [];
 
       log.info(
-        'idx-scanner',
+        scannerUniverse === 'crypto' ? 'crypto-scanner' : scannerUniverse === 'us' ? 'us-scanner' : 'idx-scanner',
         `${mode} quote prefilter: ${chartCandidates.length}/${quoted.length} chart candidates from ${universe.length} universe`,
       );
 
@@ -497,6 +528,7 @@ export class IdxScannerService {
         sector,
         preset,
         signalFilter,
+        universe: scannerUniverse,
         mode,
         startedAt,
         completedAt,
@@ -527,6 +559,7 @@ export class IdxScannerService {
           enriched.length,
           matched,
           breadthSignal,
+          scannerUniverse,
         ),
       };
       this.setCached(cacheKey, result);
@@ -552,14 +585,17 @@ export class IdxScannerService {
     enrichedCount: number,
     results: StockResult[],
     breadthSignal: string,
+    scannerUniverse: ScannerUniverse = 'idx',
   ): string {
     const lines = results.slice(0, 12).map((result, index) => {
       const signal = result.expertSignal;
       const warning = signal.warnings[0] ? ` | Warning: ${signal.warnings[0]}` : '';
       return `${index + 1}. ${result.ticker} — screen ${result.screenScore}/100 | ${signal.action} ${signal.conviction} (${signal.score >= 0 ? '+' : ''}${signal.score}) | ${signal.reasons[0] ?? signal.plan.setup}${warning}`;
     });
+    const normalized = normalizeScannerUniverse(scannerUniverse);
+    const label = normalized === 'crypto' ? 'CRYPTO SCREENER' : normalized === 'us' ? 'US SCREENER' : 'IDX SCREENER';
     return [
-      `IDX SCREENER — ${preset.replaceAll('_', ' ').toUpperCase()} (${sector}, ${mode})`,
+      `${label} — ${preset.replaceAll('_', ' ').toUpperCase()} (${sector}, ${mode})`,
       `Coverage: ${enrichedCount} enriched from ${universeCount} symbols. Breadth: ${breadthSignal}.`,
       lines.length > 0 ? lines.join('\n') : 'No candidates met the selected screen and direction filters.',
       'Expert Signal is deterministic technical confluence, not a forecast. Confirm entries with current price and volume.',
