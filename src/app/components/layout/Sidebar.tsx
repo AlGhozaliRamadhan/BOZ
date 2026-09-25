@@ -21,17 +21,17 @@ const navItems: NavItem[] = [
   {
     label: 'Dashboard',
     href: '/',
-    icon: <i className="fa-regular fa-compass" style={{ fontSize: '14px' }}></i>,
+    icon: <i className="fa-regular fa-compass"></i>,
   },
   {
     label: 'Chat Agent',
     href: '/chat',
-    icon: <i className="fa-regular fa-comment-dots" style={{ fontSize: '14px' }}></i>,
+    icon: <i className="fa-regular fa-comment-dots"></i>,
   },
   {
     label: 'Screeners',
     href: '/screener',
-    icon: <i className="fa-regular fa-chart-bar" style={{ fontSize: '14px' }}></i>,
+    icon: <i className="fa-regular fa-chart-bar"></i>,
   },
 ];
 
@@ -146,7 +146,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
                   className="sidebar-new-chat-btn"
                   title="Start a fresh conversation"
                 >
-                  <i className="fa-solid fa-plus" style={{ fontSize: '11px' }}></i>
+                  <i className="fa-solid fa-plus"></i>
                   <span>New Chat</span>
                 </Link>
 
