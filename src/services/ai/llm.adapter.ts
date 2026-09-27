@@ -5,7 +5,7 @@ import type { LLMMessage, RawToolCall } from '../../types/llm.types.js';
 import type { ValidateFunction } from 'ajv';
 import { formatSchemaErrors } from './llm.schemas.js';
 import { createCustomProviderClient } from './custom-provider.client.js';
-import { sanitizeAssistantOutput } from '../../shared/assistant-output.js';
+import { publicAnalysisEnvelope, sanitizeAssistantOutput } from '../../shared/assistant-output.js';
 
 export type JsonCallResult<T> =
   | { type: 'ok'; value: T; raw: string; warnings: string[] }
@@ -559,7 +559,7 @@ export class LLMAdapter {
     ) || null;
     return {
       role: 'assistant',
-      content: toolCalls.length > 0 ? null : content,
+      content: toolCalls.length > 0 ? publicAnalysisEnvelope(content) : content,
       tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
     };
   }
@@ -801,7 +801,7 @@ export class LLMAdapter {
 
     return {
       role: 'assistant',
-      content: toolCalls.length === 0 ? cleaned : null,
+      content: toolCalls.length === 0 ? cleaned : publicAnalysisEnvelope(cleaned),
       tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
     };
   }
@@ -813,7 +813,7 @@ export class LLMAdapter {
 
     const hasTools = msg.tool_calls && msg.tool_calls.length > 0;
 
-    if (hasTools) content = null;
+    if (hasTools) content = publicAnalysisEnvelope(content);
 
     return {
       role: 'assistant',

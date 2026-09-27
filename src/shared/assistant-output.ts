@@ -1,3 +1,5 @@
+import { truncateMarkdown } from './markdown-diagrams';
+
 const COMPLETE_PRIVATE_BLOCKS = [
   /<thinking>[\s\S]*?<\/thinking>\s*/gi,
   /<think>[\s\S]*?<\/think>\s*/gi,
@@ -176,15 +178,6 @@ export interface AnalysisPassOutput {
 const ANALYSIS_NOTE = /<analysis_note(?:\s[^>]*)?>([\s\S]*?)(?:<\/analysis_note>|(?=<answer(?:\s[^>]*)?>)|$)/i;
 const ANSWER_NOTE = /<answer(?:\s[^>]*)?>([\s\S]*?)(?:<\/answer>|$)/i;
 
-function truncateAtWord(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-
-  const slice = text.slice(0, Math.max(0, maxLength - 1));
-  const lastBoundary = Math.max(slice.lastIndexOf(' '), slice.lastIndexOf('\n'));
-  const bounded = lastBoundary > maxLength * 0.75 ? slice.slice(0, lastBoundary) : slice;
-  return `${bounded.trimEnd()}…`;
-}
-
 function formatAnalysisActivity(text: string, label: string, maxLength: number): string {
   const cleaned = sanitizeAssistantOutput(text)
     .replace(/<\/?(?:analysis_note|answer)(?:\s[^>]*)?>/gi, '')
@@ -192,7 +185,19 @@ function formatAnalysisActivity(text: string, label: string, maxLength: number):
     .trim();
 
   if (!cleaned) return '';
-  return `**${label}**\n\n${truncateAtWord(cleaned, maxLength)}`;
+  return `${label ? `**${label}**\n\n` : ''}${truncateMarkdown(cleaned, maxLength)}`;
+}
+
+/** Only explicitly public, complete envelopes may accompany a tool call. */
+export function publicAnalysisEnvelope(text: string | null | undefined): string | null {
+  const cleaned = sanitizeAssistantOutput(text ?? '');
+  const note = cleaned.match(/<analysis_note>([\s\S]*?)<\/analysis_note>/i)?.[1];
+  const bounded = note ? formatAnalysisActivity(note, '', 2200) : '';
+  return bounded ? `<analysis_note>${bounded}</analysis_note>` : null;
+}
+
+export function publicAnalysisText(text: string | null | undefined): string {
+  return publicAnalysisEnvelope(text)?.replace(/^<analysis_note>|<\/analysis_note>$/g, '') ?? '';
 }
 
 /**
@@ -226,7 +231,7 @@ export function summarizeAnalysisActivity(text: string, label: string, maxLength
  */
 export function parseAnalysisPassOutput(
   text: string,
-  label: string,
+  label = '',
   maxAnalysisLength = 2200,
 ): AnalysisPassOutput {
   const cleaned = sanitizeAssistantOutput(text);

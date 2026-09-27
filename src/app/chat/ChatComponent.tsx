@@ -2,12 +2,13 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { marked } from 'marked';
-import DOMPurify from 'isomorphic-dompurify';
+import { ChatMarkdown } from '../components/ui/ChatMarkdown';
 import { ThoughtAccordion } from '../components/ui/ThoughtAccordion';
 import { getEffort, getThinkingEnabled } from '../../shared/chat-options';
 import ChatModelPicker from './ChatModelPicker';
 import ChatEffortPicker from './ChatEffortPicker';
+import ChatQuestionComposer from './ChatQuestionComposer';
+import { displayAssistantContent, followUpHistoryContent, formatFollowUpAnswers, getActiveFollowUp, readMessageFollowUp, type ChatFollowUp } from '@/shared/chat-follow-up';
 import type { ToolResult } from './ToolResultCards';
 import { toolStartThought, updateToolResultThought } from './tool-thoughts';
 import {
@@ -40,6 +41,8 @@ export interface ChatMessage {
   thoughts?: string[];
   tools?: ToolResult[];
   suggestions?: TickerSuggestion[];
+  followUp?: ChatFollowUp;
+  followUpDismissed?: boolean;
 }
 
 export interface ChatSession {
@@ -47,15 +50,6 @@ export interface ChatSession {
   title: string;
   messages: ChatMessage[];
   updatedAt: number;
-}
-
-function formatContent(content: string): string {
-  try {
-    const rawHtml = marked.parse(content, { breaks: true, async: false }) as string;
-    return DOMPurify.sanitize(rawHtml);
-  } catch (e) {
-    return DOMPurify.sanitize(content);
-  }
 }
 
 function formatMessageTime(timestamp?: number): string | null {
@@ -225,6 +219,9 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const sendingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -295,6 +292,29 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
     }
   }, [input]);
+
+  const latestActiveFollowUp = getActiveFollowUp(messages);
+  const showingQuestions = !!latestActiveFollowUp && !loading;
+
+  // Reserve the actual composer height so expanding questions never cover messages.
+  useEffect(() => {
+    const composer = composerRef.current;
+    const container = containerRef.current;
+    if (!composer || !container) return;
+    const resize = () => container.style.setProperty('--chat-composer-height', `${composer.getBoundingClientRect().height}px`);
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(composer);
+    return () => observer.disconnect();
+  }, []);
+
+  const dismissQuestions = () => {
+    if (!latestActiveFollowUp) return;
+    const next = messages.map((message, index) => index === latestActiveFollowUp.index ? { ...message, followUpDismissed: true } : message);
+    setMessages(next);
+    if (chatId) saveSession(chatId, next);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
 
   const saveSession = (id: string, msgs: ChatMessage[]) => {
     try {
@@ -402,6 +422,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     let accumulatedContent = '';
     let accumulatedThoughts: string[] = [];
     const collectedTools: ToolResult[] = [];
+    let pendingFollowUp: ChatFollowUp | undefined;
     let firstTokenAt: number | undefined;
 
     const createReply = (content: string): ChatMessage => {
@@ -419,6 +440,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
         }),
         thoughts: accumulatedThoughts.length > 0 ? [...accumulatedThoughts] : undefined,
         tools: collectedTools.filter(tool => tool.status === 'done'),
+        followUp: pendingFollowUp,
       };
     };
 
@@ -429,7 +451,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
         signal: controller.signal,
         body: JSON.stringify({
           message: command,
-          history: historyMessages.map(({ role, content }) => ({ role, content })),
+          history: historyMessages.slice(-20).map(message => ({ role: message.role, content: followUpHistoryContent(message) })),
           effort: getEffort(),
           thinking: getThinkingEnabled(),
           model: activeModel || undefined,
@@ -446,6 +468,8 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
       const decoder = new TextDecoder();
       let buffer = '';
+      let currentEvent = '';
+      let completed = false;
 
       while (true) {
         if (controller.signal.aborted) {
@@ -460,7 +484,6 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
-        let currentEvent = '';
         for (const line of lines) {
           if (line.startsWith('event: ')) {
             currentEvent = line.substring(7).trim();
@@ -560,6 +583,15 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                 accumulatedThoughts[lastIdx] += dataText;
               }
               setStreamingThoughts([...accumulatedThoughts]);
+            } else if (currentEvent === 'follow_up') {
+              try {
+                const payload = JSON.parse(dataStr) as { followUp?: unknown };
+                pendingFollowUp = readMessageFollowUp(payload) ?? undefined;
+              } catch {
+                // Ignore malformed follow-up payloads.
+              }
+            } else if (currentEvent === 'done') {
+              completed = true;
             } else if (currentEvent === 'error') {
               let payload: unknown;
               try { payload = JSON.parse(dataStr); } catch { payload = { message: dataStr }; }
@@ -570,8 +602,11 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
       }
 
       if (controller.signal.aborted) {
+        pendingFollowUp = undefined;
         return createReply(accumulatedContent || '[Generation stopped]');
       }
+      if (completed && pendingFollowUp) return createReply(accumulatedContent);
+      pendingFollowUp = undefined;
       if (!accumulatedContent) {
         return createReply(buildPausedChatResponse({
           completedResearch: accumulatedThoughts.length > 0 || collectedTools.some(tool => tool.status === 'done'),
@@ -580,6 +615,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
       }
       return createReply(accumulatedContent);
     } catch (err: unknown) {
+      pendingFollowUp = undefined;
       if (controller.signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
         return createReply(accumulatedContent || '[Generation stopped]');
       }
@@ -593,16 +629,18 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     }
   };
 
-  const sendMessage = async (override?: string) => {
-    if (loading) return;
+  const sendMessage = async (override?: string, preserveDraft = false) => {
+    if (loading || sendingRef.current) return;
     if (!override && !input.trim()) return;
 
     const command = (override ?? input).trim();
+    if (!command) return;
+    sendingRef.current = true;
     const sentAt = Date.now();
     const userMessage: ChatMessage = { role: 'user', content: command, createdAt: sentAt };
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
-    setInput('');
+    if (!preserveDraft) setInput('');
     setLoading(true);
     setLoadingStep(0);
     setLoadingType(command.toLowerCase());
@@ -626,7 +664,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
       setToolStatuses([]);
       saveSession(activeChatId, finalMessages);
       if (messages.length === 0) {
-        void generateSessionTitle(activeChatId, [userMessage, reply]);
+        void generateSessionTitle(activeChatId, [userMessage, { ...reply, content: followUpHistoryContent(reply) }]);
       }
 
     } catch (err) {
@@ -646,6 +684,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
       setToolStatuses([]);
       saveSession(activeChatId, errMessages);
     } finally {
+      sendingRef.current = false;
       setLoading(false);
       textareaRef.current?.focus();
       if (chatId !== activeChatId) {
@@ -655,7 +694,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       if (!loading) {
         sendMessage();
@@ -675,7 +714,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
   return (
     <div className="chat-page-root animate-fadeIn">
-      <div className="chat-container">
+      <div className="chat-container" ref={containerRef}>
         {/* Messages */}
         <div className="chat-messages">
             {messages.length === 0 && !loading ? (
@@ -696,7 +735,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                   {[
                     { text: 'Global Market Outlook', action: 'What is the current global market outlook across equities, bonds, and macro regimes?' },
                     { text: 'Intraday NVDA', action: '/intraday NVDA' },
-                    { text: 'Scan IDX Momentum', action: 'Scan Indonesia stocks for high-probability momentum and breakout candidates' },
+                    { text: 'Scan setups for today', action: 'Scan for high-probability stock setups for today' },
                     { text: 'Market News Intel', action: '/newsintel' },
                     { text: 'Longterm AAPL', action: '/longterm AAPL' },
                     { text: 'Crypto & Bitcoin Status', action: 'What is the current Bitcoin price action and crypto crowd sentiment?' },
@@ -730,33 +769,8 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                               defaultOpen={false}
                             />
                           )}
-                          {msg.content && (
-                            <div dangerouslySetInnerHTML={{ __html: formatContent(msg.content) }} />
-                          )}
-
-                          {/* Ticker Typo Clarification Suggestions */}
-                          {msg.suggestions && msg.suggestions.length > 0 && (
-                            <div className="chat-suggestion-group">
-                              <div className="chat-suggestion-label">Suggested Tickers:</div>
-                              <div className="chat-suggestion-cards">
-                                {msg.suggestions.map((s, si) => (
-                                  <button
-                                    key={si}
-                                    type="button"
-                                    className="chat-suggestion-card"
-                                    onClick={() => sendMessage(s.command || `/intraday ${s.symbol}`)}
-                                    title={`Run analysis for ${s.symbol}`}
-                                  >
-                                    <div className="chat-suggestion-card-main">
-                                      <span className="chat-suggestion-symbol">{s.symbol}</span>
-                                      <span className="chat-suggestion-name">{s.name}</span>
-                                    </div>
-                                    {s.exchange && <span className="chat-suggestion-exchange">{s.exchange}</span>}
-                                    <i className="fa-solid fa-arrow-right chat-suggestion-arrow"></i>
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
+                          {displayAssistantContent(msg) && (
+                            <ChatMarkdown content={displayAssistantContent(msg)} />
                           )}
 
                           {/* Assistant Message Actions */}
@@ -809,7 +823,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                       </div>
                     ) : (
                       <div className="chat-user-message">
-                        <span>{msg.content}</span>
+                        <span style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</span>
                         {formatMessageTime(msg.createdAt) && (
                           <time dateTime={new Date(msg.createdAt!).toISOString()} className="chat-user-time">
                             Sent {formatMessageTime(msg.createdAt)}
@@ -838,7 +852,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                           />
                         )}
                         {streamingContent ? (
-                          <div dangerouslySetInnerHTML={{ __html: formatContent(streamingContent) }} />
+                          <ChatMarkdown content={streamingContent} />
                         ) : streamingThoughts.length > 0 ? null : (
                           <div className="flex-row gap-2 items-center" style={{ height: '28px' }}>
                             <span className="spinner spinner-sm"></span>
@@ -858,14 +872,21 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
           </div>
 
           {/* Input Area (Claude-style composer) */}
-          <div className="chat-composer">
+          <div className={`chat-composer${showingQuestions ? ' has-questions' : ''}`} ref={composerRef}>
+            {showingQuestions && latestActiveFollowUp ? (
+              <ChatQuestionComposer
+                key={`${chatId ?? 'new'}:${latestActiveFollowUp.index}`}
+                followUp={latestActiveFollowUp.followUp}
+                onSubmit={answers => void sendMessage(formatFollowUpAnswers(latestActiveFollowUp.followUp, answers), true)}
+                onDismiss={dismissQuestions}
+              />
+            ) : <>
             {input.startsWith('/') && !input.includes(' ') && input !== '/newsintel' && (
               <div className="chat-slash-menu">
-                <div className="chat-slash-menu-label">Slash Commands</div>
-                
                 {[
-                  { cmd: '/intraday ', title: '/intraday [ticker]', desc: 'Live intraday analysis & key levels', icon: 'fa-chart-line' },
-                  { cmd: '/longterm ', title: '/longterm [ticker]', desc: 'Fundamental analysis & long-term outlook', icon: 'fa-scale-balanced' },
+                  { cmd: '/intraday ', title: '/intraday [ticker]', desc: 'Live intraday analysis and key levels', icon: 'fa-chart-line' },
+                  { cmd: '/longterm ', title: '/longterm [ticker]', desc: 'Fundamental analysis and long term outlook', icon: 'fa-scale-balanced' },
+                  { cmd: '/scan ', title: '/scan', desc: 'Find setups for me: US, IDX or crypto, today, week or month', icon: 'fa-magnifying-glass-chart' },
                   { cmd: '/newsintel', title: '/newsintel', desc: 'Scan latest market headlines', icon: 'fa-newspaper' }
                 ].filter(c => c.cmd.startsWith(input) || c.title.startsWith(input)).map(item => (
                   <button 
@@ -875,11 +896,11 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                     className="chat-slash-item"
                   >
                     <div className="chat-slash-item-icon">
-                      <i className={`fa-solid ${item.icon}`} style={{ fontSize: '11px' }}></i>
+                      <i className={`fa-solid ${item.icon}`} style={{ fontSize: '13px' }}></i>
                     </div>
                     <div className="chat-slash-item-text">
-                      <div className="chat-slash-item-title">{item.title}</div>
-                      <div className="chat-slash-item-desc">{item.desc}</div>
+                      <span className="chat-slash-item-title">{item.title}</span>
+                      <span className="chat-slash-item-desc">{item.desc}</span>
                     </div>
                   </button>
                 ))}
@@ -937,6 +958,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                 </button>
               </div>
             </div>
+            </>}
           </div>
         </div>
 

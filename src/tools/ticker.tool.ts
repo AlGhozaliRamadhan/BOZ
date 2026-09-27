@@ -148,11 +148,11 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
     sections.push(
       `=== ${symbol} DASHBOARD OVERVIEW ===\n` +
       `Company: ${quote.name || symbol} · Exchange: ${quote.exchange || 'MARKET'} · Type: ${quote.quoteType || 'EQUITY'} · Currency: ${quote.currency || 'USD'}\n` +
-      `Market State: ${quote.marketState || 'CLOSED'} | Trailing P/E: ${q?.trailingPE ? q.trailingPE.toFixed(1) + 'x' : 'N/A'} | Forward P/E: ${q?.forwardPE ? q.forwardPE.toFixed(1) + 'x' : 'N/A'}\n` +
-      `Last Price: $${analysis.structure.price.toFixed(2)} | Change: ${q?.regularMarketChange != null ? (q.regularMarketChange >= 0 ? '+' : '') + q.regularMarketChange.toFixed(2) : '--'} (${q?.regularMarketChangePercent != null ? (q.regularMarketChangePercent >= 0 ? '+' : '') + q.regularMarketChangePercent.toFixed(2) + '%' : '0%'})\n` +
+      `Market State: ${quote.marketState || 'N/A'} | Trailing P/E: ${q?.trailingPE != null ? q.trailingPE.toFixed(1) + 'x' : 'N/A'} | Forward P/E: ${q?.forwardPE != null ? q.forwardPE.toFixed(1) + 'x' : 'N/A'}\n` +
+      `Last Price: $${analysis.structure.price.toFixed(2)} | Change: ${q?.regularMarketChange != null ? (q.regularMarketChange >= 0 ? '+' : '') + q.regularMarketChange.toFixed(2) : '--'} (${q?.regularMarketChangePercent != null ? (q.regularMarketChangePercent >= 0 ? '+' : '') + q.regularMarketChangePercent.toFixed(2) + '%' : 'N/A'})\n` +
       `Day Range: Low $${q?.regularMarketDayLow?.toFixed(2) || '--'} – High $${q?.regularMarketDayHigh?.toFixed(2) || '--'} | Open: $${q?.regularMarketOpen?.toFixed(2) || '--'} | Prev Close: $${quote.previousClose?.toFixed(2) || '--'}\n` +
-      `Day Volume: ${q?.regularMarketVolume ? (q.regularMarketVolume / 1e6).toFixed(2) + 'M' : '--'} (20D Avg: ${quote.averageVolume ? (quote.averageVolume / 1e6).toFixed(2) + 'M' : '--'}, Vol Ratio: ${analysis.structure.volumeRatio?.toFixed(2) || '--'}x)\n` +
-      `Market Cap: ${quote.marketCap ? '$' + (quote.marketCap / 1e12 >= 1 ? (quote.marketCap / 1e12).toFixed(2) + 'T' : (quote.marketCap / 1e9).toFixed(2) + 'B') : '--'} | 52W Range: $${analysis.structure.low52w?.toFixed(2) || '--'} – $${analysis.structure.high52w?.toFixed(2) || '--'} (${analysis.structure.from52wHighPct?.toFixed(1) || '--'}% from ATH, +${analysis.structure.from52wLowPct?.toFixed(1) || '--'}% from 52w low, Range Pos: ${analysis.structure.range52wPos?.toFixed(0) || '--'}%)`
+      `Day Volume: ${q?.regularMarketVolume != null ? (q.regularMarketVolume / 1e6).toFixed(2) + 'M' : '--'} (20D Avg: ${quote.averageVolume != null ? (quote.averageVolume / 1e6).toFixed(2) + 'M' : '--'}, Vol Ratio: ${analysis.structure.volumeRatio?.toFixed(2) || '--'}x)\n` +
+      `Market Cap: ${quote.marketCap != null ? '$' + (quote.marketCap / 1e12 >= 1 ? (quote.marketCap / 1e12).toFixed(2) + 'T' : (quote.marketCap / 1e9).toFixed(2) + 'B') : '--'} | 52W Range: $${analysis.structure.low52w?.toFixed(2) || '--'} – $${analysis.structure.high52w?.toFixed(2) || '--'} (${analysis.structure.from52wHighPct?.toFixed(1) || '--'}% from ATH, +${analysis.structure.from52wLowPct?.toFixed(1) || '--'}% from 52w low, Range Pos: ${analysis.structure.range52wPos?.toFixed(0) || '--'}%)`
     );
 
     // 2. Quantitative Verdict & Decision Engine
@@ -175,9 +175,9 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
       `  • RSI(14): ${analysis.structure.rsi?.toFixed(1) || '--'} (${analysis.structure.rsi && analysis.structure.rsi > 70 ? 'Overbought (Extended)' : analysis.structure.rsi && analysis.structure.rsi < 30 ? 'Oversold (Mean Reversion Bounce Candidate)' : 'Balanced/Neutral'})\n` +
       `  • MACD Momentum: MACD Line: ${lastCandle?.MACD?.toFixed(4) || '--'} | Signal: ${lastCandle?.MACD_Signal?.toFixed(4) || '--'} | Hist: ${lastCandle?.MACD_Hist?.toFixed(4) || '--'} (${lastCandle?.MACD_Hist && lastCandle.MACD_Hist > 0 ? 'Bullish Expansion' : 'Bearish Contraction / Pullback'})\n` +
       `  • Moving Average Stack: SMA 20 ($${lastCandle?.SMA_20?.toFixed(2) || '--'}, ${distSma20Pct != null ? (distSma20Pct >= 0 ? '+' : '') + distSma20Pct.toFixed(2) + '%' : '--'}), SMA 50 ($${lastCandle?.SMA_50?.toFixed(2) || '--'}, ${distSma50Pct != null ? (distSma50Pct >= 0 ? '+' : '') + distSma50Pct.toFixed(2) + '%' : '--'}), SMA 200 ($${lastCandle?.SMA_200?.toFixed(2) || '--'}, ${distSma200Pct != null ? (distSma200Pct >= 0 ? '+' : '') + distSma200Pct.toFixed(2) + '%' : '--'}) -> Stack Status: ${analysis.structure.smaStack}\n` +
-      `  • Golden/Death Cross: ${lastCandle?.SMA_50 && lastCandle?.SMA_200 && lastCandle.SMA_50 > lastCandle.SMA_200 ? 'Golden Cross active (50 > 200)' : 'Death Cross active (50 < 200)'}\n` +
+      (lastCandle?.SMA_50 != null && lastCandle?.SMA_200 != null ? `  • Golden/Death Cross: ${lastCandle.SMA_50 > lastCandle.SMA_200 ? 'Golden Cross active (50 > 200)' : 'Death Cross active (50 < 200)'}\n` : '') +
       `  • Volatility & Bands: ATR: $${analysis.structure.atr?.toFixed(2) || '--'} (${analysis.structure.atrPercent?.toFixed(2) || '--'}% of price) | BB Width: ${lastCandle?.BB_Width?.toFixed(2) || '--'}% (Upper: $${lastCandle?.BB_High?.toFixed(2) || '--'}, Mid: $${lastCandle?.BB_Mid?.toFixed(2) || '--'}, Lower: $${lastCandle?.BB_Low?.toFixed(2) || '--'} | Position: ${analysis.structure.bbPosition})\n` +
-      `  • Volume & Flow: Volume: ${q?.regularMarketVolume ? (q.regularMarketVolume / 1e6).toFixed(2) + 'M' : '--'} (Ratio: ${analysis.structure.volumeRatio?.toFixed(2) || '--'}x) | OBV Trend: ${analysis.structure.obvTrend ? 'Bullish Accumulation (Smart Money Inflow)' : 'Bearish Distribution (Smart Money Outflow)'}\n` +
+      `  • Volume & Flow: Volume: ${q?.regularMarketVolume != null ? (q.regularMarketVolume / 1e6).toFixed(2) + 'M' : '--'} (Ratio: ${analysis.structure.volumeRatio?.toFixed(2) || '--'}x) | OBV Trend: ${analysis.structure.obvTrend ? 'Bullish Accumulation (Smart Money Inflow)' : 'Bearish Distribution (Smart Money Outflow)'}\n` +
       `[Weekly 1W Macro Frame]:\n` +
       `  • Macro Trend: ${weeklyTrend}\n` +
       `  • Weekly RSI(14): ${weeklyRsi}\n` +
@@ -202,7 +202,7 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
       `Action: ${analysis.plan.action} (Status: ${analysis.plan.status})\n` +
       `Setup: ${analysis.plan.setup}\n` +
       `Optimal Entry Zone: $${analysis.plan.entry?.toFixed(2) || '--'} (${analysis.plan.entryLabel || 'Reaction Zone'})\n` +
-      `Stop Loss: $${analysis.plan.stop?.toFixed(2) || '--'} (ATR Buffer Rule: Stops tighter than ${analysis.structure.atrPercent?.toFixed(1) || '2.5'}% get shaken out in normal market noise)\n` +
+      `Stop Loss: $${analysis.plan.stop?.toFixed(2) || '--'} (ATR Buffer Rule: Stops tighter than ${analysis.structure.atrPercent?.toFixed(1) || 'N/A'}% get shaken out in normal market noise)\n` +
       `Target 1: $${analysis.plan.target1?.toFixed(2) || '--'} | Target 2: $${analysis.plan.target2?.toFixed(2) || '--'} | R:R to Target 1: ${analysis.plan.riskReward || '--'}\n` +
       `Execution Trigger & Conditions: ${analysis.plan.notes || 'Wait for a close that reclaims moving average or breaks nearby level with volume.'}`
     );
@@ -269,17 +269,21 @@ export async function executeFetchPrice(raw: string): Promise<string> {
       }
       return `No price data found for ticker "${raw}". Please ask user to clarify or check the symbol.`;
     }
-    const chgNum = typeof change === 'number' ? change : 0;
     const name_ = (quote as any).shortName || (quote as any).longName || symbol;
     const dayHigh = (quote as any).regularMarketDayHigh;
     const dayLow = (quote as any).regularMarketDayLow;
     const prevClose = (quote as any).regularMarketPreviousClose;
     return [
-      `Symbol: ${symbol} | Name: ${name_} | Price: ${price} (Change: ${chgNum.toFixed(2)}%)`,
-      dayHigh != null ? `Day Range: ${dayLow} – ${dayHigh}` : '',
+      `Symbol: ${symbol} | Name: ${name_} | Price: ${price}${typeof change === 'number' ? ` (Change: ${change.toFixed(2)}%)` : ' (Change: N/A)'}`,
+      dayHigh != null && dayLow != null ? `Day Range: ${dayLow} – ${dayHigh}` : '',
       prevClose != null ? `Prev Close: ${prevClose}` : '',
     ].filter(Boolean).join(' | ');
-  } catch {
+  } catch (error) {
+    const failure = error as { code?: string; status?: number; response?: { status?: number }; message?: string };
+    const status = failure?.status ?? failure?.response?.status;
+    if (status === 429 || (status != null && status >= 500) || /ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/.test(failure?.code ?? '') || /timed? ?out|timeout|fetch failed/i.test(failure?.message ?? '')) {
+      return `Tool execution failed: price source ${status === 429 ? 'rate-limited the request' : /timed? ?out|timeout|ETIMEDOUT/i.test(`${failure.code} ${failure.message}`) ? 'timed out' : 'is temporarily unavailable'}.`;
+    }
     const searchResults = await yahooFinance.search(raw, {}, { validateResult: false }).catch(() => null) as any;
     const matches = (searchResults?.quotes || [])
       .filter((q: any) => q.symbol && (q.quoteType === 'EQUITY' || q.quoteType === 'ETF' || q.quoteType === 'CRYPTOCURRENCY' || q.quoteType === 'INDEX'))

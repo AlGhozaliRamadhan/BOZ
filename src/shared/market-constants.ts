@@ -107,7 +107,7 @@ export function resolveSymbol(raw: string): string | null {
 
 /** Same as resolveSymbol but with an IDX (.JK) bias.
  *  Use this in fetch_price when the context is clearly an Indonesian stock
- *  (e.g. the symbol came out of scan_indonesia_momentum).
+ *  (e.g. the symbol came out of the multi-market screener with universe "idx").
  *  Falls back to resolveSymbol for everything else. */
 export function resolveSymbolIDX(raw: string): string | null {
   const upper = raw.trim().toUpperCase();

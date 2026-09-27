@@ -21,17 +21,17 @@ const navItems: NavItem[] = [
   {
     label: 'Dashboard',
     href: '/',
-    icon: <i className="fa-regular fa-compass" style={{ fontSize: '14px' }}></i>,
+    icon: <i className="fa-regular fa-compass"></i>,
   },
   {
     label: 'Chat Agent',
     href: '/chat',
-    icon: <i className="fa-regular fa-comment-dots" style={{ fontSize: '14px' }}></i>,
+    icon: <i className="fa-regular fa-comment-dots"></i>,
   },
   {
     label: 'Screeners',
     href: '/screener',
-    icon: <i className="fa-regular fa-chart-bar" style={{ fontSize: '14px' }}></i>,
+    icon: <i className="fa-regular fa-chart-bar"></i>,
   },
 ];
 
@@ -126,17 +126,24 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' mobile-open' : ''}`}>
       <nav className="sidebar-nav">
         {navItems.map((item) => (
-          <div key={item.href} className="sidebar-nav-item-group">
+          <div key={item.href} className={`sidebar-nav-item-group${item.href === '/chat' ? ' sidebar-chat-group' : ''}`}>
             <Link
               href={item.href}
-              className={`sidebar-link${isActive(item.href) ? ' active' : ''}`}
+              className={`sidebar-link${isActive(item.href) ? ' active' : ''}${item.href === '/chat' ? ' sidebar-chat-agent-link' : ''}`}
               title={collapsed ? item.label : undefined}
               aria-label={item.label}
             >
               <span className="sidebar-link-icon">{item.icon}</span>
-              <span className="sidebar-link-label">{item.label}</span>
+              {item.href === '/chat' && !collapsed ? (
+                <span className="sidebar-chat-agent-copy">
+                  <span className="sidebar-link-label">{item.label}</span>
+                  <span className="sidebar-chat-agent-caption">AI workspace</span>
+                </span>
+              ) : (
+                <span className="sidebar-link-label">{item.label}</span>
+              )}
             </Link>
-            {item.href === '/chat' && isActive('/chat') && !collapsed && (
+            {item.href === '/chat' && !collapsed && (
               <div className="sidebar-chat-subnav animate-fadeIn">
                 <Link
                   href="/chat"
@@ -146,11 +153,11 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
                   className="sidebar-new-chat-btn"
                   title="Start a fresh conversation"
                 >
-                  <i className="fa-solid fa-plus" style={{ fontSize: '11px' }}></i>
+                  <i className="fa-solid fa-plus" aria-hidden="true"></i>
                   <span>New Chat</span>
                 </Link>
 
-                {chatSessions.length > 0 && (
+                {isActive('/chat') && chatSessions.length > 0 && (
                   <div className="sidebar-recent-chats">
                     <div className="sidebar-group-title">Recent Chats</div>
                     {chatSessions.slice(0, 10).map((session) => {
@@ -193,11 +200,13 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
         aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="2.5" y="3.25" width="13" height="11.5" rx="2" stroke="currentColor" strokeWidth="1.35" />
+          <path d="M6.5 3.75V14.25" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" opacity="0.72" />
           {collapsed ? (
-            <polyline points="6,3 11,8 6,13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <polyline points="9,7 11,9 9,11" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round" />
           ) : (
-            <polyline points="10,3 5,8 10,13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <polyline points="9,7 7,9 9,11" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round" />
           )}
         </svg>
       </button>

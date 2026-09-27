@@ -15,13 +15,15 @@ describe('private analysis prompts', () => {
     }
   });
 
-  it('requests a detailed public analysis note and a separate concise answer', () => {
+  it('requests a natural public assessment and a separate concise answer', () => {
     const prompt = getReasoningPassPrompt('Max');
     expect(prompt).toContain('Reason silently');
     expect(prompt).toContain('<analysis_note>');
-    expect(prompt).toContain('audit-friendly public evidence brief');
-    expect(prompt).toContain('market implication');
-    expect(prompt).toContain('Risk & invalidation');
+    expect(prompt).toContain('natural public decision summary');
+    expect(prompt).toContain('what the evidence now favors');
+    expect(prompt).toContain('Avoid fixed headings');
+    expect(prompt).toContain('only meaningful new findings');
+    expect(prompt).toContain('fenced mermaid flowchart');
     expect(prompt).toContain('Never invent probabilities');
     expect(prompt).toContain('<answer>');
     expect(prompt).toContain('what the user can do');

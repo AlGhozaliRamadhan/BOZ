@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { marked } from 'marked';
-import DOMPurify from 'isomorphic-dompurify';
+import { ChatMarkdown } from './ChatMarkdown';
 import type { ToolResult } from '../../chat/ToolResultCards';
 import { parseWebSources, type WebSourceDetail } from '../../chat/tool-result-details';
 
@@ -169,15 +168,6 @@ export function ThoughtAccordion({
 
   const combinedText = steps.map((s) => s.content).join('\n\n');
 
-  const formatThoughtHtml = (content: string): string => {
-    try {
-      const rawHtml = marked.parse(content, { breaks: true, async: false });
-      return DOMPurify.sanitize(rawHtml);
-    } catch {
-      return DOMPurify.sanitize(content);
-    }
-  };
-
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
@@ -335,9 +325,9 @@ export function ThoughtAccordion({
                       )}
                     </div>
                   ) : (
-                    <div
+                    <ChatMarkdown
                       className="thought-markdown-text"
-                      dangerouslySetInnerHTML={{ __html: formatThoughtHtml(step.content) }}
+                      content={step.content}
                     />
                   )}
                 </div>

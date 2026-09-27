@@ -299,14 +299,14 @@ function ToolResultCard({ result }: { result: ToolResult }) {
     );
   }
 
-  // 5. INDONESIA SCAN TOOL
-  if (tool === 'scan_indonesia_momentum') {
+  // 5. STOCK SCREENER TOOL (same engine as the Screeners page / GET /api/idx/scan)
+  if (tool === 'stock_screener') {
     const lines = parseHeadlines(result.preview);
     return (
       <div className="tool-card animate-fadeIn">
         <div className="tool-card-kicker">
-          <i className="fa-solid fa-radar" style={{ marginRight: '5px' }}></i>
-          IDX Screeners & Expert Signal
+          <i className="fa-solid fa-magnifying-glass-chart" style={{ marginRight: '5px' }}></i>
+          Screeners & Expert Signal
         </div>
         <div className="tool-card-title" style={{ fontSize: '13px' }}>{result.fact || 'Market screen'}</div>
         {lines.length > 0 && (

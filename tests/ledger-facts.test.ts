@@ -30,14 +30,20 @@ describe('formatLedgerFacts', () => {
     expect(out).not.toContain('DISAGREES');
   });
 
-  it('marks empty results as gaps', () => {
+  it('keeps empty results out of the evidence narrative', () => {
     const out = formatLedgerFacts([
       { fact: '[Reuters] Foreign ownership of IDX: 38.2% of market cap', quality: 'confirmed' },
       { fact: 'News for "XYZ": no relevant headlines', quality: 'empty' },
     ]);
 
     expect(out).toContain('38.2%');
-    expect(out).toContain('GAPS / EMPTY RESULTS');
-    expect(out).toContain('no relevant headlines');
+    expect(out).not.toContain('GAPS / EMPTY RESULTS');
+    expect(out).not.toContain('no relevant headlines');
+  });
+
+  it('retains useful partial evidence including zero counts', () => {
+    const out = formatLedgerFacts([{ fact: 'US scan: 50 scanned, 0 BUY / 3 WATCH', quality: 'partial' }]);
+    expect(out).toContain('[partial source]');
+    expect(out).toContain('0 BUY / 3 WATCH');
   });
 });

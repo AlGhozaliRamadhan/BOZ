@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { LLMAdapter } from '../src/services/ai/llm.adapter.js';
 
 describe('LLMAdapter.extractJson', () => {
@@ -37,5 +37,37 @@ describe('LLMAdapter reasoning privacy', () => {
 
     expect(message.content).toBe('## Current view\nAvoid.');
     expect(message.thought).toBeNull();
+  });
+
+  it('retains only an explicitly public complete note beside tool calls', () => {
+    const normalize = (LLMAdapter as any).normalizeOpenAIResponse.bind(LLMAdapter);
+    const tool_calls = [{ id: '1', type: 'function', function: { name: 'fetch_price', arguments: '{}' } }];
+    const message = normalize({
+      content: '<think>private</think>Discard this preamble.<analysis_note>I will compare trend strength and catalysts.</analysis_note>',
+      reasoning_content: 'private provider reasoning', tool_calls,
+    });
+    expect(message.content).toBe('<analysis_note>I will compare trend strength and catalysts.</analysis_note>');
+    expect(message.thought).toBeNull();
+    expect(normalize({ content: '<analysis_note>unfinished', tool_calls }).content).toBeNull();
+    expect(normalize({ content: 'unmarked scratchpad', tool_calls }).content).toBeNull();
+  });
+
+  it('preserves public notes from offline tool responses', () => {
+    const parse = (LLMAdapter as any).parseOfflineToolResponse.bind(LLMAdapter);
+    const message = parse('<analysis_note>I will check the current price.</analysis_note>\n{"tool":"fetch_price","args":{"symbol_or_name":"NVDA"}}');
+    expect(message.content).toContain('I will check');
+    expect(message.tool_calls).toHaveLength(1);
+  });
+
+  it('preserves public notes from Anthropic text blocks alongside tool use', async () => {
+    const adapter = new LLMAdapter() as any;
+    vi.spyOn(adapter, 'createAnthropicMessage').mockResolvedValue({ content: [
+      { type: 'thinking', text: 'private' },
+      { type: 'text', text: '<analysis_note>I will compare the two approaches.</analysis_note>' },
+      { type: 'tool_use', id: 't1', name: 'fetch_price', input: { symbol_or_name: 'NVDA' } },
+    ] });
+    const message = await adapter.callAnthropicWithTools({ messages: [], tools: [], maxTokens: 100, toolChoice: 'auto' });
+    expect(message.content).toBe('<analysis_note>I will compare the two approaches.</analysis_note>');
+    expect(message.tool_calls).toHaveLength(1);
   });
 });

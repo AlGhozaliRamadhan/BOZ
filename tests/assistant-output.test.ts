@@ -4,6 +4,7 @@ import {
   PrivateReasoningStreamFilter,
   sanitizeAssistantOutput,
   summarizeAnalysisActivity,
+  publicAnalysisText,
 } from '../src/shared/assistant-output.js';
 
 describe('sanitizeAssistantOutput', () => {
@@ -77,5 +78,18 @@ Volume is light, so a long needs confirmation above $219. A stop near $210-$211 
     expect(result.analysis).toContain('Volume is light');
     expect(result.answer).toBe('Consider NVDA only after a volume-backed break above $219, using $210-$211 as the stop area and $229.18 then $236.54 as targets.');
     expect(result.answer).not.toContain('analysis_note');
+  });
+
+  it('preserves a natural first paragraph without adding a heading', () => {
+    const note = 'The daily trend favors continuation, provided volume confirms the breakout.';
+    expect(parseAnalysisPassOutput(`<analysis_note>${note}</analysis_note><answer>Use the trigger.</answer>`).analysis).toBe(note);
+    expect(publicAnalysisText(`<think>private</think><analysis_note>${note}</analysis_note>`)).toBe(note);
+  });
+
+  it('does not cut through a Mermaid fence when limiting analysis notes', () => {
+    const diagram = '```mermaid\nflowchart TD\nA["Confirmed?"] --> B["Proceed"]\n```';
+    const input = `<analysis_note>A supported assessment.\n\n${diagram}\n\n${'Further evidence. '.repeat(20)}</analysis_note><answer>Use the trigger.</answer>`;
+    expect(parseAnalysisPassOutput(input, '', 140).analysis).toContain(diagram);
+    expect(parseAnalysisPassOutput(input, '', 50).analysis).not.toContain('```');
   });
 });
