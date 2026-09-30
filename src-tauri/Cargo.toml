@@ -1,6 +1,6 @@
 [package]
 name = "boz-desktop"
-version = "2.7.3"
+version = "2.7.4"
 description = "BOZ Windows desktop host"
 authors = ["AGR"]
 license = "ISC"
