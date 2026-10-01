@@ -55,6 +55,7 @@ describe('security-sensitive repository contracts', () => {
     expect(config.bundle.copyright).toBe('© 2026 BOZ');
     expect(config.bundle.windows.nsis.uninstallerIcon).toBe('icons/icon.ico');
     expect(config.plugins.updater.pubkey).toBeTruthy();
+    expect(config.plugins.updater.windows.installMode).toBe('quiet');
     expect(config.plugins.updater.endpoints).toEqual([
       'https://github.com/AlGhozaliRamadhan/BOZ/releases/latest/download/latest.json',
     ]);
