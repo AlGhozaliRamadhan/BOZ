@@ -19,6 +19,22 @@ export type AIProvider =
   | 'openrouter';
 export type RiskMode = 'auto' | 'on' | 'off';
 
+// When AI_PROVIDER is unset (fresh installs), never silently fall back to
+// 'github' — that made fresh users burn their OpenRouter/9router credentials
+// while BOZ kept calling GitHub Models. Instead pick the first provider that
+// actually has credentials configured, defaulting to 'custom' (local router).
+const resolveUnconfiguredProvider = (): AIProvider => {
+  if ((process.env.OPENROUTER_API_KEY || '').trim()) return 'openrouter';
+  if ((process.env.CUSTOM_AI_MODEL || '').trim())     return 'custom';
+  if ((process.env.OPENAI_API_KEY || '').trim())      return 'openai';
+  if ((process.env.ANTHROPIC_API_KEY || '').trim())   return 'anthropic';
+  if ((process.env.GROQ_API_KEY || '').trim())        return 'groq';
+  if ((process.env.NVIDIA_API_KEY || '').trim())      return 'nvidia';
+  if ((process.env.GITHUB_TOKEN || '').trim())        return 'github';
+  if ((process.env.OFFLINE_AI_URL || '').trim())     return 'offline';
+  return 'custom';
+};
+
 const normalizeProvider = (value: string | undefined): AIProvider => {
   const v = (value || '').toLowerCase();
   if (v === 'offline') return 'offline';
@@ -28,7 +44,8 @@ const normalizeProvider = (value: string | undefined): AIProvider => {
   if (v === 'anthropic') return 'anthropic';
   if (v === 'groq') return 'groq';
   if (v === 'openrouter') return 'openrouter';
-  return 'github';
+  if (v === 'github') return 'github';
+  return resolveUnconfiguredProvider();
 };
 
 const activeState = {

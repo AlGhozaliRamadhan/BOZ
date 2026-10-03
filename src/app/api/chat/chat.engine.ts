@@ -6,7 +6,7 @@
 // logic review, breadth, independent scenario branches) — not more passes of the
 // same critique loop re-inventing unverified figures.
 
-import { LLMAdapter } from '@/services/ai/llm.adapter';
+import { LLMAdapter, providerHonorsToolChoice } from '@/services/ai/llm.adapter';
 import type { ReasoningEffort } from '@/services/ai/llm.adapter';
 import { config } from '@/config/config';
 import { YahooService, yahooFinance } from '@/services/market/yahoo.service';
@@ -148,8 +148,19 @@ export class WebChatEngine {
 
     messages.push({ role: 'user', content: message });
 
+    // ── Provider preflight: fresh installs often keep stale placeholder
+    // model IDs (e.g. "~openai/gpt-latest") or an unset AI_PROVIDER, which
+    // previously failed deep inside the tool loop as "the model can't do
+    // this". Fail fast with a setup action instead.
+    const preflightError = this.checkProviderSetup(modelOverride);
+    if (preflightError) {
+      yield { type: 'error', data: { message: preflightError, code: 'provider_setup' } };
+      return;
+    }
+
     // ── First AI call — with tools (and prefill trap on the first call) ─────
-    const initialToolChoice = isGlobalMarketOutlookRequest(message)
+    const honorsTools = providerHonorsToolChoice(config.aiProvider);
+    const initialToolChoice = isGlobalMarketOutlookRequest(message) && honorsTools
       ? {
           type: 'function' as const,
           function: { name: 'fetch_global_market_snapshot' },
@@ -319,7 +330,7 @@ export class WebChatEngine {
           {
             reasoningEffort,
             model: modelOverride,
-            toolChoice: requireWebResearch
+            toolChoice: requireWebResearch && honorsTools
               ? { type: 'function', function: { name: 'web_search' } }
               : undefined,
           },
@@ -1469,6 +1480,36 @@ export class WebChatEngine {
   private consumeLlmCall(): void {
     if (this.llmCalls >= MAX_LLM_CALLS) throw new Error(`LLM-call budget exceeded (${MAX_LLM_CALLS} per request)`);
     this.llmCalls++;
+  }
+
+  // Fresh-install guard: surface missing credentials or a placeholder model
+  // ID as a setup message instead of letting the provider fail mid-stream
+  // with "the model can't do this".
+  private checkProviderSetup(modelOverride?: string): string | null {
+    const provider = config.aiProvider;
+    const model = (modelOverride || config.aiModel || '').trim();
+    if (!model || model.startsWith('~')) {
+      return `No valid model is configured for ${provider}. Open Settings → Providers, fetch or pick a model, then retry.`;
+    }
+    const missing: Record<string, string> = {
+      github: 'a GitHub token', nvidia: 'an NVIDIA API key',
+      openai: 'an OpenAI API key', anthropic: 'an Anthropic API key',
+      groq: 'a Groq API key', openrouter: 'an OpenRouter API key',
+      offline: 'an Ollama endpoint', custom: 'a 9router model',
+    };
+    const hasCredential =
+      provider === 'github' ? Boolean(config.github.token) :
+      provider === 'nvidia' ? Boolean(config.nvidia.apiKey) :
+      provider === 'openai' ? Boolean(config.openai.apiKey) :
+      provider === 'anthropic' ? Boolean(config.anthropic.apiKey) :
+      provider === 'groq' ? Boolean(config.groq.apiKey) :
+      provider === 'openrouter' ? Boolean(config.openrouter.apiKey) :
+      provider === 'offline' ? Boolean(config.offline.endpoint) :
+      Boolean(config.custom.model);
+    if (!hasCredential) {
+      return `The ${provider} provider is selected but has no ${missing[provider] ?? 'credential'} configured. Open Settings → Providers to connect it, then retry.`;
+    }
+    return null;
   }
 
   private wrapUntrustedToolOutput(toolName: string, output: string): string {

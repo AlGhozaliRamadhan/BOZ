@@ -69,6 +69,9 @@ export async function POST(request: NextRequest) {
           status: typeof (err as { status?: unknown })?.status === 'number'
             ? (err as { status: number }).status
             : undefined,
+          code: typeof (err as { code?: unknown })?.code === 'string'
+            ? (err as { code: string }).code
+            : undefined,
           message: err instanceof Error ? err.message : undefined,
         };
         const sseError = `event: error\ndata: ${JSON.stringify({

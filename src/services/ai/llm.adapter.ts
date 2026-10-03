@@ -32,6 +32,30 @@ const REASONING_BUDGETS: Record<ReasoningEffort, number> = {
 
 const DEFAULT_TIMEOUT_MS = 90_000;
 
+// Stray prefixes (e.g. "~openai/gpt-latest" or router namespaces users paste
+// from 9router model lists) are not valid OpenRouter model IDs. Clean them so
+// fresh users don't get a provider 404 that reads like "the model can't do
+// this". OpenRouter free-tier IDs keep their ":free" suffix intact.
+function sanitizeOpenRouterModelId(raw: string): string {
+  let id = (raw || '').trim().replace(/^~+/, '');
+  const prefixes = ['openrouter/', 'xkiro/', 'hcnsec/', 'ollama/', 'cf/@cf/'];
+  for (const prefix of prefixes) {
+    if (id.toLowerCase().startsWith(prefix)) {
+      id = id.slice(prefix.length);
+      break;
+    }
+  }
+  return id;
+}
+
+// Whether a chat-tool payload is safe to send to a model that may not
+// support tool calling (OpenRouter free tiers, small local models behind a
+// 9router gateway). When tools carry no definitions the engine can skip the
+// tool round entirely instead of failing mid-stream.
+export function providerHonorsToolChoice(provider: string): boolean {
+  return ['github', 'nvidia', 'openai', 'anthropic', 'groq', 'openrouter'].includes(provider);
+}
+
 export class LLMAdapter {
   constructor(private readonly timeoutMs = DEFAULT_TIMEOUT_MS) {}
 
@@ -48,7 +72,7 @@ export class LLMAdapter {
       return {
         apiKey: config.openai.apiKey,
         endpoint: config.openai.endpoint,
-        model: config.openai.model,
+        model: sanitizeOpenRouterModelId(config.openai.model),
         name: 'OpenAI',
       };
     }
@@ -56,14 +80,14 @@ export class LLMAdapter {
       return {
         apiKey: config.groq.apiKey,
         endpoint: config.groq.endpoint,
-        model: config.groq.model,
+        model: sanitizeOpenRouterModelId(config.groq.model),
         name: 'Groq',
       };
     }
     return {
       apiKey: config.openrouter.apiKey,
       endpoint: config.openrouter.endpoint,
-      model: config.openrouter.model,
+      model: sanitizeOpenRouterModelId(config.openrouter.model),
       name: 'OpenRouter',
       headers: {
         'HTTP-Referer': 'https://github.com/AlGhozaliRamadhan/boz',
@@ -167,10 +191,10 @@ export class LLMAdapter {
     nvidiaMode?: NvidiaMode;
     reasoningEffort?: ReasoningEffort;
   }): Promise<string> {
-    const provider = config.aiProvider ?? 'github';
+    const provider = config.aiProvider;
     const temperature = options.temperature ?? 0.4;
     const maxTokens = options.maxTokens ?? 1500;
-    const model = options.model;
+    const model = options.model ? sanitizeOpenRouterModelId(options.model) : undefined;
     const messages = options.messages;
 
     if (provider === 'custom') {
@@ -279,10 +303,10 @@ export class LLMAdapter {
     nvidiaMode?: NvidiaMode;
     reasoningEffort?: ReasoningEffort;
   }): AsyncGenerator<string, void, unknown> {
-    const provider = config.aiProvider ?? 'github';
+    const provider = config.aiProvider;
     const temperature = options.temperature ?? 0.4;
     const maxTokens = options.maxTokens ?? 1500;
-    const model = options.model;
+    const model = options.model ? sanitizeOpenRouterModelId(options.model) : undefined;
     const messages = options.messages;
 
     if (provider === 'custom') {
@@ -402,10 +426,10 @@ export class LLMAdapter {
     reasoningEffort?: ReasoningEffort;
     toolChoice?: { type: 'function'; function: { name: string } };
   }): Promise<LLMMessage> {
-    const provider = config.aiProvider ?? 'github';
+    const provider = config.aiProvider;
     const temperature = options.temperature ?? 0.3;
     const maxTokens = options.maxTokens ?? 4096;
-    const model = options.model;
+    const model = options.model ? sanitizeOpenRouterModelId(options.model) : undefined;
     const messages = options.messages;
     const toolChoice = options.toolChoice ?? 'auto';
 

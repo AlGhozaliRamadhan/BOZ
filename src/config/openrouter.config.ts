@@ -1,8 +1,8 @@
 export const OPENROUTER_MODELS: { id: string; label: string }[] = [
-  { id: '~openai/gpt-latest', label: 'OpenAI GPT Latest (OpenRouter)' },
-  { id: 'openai/gpt-6-astra', label: 'GPT-6 Astra (OpenRouter)' },
-  { id: 'anthropic/claude-opus-5', label: 'Claude Opus 5 (OpenRouter)' },
-  { id: 'google/gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (OpenRouter)' },
+  { id: 'openai/gpt-oss-120b:free', label: 'GPT-OSS 120B Free (OpenRouter)' },
+  { id: 'openai/gpt-oss-20b:free', label: 'GPT-OSS 20B Free (OpenRouter)' },
+  { id: 'openai/gpt-5-mini', label: 'GPT-5 Mini (OpenRouter)' },
+  { id: 'anthropic/claude-haiku-4-5', label: 'Claude Haiku 4.5 (OpenRouter)' },
 ];
 
 export const openrouterConfig = {
