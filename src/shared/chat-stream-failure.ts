@@ -1,6 +1,7 @@
 export type ChatStreamFailureCode =
   | 'busy'
   | 'provider_authentication'
+  | 'provider_setup'
   | 'timeout'
   | 'service_unavailable'
   | 'connection_interrupted'
@@ -22,6 +23,7 @@ export interface PausedChatResponseOptions {
 const KNOWN_FAILURE_CODES = new Set<ChatStreamFailureCode>([
   'busy',
   'provider_authentication',
+  'provider_setup',
   'timeout',
   'service_unavailable',
   'connection_interrupted',
@@ -49,6 +51,9 @@ export function classifyChatStreamFailure(failure: ChatStreamFailure): ChatStrea
   if (failure.status === 401 || failure.status === 403 || /\b(unauthori[sz]ed|forbidden|invalid api key|authentication)\b/.test(text)) {
     return 'provider_authentication';
   }
+  if (/\b(no valid model|no .* (token|api key|endpoint|configured)|open settings|provider_setup)\b/.test(text)) {
+    return 'provider_setup';
+  }
   if (failure.status === 408 || /\b(timeout|timed out|deadline exceeded|etimedout|econnaborted)\b/.test(text)) {
     return 'timeout';
   }
@@ -70,6 +75,8 @@ export function describeChatStreamFailure(failure: ChatStreamFailure): string {
       return 'BOZ or its model provider is busy or rate-limited. Wait 15–30 seconds, then retry.';
     case 'provider_authentication':
       return 'The selected model provider rejected the request because its connection or credentials need attention. Check Settings, then retry.';
+    case 'provider_setup':
+      return 'BOZ is not connected to a model yet. Open Settings → Providers, add a key or pick a reachable model, then retry.';
     case 'timeout':
       return 'The model or a data source timed out before final synthesis. Wait a moment, then retry.';
     case 'service_unavailable':
