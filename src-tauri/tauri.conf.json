@@ -59,7 +59,7 @@
         "https://github.com/AlGhozaliRamadhan/BOZ/releases/latest/download/latest.json"
       ],
       "windows": {
-        "installMode": "passive"
+        "installMode": "quiet"
       }
     }
   }
