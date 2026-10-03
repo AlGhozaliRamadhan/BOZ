@@ -7,6 +7,7 @@ import { ensureConfigDir } from '../utils/env-dir.js';
 export const MAX_MEMORY_ENTRIES = 100;
 export const MAX_MEMORY_ENTRY_CHARS = 500;
 export const MAX_MEMORY_BYTES = 64 * 1024;
+const PROFILE_ABOUT_PREFIX = 'Trader profile: ';
 
 export interface UserMemory {
   preferences: string[];
@@ -106,6 +107,32 @@ export class MemoryService {
   public clearMemory(): void {
     this.ensureLoaded();
     this.memory = emptyMemory();
+    this.saveMemory();
+  }
+
+  public getProfileAbout(): string {
+    this.ensureLoaded();
+    const entry = this.memory.preferences.find((preference) => preference.startsWith(PROFILE_ABOUT_PREFIX));
+    return entry ? entry.slice(PROFILE_ABOUT_PREFIX.length) : '';
+  }
+
+  public setProfileAbout(about: string): void {
+    this.ensureLoaded();
+    const normalized = about.trim();
+    if (!normalized) {
+      const next = this.memory.preferences.filter((preference) => !preference.startsWith(PROFILE_ABOUT_PREFIX));
+      if (next.length !== this.memory.preferences.length) {
+        this.memory.preferences = next;
+        this.saveMemory();
+      }
+      return;
+    }
+    const entry = PROFILE_ABOUT_PREFIX + this.validateEntry(normalized);
+    const without = this.memory.preferences.filter((preference) => !preference.startsWith(PROFILE_ABOUT_PREFIX));
+    if (without.includes(entry)) return;
+    this.memory.preferences = without;
+    this.ensureCapacity();
+    this.memory.preferences.push(entry);
     this.saveMemory();
   }
 

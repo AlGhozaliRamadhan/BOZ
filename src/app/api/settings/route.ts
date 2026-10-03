@@ -22,6 +22,7 @@ import {
   type SettingsEnvKey,
   type SettingsEnvUpdates,
 } from '@/services/settings/env-settings.repository';
+import { memoryService } from '@/services/memory.service';
 import {
   UnsafeOutboundUrlError,
   validateCustomProviderEndpoint,
@@ -38,6 +39,7 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   'model',
   'ticker',
   'riskMode',
+  'profileAbout',
   'nvidiaKey',
   'githubToken',
   'openaiKey',
@@ -55,6 +57,7 @@ interface SettingsUpdate {
   model?: string;
   ticker?: string;
   riskMode?: RiskMode;
+  profileAbout?: string;
   nvidiaKey?: string;
   githubToken?: string;
   openaiKey?: string;
@@ -112,6 +115,8 @@ function parseSettingsUpdate(input: unknown): SettingsUpdate {
     throw new SettingsInputError(`Unknown ticker: ${ticker}`);
   }
 
+  const profileAbout = optionalString(input, 'profileAbout', 500);
+
   let customModels: string[] | undefined;
   if (input.customModels !== undefined) {
     if (!Array.isArray(input.customModels) || input.customModels.length > 100) {
@@ -134,6 +139,7 @@ function parseSettingsUpdate(input: unknown): SettingsUpdate {
     model: optionalString(input, 'model', 200),
     ticker,
     riskMode: riskMode as RiskMode | undefined,
+    profileAbout,
     nvidiaKey: optionalString(input, 'nvidiaKey', 8_192),
     githubToken: optionalString(input, 'githubToken', 8_192),
     openaiKey: optionalString(input, 'openaiKey', 8_192),
@@ -183,6 +189,7 @@ function settingsPayload() {
     endpoint: config.aiEndpoint,
     ticker: config.ticker,
     riskMode: config.riskMode,
+    profileAbout: memoryService.getProfileAbout(),
     hasGithubToken: Boolean(config.github.token),
     hasNvidiaKey: Boolean(config.nvidia.apiKey),
     hasOpenaiKey: Boolean(config.openai.apiKey),
@@ -296,6 +303,13 @@ export async function PUT(request: NextRequest) {
     if (body.model !== undefined) config.setAIModel(body.model, targetProvider);
     if (body.ticker !== undefined) config.setTicker(body.ticker);
     if (body.riskMode !== undefined) config.setRiskMode(body.riskMode);
+    if (body.profileAbout !== undefined) {
+      try {
+        memoryService.setProfileAbout(body.profileAbout);
+      } catch {
+        throw new SettingsInputError('profileAbout must be one line and at most 500 characters');
+      }
+    }
 
     return jsonResponse({ message: 'Settings updated', ...settingsPayload() });
   } catch (error) {

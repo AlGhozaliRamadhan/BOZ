@@ -11,6 +11,7 @@ import {
   writeShellPreferences,
   type ShellPreferences,
 } from './shell-state';
+import { applyTheme, readTheme } from './theme-state';
 
 interface AppShellProps {
   children: ReactNode;
@@ -24,11 +25,32 @@ export default function AppShell({ children }: AppShellProps) {
   useEffect(() => {
     try {
       setPreferences(readShellPreferences(window.localStorage));
+      applyTheme(readTheme(window.localStorage));
     } catch {
       setPreferences(DEFAULT_SHELL_PREFERENCES);
     } finally {
       setHydrated(true);
     }
+    const syncTheme = () => {
+      try {
+        applyTheme(readTheme(window.localStorage));
+      } catch {
+        // Keep the current theme when storage is unavailable.
+      }
+    };
+    const syncShell = () => {
+      try {
+        setPreferences(readShellPreferences(window.localStorage));
+      } catch {
+        // Keep current shell prefs when storage is unavailable.
+      }
+    };
+    window.addEventListener('boz_theme_changed', syncTheme);
+    window.addEventListener('boz_shell_updated', syncShell);
+    return () => {
+      window.removeEventListener('boz_theme_changed', syncTheme);
+      window.removeEventListener('boz_shell_updated', syncShell);
+    };
   }, []);
 
   useEffect(() => {

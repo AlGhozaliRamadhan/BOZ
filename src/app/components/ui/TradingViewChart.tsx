@@ -56,6 +56,8 @@ function TradingViewChart({
     // Full remount on symbol/interval change — the embed script only inits once.
     container.replaceChildren();
 
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+
     const widgetHost = document.createElement('div');
     widgetHost.className = 'tradingview-widget-container__widget';
     widgetHost.style.height = '100%';
@@ -95,11 +97,11 @@ function TradingViewChart({
       symbol: tvSymbol,
       interval,
       timezone: 'exchange',
-      theme: 'dark',
+      theme: isLight ? 'light' : 'dark',
       style,
       locale: 'en',
-      backgroundColor: '#000000',
-      gridColor: '#1a1a1a',
+      backgroundColor: isLight ? '#ffffff' : '#000000',
+      gridColor: isLight ? '#e4e4e4' : '#1a1a1a',
       hide_top_toolbar: false,
       hide_legend: false,
       hide_side_toolbar: false,

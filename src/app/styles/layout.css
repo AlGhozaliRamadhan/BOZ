@@ -558,7 +558,8 @@
   position: absolute;
   bottom: calc(100% + 10px);
   left: 8px;
-  width: min(240px, calc(100vw - 16px));
+  width: 210px;
+  max-width: calc(100vw - 16px);
   box-sizing: border-box;
   background: var(--bg-secondary);
   border: 1px solid var(--border-glass);
@@ -569,6 +570,14 @@
   z-index: 200;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(12px);
+  overflow: hidden;
+}
+
+/* Collapsed sidebar is only 60px — pop out to the right instead of overflowing. */
+.sidebar.collapsed .profile-popover {
+  left: calc(100% + 10px);
+  bottom: 0;
+  width: 210px;
 }
 
 .profile-popover-header {
@@ -577,6 +586,57 @@
   color: var(--text-muted);
   font-weight: 600;
   letter-spacing: 0.5px;
+}
+
+.profile-popover-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-popover-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.profile-popover-avatar i {
+  font-size: 11px;
+  color: #fff;
+}
+
+.profile-popover-identity-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.profile-popover-identity-text .profile-popover-email {
+  font-size: 13px;
+  letter-spacing: 0;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-popover-status {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile-popover-group {
@@ -610,12 +670,21 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.profile-popover-item-left span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile-popover-item-right {
   color: var(--text-muted);
   font-size: 11px;
   white-space: nowrap;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   transition: color 150ms ease-in-out;

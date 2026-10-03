@@ -510,7 +510,7 @@
 }
 
 .chat-bubble {
-  max-width: 85%;
+  max-width: 70%;
   font-size: 14.5px;
   line-height: 1.6;
   animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -686,6 +686,138 @@
 }
 .suggestion-chip:active {
   transform: scale(0.98);
+}
+
+/* === NEW CHAT SETUP PANEL ================================================= */
+.new-chat-panel {
+  margin-top: 28px;
+  width: min(640px, calc(100% - 32px));
+  background: var(--surface-glass);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-xl);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.new-chat-panel__row {
+  display: grid;
+  grid-template-columns: 140px 1fr 1fr;
+  gap: 14px;
+}
+
+.new-chat-panel__field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.new-chat-panel__label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.new-chat-panel__input {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 7px 10px;
+  text-transform: uppercase;
+  outline: none;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.new-chat-panel__input::placeholder {
+  color: var(--text-muted);
+}
+
+.new-chat-panel__input:focus {
+  border-color: var(--border-glass-accent);
+}
+
+.new-chat-panel__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.new-chat-panel__pill {
+  background: transparent;
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.new-chat-panel__pill:hover:not(:disabled) {
+  border-color: var(--border-glass-hover);
+  color: var(--text-primary);
+}
+
+.new-chat-panel__pill.active {
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--bg-primary);
+}
+
+.new-chat-panel__pill:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.new-chat-panel__actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.new-chat-panel__action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 9px 10px;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.new-chat-panel__action i {
+  font-size: 12px;
+}
+
+.new-chat-panel__action:hover {
+  border-color: var(--border-glass-accent);
+  color: var(--text-primary);
+  background: var(--surface-glass-hover);
+}
+
+@media (max-width: 640px) {
+  .new-chat-panel__row {
+    grid-template-columns: 1fr;
+  }
+  .new-chat-panel__actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* === TYPO / TICKER SUGGESTION CARDS ======================================= */
@@ -950,7 +1082,7 @@
   left: 50%;
   transform: translateX(-50%);
   width: calc(100% - var(--space-8));
-  max-width: 820px;
+  max-width: 800px;
   background: rgba(22, 22, 22, 0.95);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
@@ -2816,35 +2948,90 @@
 
 /* === DESKTOP UPDATES ======================================================= */
 .desktop-update-control {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
-  border: 1px solid #2a2a2a;
-  border-radius: var(--radius-md);
-  background: #0a0a0a;
-  padding: 14px;
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  padding: 16px;
+}
+
+.desktop-update-control__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.desktop-update-control__identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.desktop-update-control__identity img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.desktop-update-control__identity strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.desktop-update-control__version {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.desktop-update-control__pill {
+  flex-shrink: 0;
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.desktop-update-control__pill--ok {
+  border-color: rgba(34, 197, 94, 0.4);
+  color: var(--bull);
+}
+
+.desktop-update-control__pill--info {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--text-primary);
+}
+
+.desktop-update-control__pill--bad {
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
 }
 
 .desktop-update-control__copy {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
-.desktop-update-control__copy strong {
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 650;
+.desktop-update-control__foot {
+  display: flex;
+  justify-content: flex-end;
 }
-
-.desktop-update-control__copy span {
-  color: #888888;
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.desktop-update-control__error { color: #fca5a5 !important; }
 
 .desktop-update-control__button {
   min-width: 140px;
@@ -2866,11 +3053,10 @@
 .desktop-update-control__button:disabled { cursor: not-allowed; opacity: 0.5; }
 
 .desktop-update-control__progress {
-  grid-column: 1 / -1;
   height: 3px;
   overflow: hidden;
   border-radius: var(--radius-full);
-  background: #2a2a2a;
+  background: var(--border-glass);
 }
 
 .desktop-update-control__progress span {
@@ -2882,7 +3068,8 @@
 }
 
 @media (max-width: 520px) {
-  .desktop-update-control { grid-template-columns: 1fr; }
+  .desktop-update-control__head { align-items: flex-start; }
+  .desktop-update-control__foot { justify-content: stretch; }
   .desktop-update-control__button { width: 100%; }
 }
 

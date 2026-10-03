@@ -4,6 +4,13 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import DesktopUpdateControl from '../ui/DesktopUpdateControl';
+import {
+  DEFAULT_PROFILE,
+  PROFILE_EVENT,
+  profileInitial,
+  readProfile,
+  type UserProfile,
+} from './profile-state';
 
 interface NavItem {
   label: string;
@@ -40,6 +47,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
   const [chatSessions, setChatSessions] = useState<{id: string, title: string}[]>([]);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
   const profileRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
 
@@ -115,6 +123,19 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
     const handleOpenAbout = () => setIsUpdateModalOpen(true);
     window.addEventListener('boz_open_about', handleOpenAbout);
     return () => window.removeEventListener('boz_open_about', handleOpenAbout);
+  }, []);
+
+  useEffect(() => {
+    const syncProfile = () => {
+      try {
+        setProfile(readProfile(window.localStorage));
+      } catch {
+        setProfile(DEFAULT_PROFILE);
+      }
+    };
+    syncProfile();
+    window.addEventListener(PROFILE_EVENT, syncProfile);
+    return () => window.removeEventListener(PROFILE_EVENT, syncProfile);
   }, []);
 
   const isActive = (href: string) => {
@@ -205,8 +226,14 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
       <div className="sidebar-footer" ref={profileRef}>
         {isProfileMenuOpen && (
           <div className="profile-popover animate-fadeIn">
-            <div className="profile-popover-header">
-              <span className="profile-popover-email">User</span>
+            <div className="profile-popover-header profile-popover-identity">
+              <span className="profile-popover-avatar" style={{ background: profile.avatarColor }} aria-hidden="true">
+                {profileInitial(profile.displayName) || <i className="fa-solid fa-user"></i>}
+              </span>
+              <span className="profile-popover-identity-text">
+                <span className="profile-popover-email">{profile.displayName}</span>
+                {profile.status && <span className="profile-popover-status">{profile.status}</span>}
+              </span>
             </div>
             <div className="profile-popover-group">
               <button 
@@ -251,12 +278,13 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
           aria-expanded={isProfileMenuOpen}
           title={collapsed ? 'Open profile menu' : undefined}
         >
-          <div className="sidebar-profile-avatar" style={{ position: 'relative' }} aria-hidden="true">
-            <i className="fa-solid fa-user" style={{ fontSize: '13px', opacity: 0.85 }}></i>
+          <div className="sidebar-profile-avatar" style={{ position: 'relative', background: profile.avatarColor, borderColor: 'transparent', color: '#fff' }} aria-hidden="true">
+            {profileInitial(profile.displayName) || <i className="fa-solid fa-user" style={{ fontSize: '13px', opacity: 0.85 }}></i>}
           </div>
           {!collapsed && (
             <div className="sidebar-profile-meta">
-              <div className="sidebar-profile-name">User</div>
+              <div className="sidebar-profile-name">{profile.displayName}</div>
+              {profile.status && <div className="sidebar-profile-role">{profile.status}</div>}
             </div>
           )}
           {!collapsed && (
