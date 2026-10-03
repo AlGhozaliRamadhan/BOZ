@@ -118,19 +118,50 @@ export default function DesktopUpdateControl({ version }: { version: string }) {
             : 'Check for updates';
   const action = status === 'available' ? downloadAndRestart : checkForUpdates;
 
+  const statusPill = !isDesktop
+    ? { label: 'Browser preview', tone: 'muted' as const }
+    : status === 'current'
+      ? { label: 'Up to date', tone: 'ok' as const }
+      : status === 'available'
+        ? { label: `v${availableVersion} ready`, tone: 'info' as const }
+        : status === 'downloading' || status === 'installing'
+          ? { label: 'Updating…', tone: 'info' as const }
+          : status === 'error'
+            ? { label: 'Check failed', tone: 'bad' as const }
+            : { label: 'Desktop app', tone: 'muted' as const };
+
+  const statusCopy = !isDesktop
+    ? 'You are previewing BOZ in the browser. Updates ship with the installed Windows desktop app — nothing to do here.'
+    : status === 'idle'
+      ? 'Check the signed BOZ release channel from here.'
+      : status === 'checking'
+        ? 'Checking the signed release channel…'
+        : status === 'current'
+          ? 'You are running the latest version.'
+          : status === 'available'
+            ? `BOZ v${availableVersion} is ready to download and will restart automatically.`
+            : status === 'downloading'
+              ? percentage == null ? 'Downloading the signed installer…' : `${percentage}% downloaded. BOZ will restart when ready.`
+              : status === 'installing'
+                ? 'Windows is applying the signed update and restarting BOZ.'
+                : status === 'error'
+                  ? error ?? 'The update service could not be reached.'
+                  : 'Check the signed BOZ release channel from here.';
+
   return (
     <section className="desktop-update-control" aria-live="polite">
-      <div className="desktop-update-control__copy">
-        <strong>BOZ desktop v{version}</strong>
-        {!isDesktop && <span>Updates are available from the installed Windows app.</span>}
-        {isDesktop && status === 'idle' && <span>Check the signed BOZ release channel from here.</span>}
-        {isDesktop && status === 'checking' && <span>Checking the signed release channel…</span>}
-        {isDesktop && status === 'current' && <span>You are running the latest version.</span>}
-        {isDesktop && status === 'available' && <span>BOZ v{availableVersion} is ready to download and will restart automatically.</span>}
-        {isDesktop && status === 'downloading' && <span>{percentage == null ? 'Downloading the signed installer…' : `${percentage}% downloaded. BOZ will restart when ready.`}</span>}
-        {isDesktop && status === 'installing' && <span>Windows is applying the signed update and restarting BOZ.</span>}
-        {isDesktop && status === 'error' && <span className="desktop-update-control__error">{error}</span>}
+      <div className="desktop-update-control__head">
+        <div className="desktop-update-control__identity">
+          <img src="/logo-boz-transparant-white.png" alt="" aria-hidden="true" />
+          <strong>BOZ Desktop</strong>
+          <span className="desktop-update-control__version">v{version}</span>
+        </div>
+        <span className={`desktop-update-control__pill desktop-update-control__pill--${statusPill.tone}`}>
+          {statusPill.label}
+        </span>
       </div>
+
+      <p className="desktop-update-control__copy">{statusCopy}</p>
 
       {status === 'downloading' && (
         <div className="desktop-update-control__progress" aria-label={percentage == null ? 'Downloading update' : `${percentage}% downloaded`}>
@@ -138,14 +169,18 @@ export default function DesktopUpdateControl({ version }: { version: string }) {
         </div>
       )}
 
-      <button
-        type="button"
-        className="desktop-update-control__button"
-        onClick={() => void action()}
-        disabled={!isDesktop || busy}
-      >
-        {buttonLabel}
-      </button>
+      {isDesktop && (
+        <div className="desktop-update-control__foot">
+          <button
+            type="button"
+            className="desktop-update-control__button"
+            onClick={() => void action()}
+            disabled={busy}
+          >
+            {buttonLabel}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

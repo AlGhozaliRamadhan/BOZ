@@ -1,13 +1,26 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import {
-  type Effort,
-  getEffort,
-  setEffort,
-  CHAT_OPTIONS_EVENT,
-} from '../../../shared/chat-options';
 import DesktopUpdateControl from './DesktopUpdateControl';
+import {
+  DEFAULT_SHELL_PREFERENCES,
+  readShellPreferences,
+  writeShellPreferences,
+} from '../layout/shell-state';
+import {
+  readTheme,
+  writeTheme,
+  applyTheme,
+  type Theme,
+} from '../layout/theme-state';
+import {
+  DEFAULT_PROFILE,
+  PROFILE_AVATAR_COLORS,
+  PROFILE_EVENT,
+  profileInitial,
+  readProfile,
+  writeProfile,
+} from '../layout/profile-state';
 
 interface SettingsConfig {
   provider: string;
@@ -15,6 +28,7 @@ interface SettingsConfig {
   endpoint: string;
   ticker: string;
   riskMode: string;
+  profileAbout: string;
   hasGithubToken: boolean;
   hasNvidiaKey: boolean;
   hasOpenaiKey: boolean;
@@ -45,65 +59,76 @@ interface ConnectionResult {
   latencyMs?: number;
 }
 
+const ProviderIcon = ({ id, name }: { id: string; name: string }) => (
+  // eslint-disable-next-line @next/next/no-img-element
+  <img
+    src={`/providers/${id === 'offline' ? 'ollama' : id}.svg`}
+    alt={`${name} logo`}
+    width={26}
+    height={26}
+    loading="lazy"
+    style={{ width: '26px', height: '26px', objectFit: 'contain', flexShrink: 0, filter: 'brightness(0) invert(1)', opacity: 0.9 }}
+    onError={(e) => {
+      (e.target as HTMLImageElement).style.display = 'none';
+    }}
+  />
+);
+
 const ALL_PROVIDERS = [
   {
     id: 'github',
     name: 'GitHub Models',
     description: 'GitHub-hosted AI models with free tier access',
-    icon: <i className="fa-brands fa-github" style={{ fontSize: '24px' }} aria-hidden="true"></i>,
+    icon: <ProviderIcon id="github" name="GitHub Models" />,
     available: true,
   },
   {
     id: 'nvidia',
     name: 'NVIDIA NIM',
     description: 'High-performance inference with NVIDIA hardware acceleration',
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-label="NVIDIA">
-        <path d="M8.948 8.798l-1.178.397c-.04-.397-.238-1.907-2.107-1.907-1.452 0-2.596 1.17-2.596 3.117 0 2.303 1.378 3.157 2.596 3.157 1.352 0 2.027-1.072 2.147-1.868l1.178.337c-.357 1.669-1.669 2.937-3.325 2.937-2.107 0-3.88-1.63-3.88-4.563 0-2.576 1.549-4.523 3.88-4.523 2.027 0 3.126 1.312 3.285 2.916zm2.419-2.718v8.682h-1.193V6.08h1.193zm3.959 0v8.682h-1.193V6.08h1.193zm4.843 2.918c-.853 0-1.669.517-1.909 1.372h3.621c-.04-.736-.557-1.372-1.712-1.372zm2.855 2.498h-4.783c.04 1.23.854 2.067 1.948 2.067.694 0 1.352-.318 1.709-.894l.972.576c-.636.994-1.669 1.512-2.82 1.512-1.988 0-3.285-1.432-3.285-3.525 0-2.027 1.233-3.564 3.225-3.564 1.986 0 3.105 1.471 3.105 3.326 0 .159-.01.319-.07.502z" />
-      </svg>
-    ),
+    icon: <ProviderIcon id="nvidia" name="NVIDIA NIM" />,
     available: true,
   },
   {
     id: 'custom',
     name: '9router',
     description: 'Your OpenAI-compatible local router or gateway',
-    icon: <span aria-label="9router" style={{ fontSize: '16px', fontWeight: 800, letterSpacing: '-1px' }}>9R</span>,
+    icon: <ProviderIcon id="custom" name="9router" />,
     available: true,
   },
   {
     id: 'openai',
     name: 'OpenAI',
     description: 'GPT models through the official OpenAI API',
-    icon: <span aria-label="OpenAI" style={{ fontSize: '15px', fontWeight: 800, letterSpacing: '-1px' }}>AI</span>,
+    icon: <ProviderIcon id="openai" name="OpenAI" />,
     available: true,
   },
   {
     id: 'anthropic',
     name: 'Anthropic',
     description: 'Claude models through the official Messages API',
-    icon: <span aria-label="Anthropic" style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-1px' }}>A</span>,
+    icon: <ProviderIcon id="anthropic" name="Anthropic" />,
     available: true,
   },
   {
     id: 'groq',
     name: 'Groq',
     description: 'Fast OpenAI-compatible inference from GroqCloud',
-    icon: <span aria-label="Groq" style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-1px' }}>G</span>,
+    icon: <ProviderIcon id="groq" name="Groq" />,
     available: true,
   },
   {
     id: 'openrouter',
     name: 'OpenRouter',
     description: 'One OpenAI-compatible API for hundreds of models',
-    icon: <span aria-label="OpenRouter" style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '-1px' }}>OR</span>,
+    icon: <ProviderIcon id="openrouter" name="OpenRouter" />,
     available: true,
   },
   {
     id: 'offline',
     name: 'Ollama',
     description: 'Private, Ollama-compatible inference running on your machine',
-    icon: <i className="fa-solid fa-server" style={{ fontSize: '20px' }} aria-hidden="true"></i>,
+    icon: <ProviderIcon id="offline" name="Ollama" />,
     available: true,
   },
 ] as const satisfies readonly {
@@ -196,7 +221,7 @@ const ModelBadge = ({
 };
 
 export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
-  const [activeTab, setActiveTab] = useState<'providers' | 'general'>('providers');
+  const [activeTab, setActiveTab] = useState<'profile' | 'providers' | 'general'>('profile');
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -207,13 +232,19 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
   const [testResult, setTestResult] = useState<ConnectionResult | null>(null);
   const [testLoading, setTestLoading] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [effort, setEffortLocal] = useState<Effort>(() => getEffort());
+  const [theme, setTheme] = useState<Theme>('dark');
+  const [tickerVisible, setTickerVisible] = useState(DEFAULT_SHELL_PREFERENCES.tickerVisible);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(DEFAULT_SHELL_PREFERENCES.sidebarCollapsed);
   const [customUrl, setCustomUrl] = useState('http://localhost:20128/v1');
   const [offlineUrl, setOfflineUrl] = useState('http://localhost:11434');
   const [customKey, setCustomKey] = useState('');
   const [customModels, setCustomModels] = useState<{ id: string; label: string }[]>([]);
   const [customModelDraft, setCustomModelDraft] = useState('');
   const [fetchingCustomModels, setFetchingCustomModels] = useState(false);
+  const [displayName, setDisplayName] = useState(DEFAULT_PROFILE.displayName);
+  const [statusLine, setStatusLine] = useState('');
+  const [avatarColor, setAvatarColor] = useState(DEFAULT_PROFILE.avatarColor);
+  const [profileAbout, setProfileAbout] = useState('');
   const [credentialDrafts, setCredentialDrafts] = useState<Record<CredentialProviderId, string>>({
     github: '',
     nvidia: '',
@@ -231,9 +262,23 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
       if (!res.ok) throw new Error('Failed to load settings');
       const data = await res.json();
       setConfig(data);
+      setTheme(readTheme(window.localStorage));
+      try {
+        const shell = readShellPreferences(window.localStorage);
+        setTickerVisible(shell.tickerVisible);
+        setSidebarCollapsed(shell.sidebarCollapsed);
+      } catch {
+        setTickerVisible(DEFAULT_SHELL_PREFERENCES.tickerVisible);
+        setSidebarCollapsed(DEFAULT_SHELL_PREFERENCES.sidebarCollapsed);
+      }
       setCustomUrl(data.customUrl || 'http://localhost:20128/v1');
       setOfflineUrl(data.offlineUrl || 'http://localhost:11434');
       setCustomKey('');
+      const storedProfile = readProfile(window.localStorage);
+      setDisplayName(storedProfile.displayName);
+      setStatusLine(storedProfile.status);
+      setAvatarColor(storedProfile.avatarColor);
+      setProfileAbout(typeof data.profileAbout === 'string' ? data.profileAbout : '');
       setCustomModels(Array.isArray(data.availableModels) && data.provider === 'custom'
         ? data.availableModels
         : (data.allModels || []).filter((m: { provider?: string }) => m.provider === 'custom'));
@@ -258,6 +303,7 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
     if (isOpen) {
       fetchSettings();
       setSearchQuery('');
+      setActiveTab('profile');
     }
   }, [isOpen, fetchSettings]);
 
@@ -266,11 +312,17 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
     localStorage.removeItem('boz_provider_keys');
   }, []);
 
-  // Reflect effort changes made elsewhere (TopBar Deep Think / effort pill).
+  // Reflect theme changes made elsewhere.
   useEffect(() => {
-    const sync = () => setEffortLocal(getEffort());
-    window.addEventListener(CHAT_OPTIONS_EVENT, sync);
-    return () => window.removeEventListener(CHAT_OPTIONS_EVENT, sync);
+    const sync = () => {
+      try {
+        setTheme(readTheme(window.localStorage));
+      } catch {
+        // Keep last known theme when storage is unavailable.
+      }
+    };
+    window.addEventListener('boz_theme_changed', sync);
+    return () => window.removeEventListener('boz_theme_changed', sync);
   }, []);
 
   const showToast = (msg: string) => {
@@ -344,6 +396,25 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
       if (providerId === 'custom') setCustomKey('');
       else setCredentialDrafts((current) => ({ ...current, [providerId]: '' }));
     }
+  };
+
+  const saveProfile = () => {
+    const name = displayName.trim().replace(/[\r\n\0]/g, '').slice(0, 32) || DEFAULT_PROFILE.displayName;
+    const status = statusLine.trim().replace(/[\r\n\0]/g, '').slice(0, 60);
+    const color = (PROFILE_AVATAR_COLORS as readonly string[]).includes(avatarColor)
+      ? avatarColor
+      : DEFAULT_PROFILE.avatarColor;
+    setDisplayName(name);
+    setStatusLine(status);
+    setAvatarColor(color);
+    writeProfile(window.localStorage, { displayName: name, status, avatarColor: color });
+    window.dispatchEvent(new Event(PROFILE_EVENT));
+    showToast('Profile saved');
+  };
+
+  const saveProfileAbout = async (value: string) => {
+    const saved = await updateConfig({ profileAbout: value.trim() }, value.trim() ? 'Trading style saved' : 'Trading style cleared');
+    if (saved) setProfileAbout(value.trim());
   };
 
   const saveCustomEndpoint = async () => {
@@ -454,7 +525,21 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
           </div>
           
           <div style={{ display: 'flex', flexDirection: 'column', padding: '0 12px', gap: '4px' }}>
-            <button 
+            <button
+              onClick={() => setActiveTab('profile')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px',
+                borderRadius: '8px', cursor: 'pointer', border: 'none',
+                background: activeTab === 'profile' ? 'var(--text-primary)' : 'transparent',
+                color: activeTab === 'profile' ? 'var(--bg-primary)' : 'var(--text-secondary)',
+                fontWeight: activeTab === 'profile' ? 600 : 500, fontSize: '13px',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <i className="fa-solid fa-user" style={{ fontSize: '14px' }}></i> Profile
+            </button>
+
+            <button
               onClick={() => setActiveTab('providers')}
               style={{
                 display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px',
@@ -501,6 +586,131 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
             ) : (
               <div style={{ maxWidth: '600px' }}>
                 
+                {activeTab === 'profile' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+                    <div>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Profile</h3>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                        Your display name and avatar live in this browser only. Your trading style is stored on this device and sent with chat requests.
+                      </p>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', marginBottom: '20px' }}>
+                        <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: avatarColor, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '18px', fontWeight: 700, flexShrink: 0 }}>
+                          {profileInitial(displayName) || <i className="fa-solid fa-user" style={{ fontSize: '16px' }}></i>}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {displayName.trim() || 'User'}
+                          </div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {statusLine.trim() || 'No status set'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <div>
+                          <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '8px' }}>Display name</label>
+                          <input
+                            type="text"
+                            value={displayName}
+                            maxLength={32}
+                            onChange={(e) => setDisplayName(e.target.value)}
+                            placeholder="User"
+                            style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '10px 12px', borderRadius: '8px', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '8px' }}>Status (optional)</label>
+                          <input
+                            type="text"
+                            value={statusLine}
+                            maxLength={60}
+                            onChange={(e) => setStatusLine(e.target.value)}
+                            placeholder="Swing trader · IDX"
+                            style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '10px 12px', borderRadius: '8px', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '8px' }}>Avatar color</label>
+                          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                            {PROFILE_AVATAR_COLORS.map((color) => (
+                              <button
+                                key={color}
+                                type="button"
+                                onClick={() => setAvatarColor(color)}
+                                aria-label={`Avatar color ${color}`}
+                                title={color}
+                                style={{
+                                  width: '32px', height: '32px', borderRadius: '50%', background: color, cursor: 'pointer',
+                                  border: avatarColor === color ? '2px solid var(--text-primary)' : '2px solid transparent',
+                                  outline: avatarColor === color ? '2px solid rgba(255,255,255,0.3)' : 'none',
+                                  outlineOffset: '2px',
+                                }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <button
+                            onClick={saveProfile}
+                            style={{ background: 'var(--text-primary)', color: 'var(--bg-primary)', border: 'none', padding: '9px 18px', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+                          >
+                            Save profile
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Trading style</h3>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                        One line about you that the chat agent reads before answering (e.g. “Conservative swing trader, avoids leverage”). Max 500 characters.
+                      </p>
+                      <textarea
+                        value={profileAbout}
+                        maxLength={500}
+                        rows={3}
+                        onChange={(e) => setProfileAbout(e.target.value)}
+                        placeholder="Tell BOZ how you trade…"
+                        style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '10px 12px', borderRadius: '8px', fontSize: '13px', outline: 'none', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }}
+                      />
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '8px' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{profileAbout.length}/500</span>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          {profileAbout.trim() && (
+                            <button
+                              onClick={() => saveProfileAbout('')}
+                              disabled={saving}
+                              style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--danger)', padding: '8px 14px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
+                            >
+                              Clear
+                            </button>
+                          )}
+                          <button
+                            onClick={() => saveProfileAbout(profileAbout)}
+                            disabled={saving}
+                            style={{ background: 'var(--text-primary)', color: 'var(--bg-primary)', border: 'none', padding: '8px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                          >
+                            {saving ? 'Saving…' : 'Save'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Preferences</h3>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>Quick links to related settings.</p>
+                      <button
+                        onClick={() => setActiveTab('providers')}
+                        style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '8px 14px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
+                      >
+                        AI providers
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {activeTab === 'providers' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                     <div>
@@ -820,36 +1030,28 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                 {activeTab === 'general' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
                     <div>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Application settings</h3>
-                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>General configuration options.</p>
-                      
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                        <div>
-                          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>Default Ticker</div>
-                          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>The stock loaded initially.</div>
-                        </div>
-                        <input
-                          type="text"
-                          defaultValue={config?.ticker || 'NVDA'}
-                          onBlur={(e) => {
-                            if (e.target.value && e.target.value !== config?.ticker) {
-                              updateConfig({ ticker: e.target.value }, 'Ticker updated');
-                            }
-                          }}
-                          style={{ width: '80px', background: 'rgba(255, 255, 255, 0.05)', border: 'none', color: 'var(--text-primary)', padding: '8px 12px', borderRadius: '6px', fontSize: '13px', textAlign: 'center', outline: 'none' }}
-                        />
-                      </div>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Appearance</h3>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>Theme applies across the app and charts.</p>
 
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
                         <div>
-                          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>Analysis Effort</div>
-                          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                            Depth of private verification. Higher is slower and more thorough; answers stay concise by default.
-                          </div>
+                          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>Theme</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Dark is the default terminal look; light is easy on the eyes.</div>
                         </div>
                         <select
-                          value={effort}
-                          onChange={(e) => setEffort(e.target.value as Effort)}
+                          value={theme}
+                          onChange={(e) => {
+                            const next = e.target.value === 'light' ? 'light' : 'dark';
+                            setTheme(next);
+                            try {
+                              writeTheme(window.localStorage, next);
+                            } catch {
+                              // Theme just won't persist when storage is unavailable.
+                            }
+                            applyTheme(next);
+                            window.dispatchEvent(new Event('boz_theme_changed'));
+                            showToast(next === 'light' ? 'Light theme on' : 'Dark theme on');
+                          }}
                           style={{
                             background: 'rgba(255, 255, 255, 0.05)',
                             border: '1px solid rgba(255, 255, 255, 0.1)',
@@ -861,12 +1063,124 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
                             cursor: 'pointer',
                           }}
                         >
-                          <option value="Low">Low (quick check)</option>
-                          <option value="Medium">Medium (balanced)</option>
-                          <option value="High">High (rigorous)</option>
-                          <option value="Extra">Extra (cross-checked)</option>
-                          <option value="Max">Max (deep verification)</option>
+                          <option value="dark">Dark</option>
+                          <option value="light">Light</option>
                         </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Layout</h3>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>Shell chrome around the workspace.</p>
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>Market ticker tape</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Scrolling quotes strip above the workspace.</div>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={tickerVisible}
+                          onClick={() => {
+                            const next = !tickerVisible;
+                            setTickerVisible(next);
+                            try {
+                              writeShellPreferences(window.localStorage, {
+                                sidebarCollapsed,
+                                tickerVisible: next,
+                              });
+                            } catch {
+                              // Layout prefs are optional.
+                            }
+                            window.dispatchEvent(new Event('boz_shell_updated'));
+                            showToast(next ? 'Ticker tape shown' : 'Ticker tape hidden');
+                          }}
+                          style={{
+                            background: tickerVisible ? 'var(--text-primary)' : 'rgba(255, 255, 255, 0.08)',
+                            color: tickerVisible ? 'var(--bg-primary)' : 'var(--text-secondary)',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            padding: '8px 16px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                          }}
+                        >
+                          {tickerVisible ? 'On' : 'Off'}
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>Reset layout</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Restore sidebar and ticker tape defaults.</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTickerVisible(DEFAULT_SHELL_PREFERENCES.tickerVisible);
+                            setSidebarCollapsed(DEFAULT_SHELL_PREFERENCES.sidebarCollapsed);
+                            try {
+                              writeShellPreferences(window.localStorage, { ...DEFAULT_SHELL_PREFERENCES });
+                            } catch {
+                              // Layout prefs are optional.
+                            }
+                            window.dispatchEvent(new Event('boz_shell_updated'));
+                            showToast('Layout reset');
+                          }}
+                          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '8px 14px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Charts & data</h3>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>Local chart styles and stored workspace data.</p>
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>Reset chart styles</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Clear per-ticker chart customizations.</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            try {
+                              window.localStorage.removeItem('boz_dashboard_chart_style');
+                            } catch {
+                              // Nothing stored, nothing to clear.
+                            }
+                            showToast('Chart styles reset');
+                          }}
+                          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '8px 14px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
+                        >
+                          Reset charts
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>Clear local data</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Remove stored chats, favorites, and screener configs from this browser.</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!window.confirm('Clear local chats, favorites, and screener configs? This cannot be undone.')) return;
+                            try {
+                              window.localStorage.removeItem('boz_chat_sessions');
+                              window.localStorage.removeItem('boz_favorites');
+                              window.localStorage.removeItem('boz_screeners_config_v2');
+                            } catch {
+                              // Storage already unavailable; still notify listeners.
+                            }
+                            window.dispatchEvent(new Event('boz_chat_updated'));
+                            window.dispatchEvent(new Event('boz_favorites_changed'));
+                            showToast('Local data cleared');
+                          }}
+                          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--danger)', padding: '8px 14px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
+                        >
+                          Clear data
+                        </button>
                       </div>
                     </div>
 

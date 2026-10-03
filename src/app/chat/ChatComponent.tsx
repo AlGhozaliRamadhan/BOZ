@@ -8,6 +8,7 @@ import { ThoughtAccordion } from '../components/ui/ThoughtAccordion';
 import { getEffort, getThinkingEnabled } from '../../shared/chat-options';
 import ChatModelPicker from './ChatModelPicker';
 import ChatEffortPicker from './ChatEffortPicker';
+import NewChatPanel from './NewChatPanel';
 import type { ToolResult } from './ToolResultCards';
 import { toolStartThought, updateToolResultThought } from './tool-thoughts';
 import {
@@ -711,6 +712,8 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                     </button>
                   ))}
                 </div>
+
+                <NewChatPanel onStart={(command) => void sendMessage(command)} />
               </div>
             ) : (
               <>

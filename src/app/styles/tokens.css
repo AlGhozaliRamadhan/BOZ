@@ -3,6 +3,40 @@
    Professional Dark Mode Theme · Black & White Monochrome
    ═══════════════════════════════════════════════════════════════════════════════ */
 
+/* === LIGHT THEME OVERRIDES ================================================== */
+/* Dark is the default (values below). Light flips the monochrome surfaces. */
+html[data-theme='light'] {
+  --bg-primary:       #f4f4f4;
+  --bg-secondary:     #ffffff;
+  --bg-tertiary:      #ececec;
+  --bg-elevated:      #ffffff;
+
+  --surface-glass:        #ffffff;
+  --surface-glass-hover:  #f0f0f0;
+  --surface-glass-active: #e4e4e4;
+  --border-glass:         #dcdcdc;
+  --border-glass-hover:   #c2c2c2;
+  --border-glass-accent:  #000000;
+
+  --term-bg:           #ffffff;
+  --term-bg-elevated:  #f4f4f4;
+  --term-bg-row:       #fafafa;
+  --term-bg-row-alt:   #f0f0f0;
+  --term-border:       #dcdcdc;
+  --term-border-bold:  #c2c2c2;
+  --term-text:         #000000;
+  --term-text-dim:     #555555;
+  --term-text-mute:    #8a8a8a;
+
+  --text-primary:   #000000;
+  --text-secondary: #444444;
+  --text-muted:     #737373;
+  --text-accent:    #ffffff;
+  --text-inverse:   #ffffff;
+}
+
+/* === DESIGN TOKENS ========================================================= */
+
 /* === DESIGN TOKENS ========================================================= */
 :root {
   /* ── Backgrounds ─────────────────────────────────────────────────────────── */
