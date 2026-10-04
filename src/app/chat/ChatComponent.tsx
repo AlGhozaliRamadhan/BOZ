@@ -8,7 +8,7 @@ import { ThoughtAccordion } from '../components/ui/ThoughtAccordion';
 import { getEffort, getThinkingEnabled } from '../../shared/chat-options';
 import ChatModelPicker from './ChatModelPicker';
 import ChatEffortPicker from './ChatEffortPicker';
-import NewChatPanel from './NewChatPanel';
+import ChatRiskPicker from './ChatRiskPicker';
 import type { ToolResult } from './ToolResultCards';
 import { toolStartThought, updateToolResultThought } from './tool-thoughts';
 import {
@@ -712,8 +712,6 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                     </button>
                   ))}
                 </div>
-
-                <NewChatPanel onStart={(command) => void sendMessage(command)} />
               </div>
             ) : (
               <>
@@ -863,27 +861,27 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
           {/* Input Area (Claude-style composer) */}
           <div className="chat-composer">
             {input.startsWith('/') && !input.includes(' ') && input !== '/newsintel' && (
-              <div className="chat-slash-menu">
-                <div className="chat-slash-menu-label">Slash Commands</div>
-                
+              <div className="chat-slash-menu" role="listbox" aria-label="Commands">
                 {[
-                  { cmd: '/intraday ', title: '/intraday [ticker]', desc: 'Live intraday analysis & key levels', icon: 'fa-chart-line' },
-                  { cmd: '/longterm ', title: '/longterm [ticker]', desc: 'Fundamental analysis & long-term outlook', icon: 'fa-scale-balanced' },
+                  { cmd: '/intraday ', title: 'Intraday', desc: 'Live intraday analysis & key levels [ticker]', icon: 'fa-chart-line' },
+                  { cmd: '/longterm ', title: 'Longterm', desc: 'Fundamental analysis & long-term outlook [ticker]', icon: 'fa-scale-balanced' },
                   { cmd: '/newsintel', title: '/newsintel', desc: 'Scan latest market headlines', icon: 'fa-newspaper' }
                 ].filter(c => c.cmd.startsWith(input) || c.title.startsWith(input)).map(item => (
                   <button 
                     key={item.cmd}
                     type="button"
+                    role="option"
+                    aria-selected="false"
                     onClick={() => { setInput(item.cmd); textareaRef.current?.focus(); }}
                     className="chat-slash-item"
                   >
-                    <div className="chat-slash-item-icon">
-                      <i className={`fa-solid ${item.icon}`} style={{ fontSize: '11px' }}></i>
-                    </div>
-                    <div className="chat-slash-item-text">
-                      <div className="chat-slash-item-title">{item.title}</div>
-                      <div className="chat-slash-item-desc">{item.desc}</div>
-                    </div>
+                    <span className="chat-slash-item-icon">
+                      <i className={`fa-solid ${item.icon}`}></i>
+                    </span>
+                    <span className="chat-slash-item-text">
+                      <span className="chat-slash-item-title">{item.title}</span>
+                      <span className="chat-slash-item-desc">{item.desc}</span>
+                    </span>
                   </button>
                 ))}
               </div>
@@ -917,6 +915,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
               <div className="chat-composer-footer-right">
                 <ChatEffortPicker />
+                <ChatRiskPicker />
                 <ChatModelPicker />
                 <button
                   type="button"
