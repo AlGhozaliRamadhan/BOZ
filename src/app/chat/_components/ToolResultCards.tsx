@@ -2,19 +2,11 @@
 
 import { useState } from 'react';
 import styles from './ToolResultCards.module.css';
-import { describeToolCall, parseWebSources } from './tool-result-details';
+import { describeToolCall, parseWebSources } from '@/shared/tool-result-details';
+import type { ToolResult } from '@/shared/chat-tool-results';
 import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
 
-export interface ToolResult {
-  tool: string;
-  fact?: string;
-  quality?: string;
-  success?: boolean;
-  preview?: string;
-  detail?: string;
-  args?: Record<string, unknown>;
-  status?: 'running' | 'done';
-}
+export type { ToolResult };
 
 function parsePrice(preview = '', fact = '') {
   const src = `${preview} ${fact}`;

@@ -6,7 +6,7 @@ import {
   requestBodyErrorResponse,
   validateChatTitleRequestBody,
 } from '@/app/lib/api-helpers';
-import { normalizeGeneratedChatTitle } from '@/app/chat/chat-title';
+import { normalizeGeneratedChatTitle } from '@/shared/chat-title';
 import { LLMAdapter } from '@/services/ai/llm.adapter';
 import { chatWorkloadGate } from '@/services/security/workload-gate';
 

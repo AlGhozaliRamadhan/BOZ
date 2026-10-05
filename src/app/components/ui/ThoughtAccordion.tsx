@@ -4,8 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'isomorphic-dompurify';
 import styles from './ThoughtAccordion.module.css';
-import type { ToolResult } from '../../chat/ToolResultCards';
-import { parseWebSources, type WebSourceDetail } from '../../chat/tool-result-details';
+import type { ToolResult } from '@/shared/chat-tool-results';
+import { parseWebSources, type WebSourceDetail } from '@/shared/tool-result-details';
 
 export interface ThoughtTimelineStep {
   id?: string;

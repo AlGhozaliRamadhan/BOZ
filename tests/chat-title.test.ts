@@ -3,7 +3,7 @@ import {
   FALLBACK_CHAT_TITLE,
   fallbackChatTitle,
   normalizeGeneratedChatTitle,
-} from '../src/app/chat/chat-title';
+} from '../src/shared/chat-title';
 
 describe('chat titles', () => {
   it('uses the first user message as the immediate title', () => {

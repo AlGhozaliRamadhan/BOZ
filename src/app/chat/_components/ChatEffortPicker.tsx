@@ -7,8 +7,8 @@ import {
   getEffort,
   setEffort,
   CHAT_OPTIONS_EVENT,
-} from '../../shared/chat-options';
-import styles from './Pickers.module.css';
+} from '@/shared/chat-options';
+import styles from '../_styles/pickers-shared.module.css';
 
 const EFFORT_DESCRIPTIONS: Record<Effort, string> = {
   Low: 'Fast & concise responses',

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import styles from './Pickers.module.css';
+import styles from '../_styles/pickers-shared.module.css';
 
 type RiskMode = 'auto' | 'on' | 'off';
 
