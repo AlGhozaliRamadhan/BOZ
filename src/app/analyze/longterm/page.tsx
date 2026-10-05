@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { ThoughtAccordion } from '@/app/components/ui/ThoughtAccordion';
 import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
 import ExternalAiBriefButton from '@/app/components/ui/ExternalAiBriefButton';
+import styles from '../../components/ui/TradeLevels.module.css';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -198,10 +199,10 @@ export default function LongtermAnalysisPage() {
             <div className="glass-card compact">
               <div className="card-header"><span className="card-title">52-Week Context</span></div>
               <div className="grid-4 gap-4">
-                <div><span className="card-title">52W High</span><br /><span className="trade-level-value">${fmt(md.fiftyTwoWeekHigh)}</span></div>
-                <div><span className="card-title">From High</span><br /><span className="trade-level-value stop">{fmt(md.from52wHigh, 1)}%</span></div>
-                <div><span className="card-title">52W Low</span><br /><span className="trade-level-value">${fmt(md.fiftyTwoWeekLow)}</span></div>
-                <div><span className="card-title">From Low</span><br /><span className="trade-level-value target">+{fmt(md.from52wLow, 1)}%</span></div>
+                <div><span className="card-title">52W High</span><br /><span className={styles['trade-level-value']}>${fmt(md.fiftyTwoWeekHigh)}</span></div>
+                <div><span className="card-title">From High</span><br /><span className={`${styles['trade-level-value']} stop`}>{fmt(md.from52wHigh, 1)}%</span></div>
+                <div><span className="card-title">52W Low</span><br /><span className={styles['trade-level-value']}>${fmt(md.fiftyTwoWeekLow)}</span></div>
+                <div><span className="card-title">From Low</span><br /><span className={`${styles['trade-level-value']} target`}>+{fmt(md.from52wLow, 1)}%</span></div>
               </div>
             </div>
           )}

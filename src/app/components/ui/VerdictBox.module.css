@@ -1,0 +1,72 @@
+/* VerdictBox styles — co-located CSS Module (Goal 4 Part B).
+ * Moved verbatim from src/app/styles/components.css VERDICT BOX section.
+ * State tokens (.bull/.bear/.up/.down) stay plain strings in TSX,
+ * matched here via :global(). Responsive tweaks for .verdict-direction /
+ * .verdict-confidence live in responsive.css (truly global breakpoints). */
+
+/* === VERDICT BOX =========================================================== */
+.verdict-box {
+  background: var(--surface-glass);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-xl);
+  padding: var(--space-8);
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.verdict-box::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--accent-gradient);
+}
+
+.verdict-box:global(.bull) {
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: var(--shadow-glow-bull);
+}
+
+.verdict-box:global(.bull)::before { background: var(--bull); }
+
+.verdict-box:global(.bear) {
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: var(--shadow-glow-bear);
+}
+
+.verdict-box:global(.bear)::before { background: var(--bear); }
+
+.verdict-direction {
+  font-size: var(--text-4xl);
+  font-weight: 800;
+  margin-bottom: var(--space-2);
+  font-family: var(--font-mono);
+}
+
+.verdict-direction:global(.up)   { color: var(--bull); }
+.verdict-direction:global(.down) { color: var(--bear); }
+
+.verdict-confidence {
+  font-size: var(--text-5xl);
+  font-weight: 800;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.verdict-strategy {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  margin-top: var(--space-3);
+  max-width: 500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* === RESPONSIVE (moved from responsive.css) === */
+@media (max-width: 480px) {
+  .verdict-direction { font-size: var(--text-3xl); }
+  .verdict-confidence { font-size: var(--text-3xl); }
+}

@@ -1,0 +1,118 @@
+/* Effort/Risk picker styles — co-located CSS Module (Goal 3), shared by
+ * ChatEffortPicker.tsx and ChatRiskPicker.tsx (both import this module).
+ * Moved verbatim from src/app/styles/components.css CHAT EFFORT PICKER section
+ * (minus the stray `.chat-composer-send-btn.is-stop` rules, co-located in
+ * Composer.module.css). Keyframes (slideUp) stay global in animations.css.
+ * State tokens (.active, .selected) stay plain strings in TSX, matched via :global(). */
+
+/* === CHAT EFFORT PICKER =================================================== */
+.chat-effort-picker {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.chat-effort-trigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.chat-effort-trigger:hover,
+.chat-effort-trigger:global(.active) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.chat-effort-label {
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.chat-effort-trigger:hover .chat-effort-label {
+  color: var(--text-primary);
+}
+
+.chat-effort-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  left: auto;
+  min-width: 250px;
+  background: rgba(16, 16, 16, 0.96);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  box-shadow: 0 -12px 48px -8px rgba(0, 0, 0, 0.85);
+  z-index: 100;
+  animation: slideUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.chat-effort-menu-header {
+  padding: 6px 10px 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.chat-effort-option {
+  display: flex;
+  align-items: center;
+  padding: 7px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+.chat-effort-option:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.chat-effort-option:global(.selected) {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.chat-effort-option-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.chat-effort-option-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chat-effort-option-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}

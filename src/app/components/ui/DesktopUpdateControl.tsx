@@ -3,6 +3,7 @@
 import { isTauri } from '@tauri-apps/api/core';
 import type { DownloadEvent, Update } from '@tauri-apps/plugin-updater';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import styles from './DesktopUpdateControl.module.css';
 
 type UpdateStatus = 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'installing' | 'error' | 'unavailable';
 
@@ -149,31 +150,31 @@ export default function DesktopUpdateControl({ version }: { version: string }) {
                   : 'Check the signed BOZ release channel from here.';
 
   return (
-    <section className="desktop-update-control" aria-live="polite">
-      <div className="desktop-update-control__head">
-        <div className="desktop-update-control__identity">
+    <section className={styles['desktop-update-control']} aria-live="polite">
+      <div className={styles['desktop-update-control__head']}>
+        <div className={styles['desktop-update-control__identity']}>
           <img src="/logo-boz-transparant-white.png" alt="" aria-hidden="true" />
           <strong>BOZ Desktop</strong>
-          <span className="desktop-update-control__version">v{version}</span>
+          <span className={styles['desktop-update-control__version']}>v{version}</span>
         </div>
-        <span className={`desktop-update-control__pill desktop-update-control__pill--${statusPill.tone}`}>
+        <span className={`${styles['desktop-update-control__pill']} ${styles[`desktop-update-control__pill--${statusPill.tone}`]}`}>
           {statusPill.label}
         </span>
       </div>
 
-      <p className="desktop-update-control__copy">{statusCopy}</p>
+      <p className={styles['desktop-update-control__copy']}>{statusCopy}</p>
 
       {status === 'downloading' && (
-        <div className="desktop-update-control__progress" aria-label={percentage == null ? 'Downloading update' : `${percentage}% downloaded`}>
+        <div className={styles['desktop-update-control__progress']} aria-label={percentage == null ? 'Downloading update' : `${percentage}% downloaded`}>
           <span style={{ width: `${percentage ?? 15}%` }} />
         </div>
       )}
 
       {isDesktop && (
-        <div className="desktop-update-control__foot">
+        <div className={styles['desktop-update-control__foot']}>
           <button
             type="button"
-            className="desktop-update-control__button"
+            className={styles['desktop-update-control__button']}
             onClick={() => void action()}
             disabled={busy}
           >

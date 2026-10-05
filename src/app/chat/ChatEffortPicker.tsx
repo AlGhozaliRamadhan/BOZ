@@ -8,6 +8,7 @@ import {
   setEffort,
   CHAT_OPTIONS_EVENT,
 } from '../../shared/chat-options';
+import styles from './Pickers.module.css';
 
 const EFFORT_DESCRIPTIONS: Record<Effort, string> = {
   Low: 'Fast & concise responses',
@@ -49,10 +50,10 @@ export default function ChatEffortPicker() {
   };
 
   return (
-    <div className="chat-effort-picker" ref={rootRef}>
+    <div className={styles['chat-effort-picker']} ref={rootRef}>
       <button
         type="button"
-        className={`chat-effort-trigger ${open ? 'active' : ''}`}
+        className={`${styles['chat-effort-trigger']} ${open ? 'active' : ''}`}
         onClick={() => setOpen(!open)}
         title="Thinking effort level"
         aria-label={`Thinking effort: ${effort}`}
@@ -61,13 +62,13 @@ export default function ChatEffortPicker() {
         {effort === 'Max' && (
           <i className="fa-solid fa-fire" style={{ fontSize: '11px', color: '#ff793f' }}></i>
         )}
-        <span className="chat-effort-label">{effort}</span>
+        <span className={styles['chat-effort-label']}>{effort}</span>
         <i className="fa-solid fa-chevron-up" style={{ fontSize: '8px', opacity: 0.4 }}></i>
       </button>
 
       {open && (
-        <div className="chat-effort-menu animate-fadeIn">
-          <div className="chat-effort-menu-header">
+        <div className={`${styles['chat-effort-menu']} animate-fadeIn`}>
+          <div className={styles['chat-effort-menu-header']}>
             <span>Thinking Effort</span>
           </div>
           {EFFORT_OPTIONS.map((opt) => {
@@ -77,11 +78,11 @@ export default function ChatEffortPicker() {
               <button
                 key={opt}
                 type="button"
-                className={`chat-effort-option ${isSelected ? 'selected' : ''}`}
+                className={`${styles['chat-effort-option']} ${isSelected ? 'selected' : ''}`}
                 onClick={() => selectEffort(opt)}
               >
-                <div className="chat-effort-option-info">
-                  <div className="chat-effort-option-name">
+                <div className={styles['chat-effort-option-info']}>
+                  <div className={styles['chat-effort-option-name']}>
                     <span>{opt}</span>
                     {isSelected && (
                       <i
@@ -90,7 +91,7 @@ export default function ChatEffortPicker() {
                       ></i>
                     )}
                   </div>
-                  <div className="chat-effort-option-desc">{desc}</div>
+                  <div className={styles['chat-effort-option-desc']}>{desc}</div>
                 </div>
               </button>
             );

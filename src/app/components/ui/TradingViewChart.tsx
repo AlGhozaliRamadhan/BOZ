@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, memo } from 'react';
 import { toTradingViewSymbol } from '../../lib/tradingview-symbol';
+import styles from './TradingViewChart.module.css';
 
 export { toTradingViewSymbol } from '../../lib/tradingview-symbol';
 
@@ -152,7 +153,7 @@ function TradingViewChart({
 
   return (
     <div
-      className={`tradingview-widget-container tv-chart-host${className ? ` ${className}` : ''}`}
+      className={`tradingview-widget-container ${styles['tv-chart-host']}${className ? ` ${className}` : ''}`}
       ref={containerRef}
       style={{ height, width: '100%', position: 'relative' }}
       data-tv-symbol={tvSymbol}

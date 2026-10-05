@@ -1,0 +1,397 @@
+/* ThoughtAccordion styles — co-located CSS Module (Goal 2 of CSS-modules migration).
+ * Moved verbatim from src/app/styles/components.css THOUGHT ACCORDION section.
+ * Keyframes (spin, pulse) stay global in animations.css — not redefined here.
+ * State/variant tokens (is-open, is-running, is-copied, is-unlinked, type-*)
+ * stay plain strings in TSX, so they are matched here via :global().
+ * NOTE: `thought-tool-spinner` is referenced in TSX but has no matching rule
+ * in components.css; no rule is fabricated for it. */
+.thought-accordion {
+  position: relative;
+  margin: 6px 0 12px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.thought-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 0;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.thought-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.thought-header:hover .thought-label {
+  color: var(--text-primary, #ffffff);
+}
+
+.thought-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.thought-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary, #b3b3b3);
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+
+.thought-step-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted, #777777);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+.thought-duration {
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+  color: var(--text-muted, #737373);
+}
+
+.thought-chevron {
+  width: 12px;
+  height: 12px;
+  color: var(--text-muted, #737373);
+  flex-shrink: 0;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.thought-chevron:global(.is-open) {
+  transform: rotate(180deg);
+}
+
+.thought-spinner {
+  width: 13px;
+  height: 13px;
+  color: var(--accent-cyan, #00e5ff);
+  flex-shrink: 0;
+  animation: spin 0.9s linear infinite;
+}
+
+.spinner-spin {
+  animation: spin 0.9s linear infinite;
+}
+
+.thought-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.thought-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #737373);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.thought-action-btn:hover {
+  color: var(--text-primary, #ffffff);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.thought-action-btn:global(.is-copied) {
+  color: var(--success, #10b981);
+}
+
+.thought-content-area {
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 8px 0 10px 4px;
+}
+
+/* Vertical Timeline Track */
+.thought-timeline-track {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-left: 22px;
+  margin: 6px 0;
+}
+
+.thought-timeline-track::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  bottom: 8px;
+  width: 1.5px;
+  background: rgba(255, 255, 255, 0.1);
+  z-index: 0;
+}
+
+.thought-timeline-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.thought-timeline-node {
+  position: absolute;
+  left: -22px;
+  top: 1px;
+  width: 15px;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  background: var(--bg-primary, #000000);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--bg-primary, #000000);
+}
+
+.thought-node-clock {
+  color: var(--text-muted, #8a8a8a);
+  flex-shrink: 0;
+  background: var(--bg-primary, #000000);
+  border-radius: 50%;
+}
+
+.thought-node-dot {
+  font-size: 13px;
+  color: var(--text-muted, #8a8a8a);
+  line-height: 1;
+  background: var(--bg-primary, #000000);
+  border-radius: 50%;
+}
+
+.thought-timeline-item:global(.is-running) .thought-node-clock,
+.thought-timeline-item:global(.is-running) .thought-node-dot {
+  color: var(--accent-cyan, #00e5ff);
+}
+
+.thought-timeline-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-cyan, #00e5ff);
+  box-shadow: 0 0 8px var(--accent-cyan, #00e5ff);
+  animation: pulse 1.4s infinite;
+}
+
+.thought-timeline-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.thought-timeline-item:global(.type-tool) .thought-tool-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.thought-tool-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+  color: var(--text-secondary, #cccccc);
+}
+
+.thought-tool-name {
+  color: var(--text-secondary, #cccccc);
+  font-weight: 500;
+}
+
+.thought-tool-preview {
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-muted, #808080);
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 4px 8px;
+  max-height: 90px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.45;
+}
+
+.thought-tool-toggle {
+  margin-top: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-cyan, #00e5ff);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.thought-tool-toggle:hover {
+  color: var(--text-primary, #ffffff);
+  text-decoration: underline;
+}
+
+.web-search-source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.web-search-source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 6px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.025);
+  text-decoration: none;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.web-search-source:hover {
+  border-color: rgba(0, 229, 255, 0.48);
+  background: rgba(0, 229, 255, 0.06);
+}
+
+.web-search-source:global(.is-unlinked) {
+  cursor: default;
+}
+
+.web-search-source-favicon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.web-search-source-favicon img {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.web-search-source-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.web-search-source-title,
+.web-search-source-publisher {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.web-search-source-title {
+  color: var(--text-secondary, #cccccc);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.web-search-source:hover .web-search-source-title {
+  color: var(--accent-cyan, #00e5ff);
+}
+
+.web-search-source-publisher {
+  color: var(--text-muted, #808080);
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.web-search-source-toggle {
+  align-self: flex-start;
+}
+
+.thought-markdown-text {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-secondary, #c8c8c8);
+}
+
+.thought-markdown-text p {
+  margin: 0 0 6px;
+}
+
+.thought-markdown-text p:last-child {
+  margin-bottom: 0;
+}
+
+.thought-markdown-text ul,
+.thought-markdown-text ol {
+  margin: 2px 0 6px;
+  padding-left: 16px;
+}
+
+.thought-meta {
+  font-size: 10px;
+  color: var(--text-muted, #737373);
+  margin-top: 8px;
+  font-family: var(--font-mono, monospace);
+}
+
+.thought-markdown-text li {
+  margin-bottom: 3px;
+}
+
+.thought-markdown-text code {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary, #ffffff);
+}
+
+.thought-markdown-text pre {
+  margin: 4px 0;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.thought-markdown-text strong {
+  color: var(--text-primary, #ffffff);
+  font-weight: 600;
+}
+
+.thought-markdown-text blockquote {
+  border-left: 2px solid var(--border-glass);
+  padding-left: 8px;
+  margin: 4px 0;
+  color: var(--text-muted);
+}

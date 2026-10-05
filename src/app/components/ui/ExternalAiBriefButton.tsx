@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { buildExternalAiBrief } from '@/shared/external-ai-brief';
+import styles from './ExternalAiBriefButton.module.css';
 
 interface ExternalAiBriefButtonProps {
   ticker: string;
@@ -50,7 +51,7 @@ export default function ExternalAiBriefButton({
       type="button"
       onClick={handleCopy}
       disabled={disabled}
-      className="external-ai-brief-button"
+      className={styles['external-ai-brief-button']}
       title="Copy the complete ticker information snapshot"
     >
       <i className={copied ? 'fa-solid fa-check' : 'fa-regular fa-copy'}></i>

@@ -1,0 +1,131 @@
+/* DesktopUpdateControl styles — co-located CSS Module (Goal 4 Part B).
+ * Moved verbatim from src/app/styles/components.css DESKTOP UPDATES section,
+ * including its 520px media query (owner-scoped, so it moves with the module).
+ * Modifier tokens (--ok/--info/--bad) stay plain strings in TSX. */
+
+/* === DESKTOP UPDATES ======================================================= */
+.desktop-update-control {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  padding: 16px;
+}
+
+.desktop-update-control__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.desktop-update-control__identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.desktop-update-control__identity img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.desktop-update-control__identity strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.desktop-update-control__version {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.desktop-update-control__pill {
+  flex-shrink: 0;
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.desktop-update-control__pill--ok {
+  border-color: rgba(34, 197, 94, 0.4);
+  color: var(--bull);
+}
+
+.desktop-update-control__pill--info {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--text-primary);
+}
+
+.desktop-update-control__pill--bad {
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+.desktop-update-control__copy {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.desktop-update-control__foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.desktop-update-control__button {
+  min-width: 140px;
+  min-height: 36px;
+  border: 1px solid #ffffff;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #000000;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  padding: 0 12px;
+  text-transform: uppercase;
+}
+
+.desktop-update-control__button:hover:not(:disabled) { background: #e5e5e5; }
+.desktop-update-control__button:disabled { cursor: not-allowed; opacity: 0.5; }
+
+.desktop-update-control__progress {
+  height: 3px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--border-glass);
+}
+
+.desktop-update-control__progress span {
+  display: block;
+  height: 100%;
+  min-width: 8%;
+  background: #ffffff;
+  transition: width var(--duration-fast) linear;
+}
+
+@media (max-width: 520px) {
+  .desktop-update-control__head { align-items: flex-start; }
+  .desktop-update-control__foot { justify-content: stretch; }
+  .desktop-update-control__button { width: 100%; }
+}

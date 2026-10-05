@@ -6,6 +6,7 @@ import TradingViewChart from '@/app/components/ui/TradingViewChart';
 import TechnicalStrip from '@/app/components/ui/TechnicalStrip';
 import { buildStocktwitsPulse, stocktwitsContrarianNote } from '@/shared/crowd-pulse';
 import ExternalAiBriefButton from '@/app/components/ui/ExternalAiBriefButton';
+import styles from './TickerPage.module.css';
 
 interface QuoteData {
   ticker: string;
@@ -488,16 +489,16 @@ export default function DashboardPage() {
 
 
   return (
-    <div className="bbg-page" style={{ padding: '0', background: 'transparent' }}>
+    <div className={styles['bbg-page']} style={{ padding: '0', background: 'transparent' }}>
       {/* ── HEADER ────────────────────────────────────────────────────────── */}
-      <header className="bbg-header ticker-page-header">
+      <header className={`bbg-header ${styles['ticker-page-header']}`}>
         <div>
           <h1 style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-violet)', fontSize: '14px', fontWeight: 700, margin: 0, letterSpacing: '0.05em' }}>INTELLIGENCE DASHBOARD</h1>
           <p style={{ fontFamily: 'var(--font-mono)', color: '#555', fontSize: '10px', marginTop: '2px', textTransform: 'uppercase' }}>REAL-TIME MARKET OVERVIEW</p>
         </div>
-        <div className="ticker-toolbar">
-          <div className="ticker-search">
-          <form onSubmit={handleTickerSubmit} className="ticker-search__form" role="search">
+        <div className={styles['ticker-toolbar']}>
+          <div className={styles['ticker-search']}>
+          <form onSubmit={handleTickerSubmit} className={styles['ticker-search__form']} role="search">
             <i className="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
             <input
               type="text"
@@ -512,21 +513,21 @@ export default function DashboardPage() {
                 if (tickerInput.trim().toUpperCase() !== ticker.toUpperCase()) setShowDropdown(true);
               }}
               onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
-              className="ticker-search__input"
+              className={styles['ticker-search__input']}
             />
-            <button type="submit" className="ticker-search__submit">GO <span aria-hidden="true">↗</span></button>
+            <button type="submit" className={styles['ticker-search__submit']}>GO <span aria-hidden="true">↗</span></button>
           </form>
 
           {showDropdown && (tickerInput.trim() !== '') && (
-            <div className="ticker-search__results">
+            <div className={styles['ticker-search__results']}>
               {isSearching ? (
-                <div className="ticker-search__message">SEARCHING...</div>
+                <div className={styles['ticker-search__message']}>SEARCHING...</div>
               ) : searchResults.length > 0 ? (
                 searchResults.map((result, i) => (
                   <button
                     type="button"
                     key={result.symbol + i}
-                    className="ticker-search__result"
+                    className={styles['ticker-search__result']}
                     onClick={() => {
                       const newTicker = result.symbol.toUpperCase();
                       setTickerInput(newTicker);
@@ -534,13 +535,13 @@ export default function DashboardPage() {
                       router.push(`/ticker/${encodeURIComponent(newTicker)}`);
                     }}
                   >
-                    <span className="ticker-search__symbol">{result.symbol}</span>
-                    <span className="ticker-search__name">{result.name}</span>
-                    <span className="ticker-search__exchange">{result.exchange}</span>
+                    <span className={styles['ticker-search__symbol']}>{result.symbol}</span>
+                    <span className={styles['ticker-search__name']}>{result.name}</span>
+                    <span className={styles['ticker-search__exchange']}>{result.exchange}</span>
                   </button>
                 ))
               ) : (
-                <div className="ticker-search__message">NO RESULTS</div>
+                <div className={styles['ticker-search__message']}>NO RESULTS</div>
               )}
             </div>
           )}
@@ -575,42 +576,42 @@ export default function DashboardPage() {
           <strong>[ ERROR ]</strong> {error}
         </div>
       ) : (
-        <div className="bbg-dashboard ticker-dashboard animate-fadeIn" style={{ fontFamily: 'var(--font-mono)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        <div className="ticker-dashboard animate-fadeIn" style={{ fontFamily: 'var(--font-mono)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
 
-          <section className="ticker-overview" aria-label={`${ticker} quote overview`}>
-            <div className="ticker-overview__main">
-              <div className="ticker-overview__identity">
-                <div className="ticker-overview__symbol-line">
+          <section className={styles['ticker-overview']} aria-label={`${ticker} quote overview`}>
+            <div className={styles['ticker-overview__main']}>
+              <div className={styles['ticker-overview__identity']}>
+                <div className={styles['ticker-overview__symbol-line']}>
                   <h2>{quote?.ticker}</h2>
                   <button
                     type="button"
                     onClick={toggleFavorite}
-                    className={`favorite-toggle${isFavorite ? ' is-saved' : ''}${confirmUnfavorite ? ' is-confirming' : ''}`}
+                    className={`${styles['favorite-toggle']}${isFavorite ? ' is-saved' : ''}${confirmUnfavorite ? ' is-confirming' : ''}`}
                     title={confirmUnfavorite ? 'Click again to remove from watchlist' : isFavorite ? 'Remove from watchlist' : 'Add to watchlist'}
                     aria-label={confirmUnfavorite ? `Confirm remove ${quote?.ticker} from watchlist` : isFavorite ? `Remove ${quote?.ticker} from watchlist` : `Add ${quote?.ticker} to watchlist`}
                     aria-pressed={isFavorite}
                   >
                     <i className={`${isFavorite ? 'fa-solid' : 'fa-regular'} fa-star`} aria-hidden="true"></i>
                   </button>
-                  <span className="ticker-overview__asset">{analysis?.assetClass || quote?.quoteType || 'ASSET'}</span>
+                  <span className={styles['ticker-overview__asset']}>{analysis?.assetClass || quote?.quoteType || 'ASSET'}</span>
                 </div>
                 <p>{quote?.name}{quote?.exchange ? ` · ${quote.exchange}` : ''}</p>
-                <span className="ticker-overview__session">
+                <span className={styles['ticker-overview__session']}>
                   <i className={marketStateMeta(quote?.marketState).live ? 'is-live' : ''} aria-hidden="true" />
                   {marketStateMeta(quote?.marketState).label} · {formatClock(asOf)}
                 </span>
               </div>
-              <div className="ticker-overview__price">
-                <span className="ticker-overview__label">LAST PRICE</span>
+              <div className={styles['ticker-overview__price']}>
+                <span className={styles['ticker-overview__label']}>LAST PRICE</span>
                 <strong>{quote?.currency && quote.currency !== 'USD' ? `${quote.currency} ` : '$'}{formatPx(quote?.price)}</strong>
-                <span className="ticker-overview__change" style={{ color: getPnlColor(quote?.change ?? 0) }}>
+                <span className={styles['ticker-overview__change']} style={{ color: getPnlColor(quote?.change ?? 0) }}>
                   {(quote?.change ?? 0) >= 0 ? '+' : ''}{formatPx(quote?.change)}
                   <span>({(quote?.changePercent ?? 0) >= 0 ? '+' : ''}{quote?.changePercent?.toFixed(2)}%)</span>
                 </span>
               </div>
             </div>
 
-            <dl className="ticker-overview__stats">
+            <dl className={styles['ticker-overview__stats']}>
               <div><dt>VOLUME</dt><dd>{formatNum(quote?.volume)}</dd></div>
               <div><dt>DAY RANGE</dt><dd>{formatPx(quote?.low)} <span>–</span> {formatPx(quote?.high)}</dd></div>
               <div><dt>52W RANGE</dt><dd>{formatPx(quote?.fiftyTwoWeekLow)} <span>–</span> {formatPx(quote?.fiftyTwoWeekHigh)}</dd></div>
@@ -618,22 +619,22 @@ export default function DashboardPage() {
             </dl>
           </section>
 
-          <section className="ticker-market" aria-label="Market context">
-            <div className="ticker-market__item">
+          <section className={styles['ticker-market']} aria-label="Market context">
+            <div className={styles['ticker-market__item']}>
               <span>VIX</span><strong style={{ color: getVixColor(macro?.vixLevel || '') }}>{macro?.vix != null ? macro.vix.toFixed(2) : dash}</strong>
               <small>{macro?.vixLevel?.toUpperCase() || 'UNAVAILABLE'}</small>
             </div>
-            <div className="ticker-market__item">
+            <div className={styles['ticker-market__item']}>
               <span>FEAR & GREED</span><strong style={{ color: sentiment?.fearGreedIndex == null ? '#888' : (sentiment.fearGreedIndex > 60 ? '#00c853' : sentiment.fearGreedIndex < 40 ? '#d50000' : '#fff') }}>{sentiment?.fearGreedIndex ?? dash}</strong>
               <small>{sentiment?.fearGreedLabel?.toUpperCase() || 'MARKET-WIDE'}</small>
             </div>
-            <div className="ticker-market__item">
+            <div className={styles['ticker-market__item']}>
               <span>REGIME</span><strong style={{ color: biasColor(macro?.regime || '') }}>{macro?.regime || dash}</strong>
               <small>{macro?.riskSentiment || 'SPY REGIME'}</small>
             </div>
-            <details className="ticker-market__details">
+            <details className={styles['ticker-market__details']}>
               <summary>MORE CONTEXT</summary>
-              <div className="ticker-market__extra">
+              <div className={styles['ticker-market__extra']}>
                 <div><span>10Y YIELD</span><strong>{macro?.tenYearYield != null ? `${macro.tenYearYield.toFixed(2)}%` : dash}</strong></div>
                 <div><span>SPY CORR</span><strong>{macro?.spyCorrelation != null ? macro.spyCorrelation.toFixed(3) : dash}</strong><small>{macro?.spyBeta != null ? `β ${macro.spyBeta.toFixed(2)} · 60D` : '60D ROLLING'}</small></div>
                 <div><span>QQQ CORR</span><strong>{macro?.qqqCorrelation != null ? macro.qqqCorrelation.toFixed(3) : dash}</strong><small>{macro?.qqqBeta != null ? `β ${macro.qqqBeta.toFixed(2)} · 60D` : '60D ROLLING'}</small></div>
@@ -672,9 +673,9 @@ export default function DashboardPage() {
             <TechnicalStrip ticker={quote?.ticker || 'AAPL'} />
 
             {/* Verdict, plan, and signals share a simple editorial grid. */}
-            <div className="ticker-intel ticker-intel--three">
+            <div className={`${styles['ticker-intel']} ${styles['ticker-intel--three']}`}>
               {/* Card 1: Ticker Verdict & Structure */}
-              <section className="ticker-intel__section" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <section className={styles['ticker-intel__section']} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ color: '#fff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>{quote?.ticker} VERDICT</span>
@@ -724,7 +725,7 @@ export default function DashboardPage() {
               </section>
 
               {/* Card 2: Trading Plan */}
-              <section className="ticker-intel__section" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <section className={styles['ticker-intel__section']} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ color: '#fff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>TRADING PLAN</span>
@@ -780,7 +781,7 @@ export default function DashboardPage() {
               </section>
 
               {/* Card 3: Confluence Signals */}
-              <section className="ticker-intel__section">
+              <section className={styles['ticker-intel__section']}>
                 <div style={{ color: '#fff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>CONFLUENCE SIGNALS</span>
                   <span style={{ color: '#555', fontSize: '9px', letterSpacing: '0.05em' }}>
@@ -815,9 +816,9 @@ export default function DashboardPage() {
             </div>
 
             {/* Crowd and catalysts */}
-            <div className="ticker-intel ticker-intel--two">
+            <div className={`${styles['ticker-intel']} ${styles['ticker-intel--two']}`}>
               {/* Card 4: Social Sentiment */}
-              <section className="ticker-intel__section" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <section className={styles['ticker-intel__section']} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
                   {/* Card Header */}
                   <div style={{ color: '#fff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -963,7 +964,7 @@ export default function DashboardPage() {
               </section>
 
               {/* Card 5: What Ticker Is Doing & News Catalysts */}
-              <section className="ticker-intel__section">
+              <section className={styles['ticker-intel__section']}>
                 <div style={{ color: '#fff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '14px' }}>
                   WHAT {quote?.ticker} IS DOING & CATALYSTS
                 </div>

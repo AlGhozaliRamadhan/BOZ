@@ -1,5 +1,7 @@
 'use client';
 
+import styles from './IndicatorBar.module.css';
+
 interface IndicatorBarProps {
   value: number;
   max: number;
@@ -19,14 +21,14 @@ export default function IndicatorBar({
 
   return (
     <div>
-      <div className="indicator-bar">
+      <div className={styles['indicator-bar']}>
         <div
-          className="indicator-bar-fill"
+          className={styles['indicator-bar-fill']}
           style={{ width: `${percentage}%`, background: color }}
         />
       </div>
       {showLabels && (
-        <div className="indicator-bar-label">
+        <div className={styles['indicator-bar-label']}>
           <span>{label ?? ''}</span>
           <span>{Math.round(percentage)}%</span>
         </div>

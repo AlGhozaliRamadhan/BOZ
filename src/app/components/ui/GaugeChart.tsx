@@ -1,5 +1,6 @@
 'use client';
 
+import styles from './GaugeChart.module.css';
 import { useMemo } from 'react';
 
 interface GaugeChartProps {
@@ -32,17 +33,17 @@ export default function GaugeChart({ value, label, color }: GaugeChartProps) {
   }, [clampedValue, color]);
 
   return (
-    <div className="gauge-container">
-      <svg className="gauge-svg" viewBox="0 0 160 100">
+    <div className={styles['gauge-container']}>
+      <svg className={styles['gauge-svg']} viewBox="0 0 160 100">
         {/* Background arc */}
         <path
           d="M 20 90 A 60 60 0 0 1 140 90"
-          className="gauge-bg"
+          className={styles['gauge-bg']}
         />
         {/* Filled arc */}
         <path
           d="M 20 90 A 60 60 0 0 1 140 90"
-          className="gauge-fill"
+          className={styles['gauge-fill']}
           stroke={strokeColor}
           strokeDasharray={circumference}
           strokeDashoffset={dashOffset}
@@ -52,13 +53,13 @@ export default function GaugeChart({ value, label, color }: GaugeChartProps) {
           x="80"
           y="82"
           textAnchor="middle"
-          className="gauge-value"
+          className={styles['gauge-value']}
           fill="currentColor"
         >
           {Math.round(clampedValue)}%
         </text>
       </svg>
-      {label && <span className="gauge-label">{label}</span>}
+      {label && <span className={styles['gauge-label']}>{label}</span>}
     </div>
   );
 }

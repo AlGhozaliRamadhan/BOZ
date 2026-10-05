@@ -1,5 +1,7 @@
 'use client';
 
+import styles from './VerdictBox.module.css';
+
 interface VerdictBoxProps {
   prediction: 'UP' | 'DOWN' | 'UNKNOWN';
   confidence: number;
@@ -16,12 +18,12 @@ export default function VerdictBox({ prediction, confidence, strategy }: Verdict
   const label = prediction === 'UNKNOWN' ? 'NEUTRAL' : prediction;
 
   return (
-    <div className={`verdict-box ${boxClass}`}>
-      <div className={`verdict-direction ${directionClass}`}>
+    <div className={`${styles['verdict-box']} ${boxClass}`}>
+      <div className={`${styles['verdict-direction']} ${directionClass}`}>
         {arrow} {label}
       </div>
-      <div className="verdict-confidence">{Math.round(confidence)}%</div>
-      {strategy && <p className="verdict-strategy">{strategy}</p>}
+      <div className={styles['verdict-confidence']}>{Math.round(confidence)}%</div>
+      {strategy && <p className={styles['verdict-strategy']}>{strategy}</p>}
     </div>
   );
 }
