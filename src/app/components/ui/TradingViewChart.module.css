@@ -1,0 +1,55 @@
+/* TradingViewChart styles — co-located CSS Module (Goal 4 Part B).
+ * Moved verbatim from src/app/styles/components.css TradingView embed section.
+ * Third-party TradingView classes (.tradingview-widget-container__widget,
+ * .tradingview-widget-copyright, .blue-text, .trademark) are injected by the
+ * embed script as global class names — wrapped in :global() so they match.
+ * NOTE: TSX also sets widgetHost.className = 'tradingview-widget-container__widget'
+ * imperatively via DOM (not via this module) — that class is global by nature. */
+
+/* === TradingView Advanced Chart embed =================================== */
+.tv-chart-panel {
+  min-height: 0;
+}
+
+.tv-chart-host {
+  position: relative;
+  background: #000;
+  min-height: 420px;
+}
+
+.tv-chart-host :global(.tradingview-widget-container__widget) {
+  width: 100%;
+  height: calc(100% - 28px);
+}
+
+.tv-chart-host :global(.tradingview-widget-copyright) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  background: var(--term-bg-elevated);
+  border-top: 1px solid var(--term-border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--term-text-mute);
+  letter-spacing: 0.04em;
+}
+
+.tv-chart-host :global(.tradingview-widget-copyright) :global(a) {
+  color: var(--term-text-dim);
+  text-decoration: none;
+}
+
+.tv-chart-host :global(.tradingview-widget-copyright) :global(a):hover {
+  color: var(--term-text);
+}
+
+.tv-chart-host :global(.tradingview-widget-copyright) :global(.blue-text) {
+  color: var(--term-text-dim);
+}
+
+.tv-chart-host :global(.tradingview-widget-copyright) :global(.trademark) {
+  color: var(--term-text-mute);
+}

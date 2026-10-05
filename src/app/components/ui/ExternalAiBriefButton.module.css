@@ -1,0 +1,33 @@
+/* ExternalAiBriefButton styles — co-located CSS Module (Goal 4 Part B).
+ * Moved verbatim from src/app/styles/components.css CHAT section
+ * (.external-ai-brief-button base, kept out of ChatComponent module in Goal 3).
+ * The ticker-toolbar size overrides move to TickerPage.module.css with the
+ * toolbar that owns them. */
+
+/* === EXTERNAL AI BRIEF BUTTON ============================================== */
+.external-ai-brief-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid #383838;
+  background: #111;
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.external-ai-brief-button:hover:not(:disabled) {
+  border-color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.08);
+}
+
+.external-ai-brief-button:disabled {
+  color: #555;
+  cursor: not-allowed;
+}

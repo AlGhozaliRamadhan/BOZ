@@ -1,0 +1,308 @@
+/* ChatModelPicker styles — co-located CSS Module (Goal 3).
+ * Moved verbatim from src/app/styles/components.css CHAT MODEL PICKER section.
+ * State tokens (.active) stay plain strings in TSX, matched via :global(). */
+
+/* === CHAT MODEL PICKER ==================================================== */
+
+.chat-model-picker {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.chat-model-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.chat-model-trigger:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.chat-model-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chat-model-provider {
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.chat-model-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.chat-model-trigger:hover .chat-model-id {
+  color: var(--text-primary);
+}
+
+.chat-model-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  left: auto;
+  min-width: 290px;
+  max-width: 350px;
+  background: rgba(16, 16, 16, 0.96);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  box-shadow: 0 -12px 48px -8px rgba(0, 0, 0, 0.85);
+  z-index: 100;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.chat-model-menu::-webkit-scrollbar {
+  width: 4px;
+}
+
+.chat-model-menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+.chat-model-menu-label {
+  padding: 6px 10px 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Search Box */
+.chat-model-search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 6px 10px;
+  margin: 2px 2px 6px 2px;
+  transition: all 0.2s ease;
+}
+
+.chat-model-search-box:focus-within {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.chat-model-search-icon {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.chat-model-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 12px;
+  color: var(--text-primary);
+  font-family: inherit;
+  padding: 0;
+}
+
+.chat-model-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.chat-model-search-clear {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+}
+
+.chat-model-search-clear:hover {
+  color: var(--text-primary);
+}
+
+.chat-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.chat-model-list::-webkit-scrollbar {
+  width: 4px;
+}
+.chat-model-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+.chat-model-empty {
+  padding: 14px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.4;
+}
+
+.chat-model-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+.chat-model-option:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.chat-model-option:global(.active) {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.chat-model-option-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.chat-model-option-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-model-option-id {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+
+.chat-model-option:hover .chat-model-option-id {
+  color: var(--text-secondary);
+}
+
+.chat-model-option:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.chat-model-custom-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 4px;
+}
+
+.chat-model-custom-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 7px 12px;
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.chat-model-custom-input::placeholder {
+  color: var(--text-muted);
+}
+
+.chat-model-custom-input:focus {
+  border-color: var(--accent-cyan);
+}
+
+.chat-model-custom-btn {
+  background: #ffffff;
+  color: #000;
+  border: none;
+  border-radius: 10px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.15s ease;
+}
+
+.chat-model-custom-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.chat-model-custom-btn:not(:disabled):hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.chat-model-settings {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.chat-model-settings:hover {
+  color: var(--text-primary);
+}

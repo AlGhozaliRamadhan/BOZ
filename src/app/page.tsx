@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import styles from './ticker/[ticker]/TickerPage.module.css';
 
 export default function HomePage() {
   const router = useRouter();
@@ -113,15 +114,15 @@ export default function HomePage() {
   };
 
   return (
-    <div className="bbg-page" style={{ padding: '0 var(--space-4) var(--space-6)', background: 'var(--bg-primary)' }}>
+    <div className={styles['bbg-page']} style={{ padding: '0 var(--space-4) var(--space-6)', background: 'var(--bg-primary)' }}>
       {/* ── HEADER ────────────────────────────────────────────────────────── */}
-      <header className="bbg-header ticker-page-header">
+      <header className={`bbg-header ${styles['ticker-page-header']}`}>
         <div>
           <h1 style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-violet)', fontSize: '14px', fontWeight: 700, margin: 0, letterSpacing: '0.05em' }}>INTELLIGENCE DASHBOARD</h1>
           <p style={{ fontFamily: 'var(--font-mono)', color: '#555', fontSize: '10px', marginTop: '2px', textTransform: 'uppercase' }}>REAL-TIME MARKET OVERVIEW</p>
         </div>
-        <div className="ticker-search">
-          <form onSubmit={handleTickerSubmit} className="ticker-search__form" role="search">
+        <div className={styles['ticker-search']}>
+          <form onSubmit={handleTickerSubmit} className={styles['ticker-search__form']} role="search">
             <i className="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
             <input
               type="text"
@@ -136,34 +137,34 @@ export default function HomePage() {
                 if (tickerInput.trim() !== '') setShowDropdown(true);
               }}
               onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
-              className="ticker-search__input"
+              className={styles['ticker-search__input']}
             />
-            <button type="submit" className="ticker-search__submit">GO <span aria-hidden="true">↗</span></button>
+            <button type="submit" className={styles['ticker-search__submit']}>GO <span aria-hidden="true">↗</span></button>
           </form>
 
           {showDropdown && (tickerInput.trim() !== '') && (
-            <div className="ticker-search__results">
+            <div className={styles['ticker-search__results']}>
               {isSearching ? (
-                <div className="ticker-search__message">SEARCHING...</div>
+                <div className={styles['ticker-search__message']}>SEARCHING...</div>
               ) : searchResults.length > 0 ? (
                 searchResults.map((result, i) => (
                   <button
                     type="button"
                     key={result.symbol + i}
-                    className="ticker-search__result"
+                    className={styles['ticker-search__result']}
                     onClick={() => {
                       const newTicker = result.symbol.toUpperCase();
                       setShowDropdown(false);
                       router.push(`/ticker/${encodeURIComponent(newTicker)}`);
                     }}
                   >
-                    <span className="ticker-search__symbol">{result.symbol}</span>
-                    <span className="ticker-search__name">{result.name}</span>
-                    <span className="ticker-search__exchange">{result.exchange}</span>
+                    <span className={styles['ticker-search__symbol']}>{result.symbol}</span>
+                    <span className={styles['ticker-search__name']}>{result.name}</span>
+                    <span className={styles['ticker-search__exchange']}>{result.exchange}</span>
                   </button>
                 ))
               ) : (
-                <div className="ticker-search__message">NO RESULTS</div>
+                <div className={styles['ticker-search__message']}>NO RESULTS</div>
               )}
             </div>
           )}
@@ -171,27 +172,27 @@ export default function HomePage() {
       </header>
 
       {favorites.length > 0 ? (
-        <section className="home-watchlist">
+        <section className={styles['home-watchlist']}>
           <h2>YOUR WATCHLIST</h2>
-          <div className="home-watchlist-list">
+          <div className={styles['home-watchlist-list']}>
             {favorites.map(t => {
               const quote = favoriteQuotes[t];
               const price = quote?.price;
               const change = quote?.change;
               const isUp = change >= 0;
               return (
-                <div key={t} className="home-watchlist-row">
-                  <button type="button" className="home-watchlist-asset" onClick={() => router.push(`/ticker/${encodeURIComponent(t)}`)}>
-                    <span className="home-watchlist-symbol">{t}</span>
-                    <span className="home-watchlist-price">{typeof price === 'number' ? `$${price.toFixed(2)}` : 'LOADING...'}</span>
-                    <span className={`home-watchlist-change${isUp ? ' is-up' : ' is-down'}`}>
+                <div key={t} className={styles['home-watchlist-row']}>
+                  <button type="button" className={styles['home-watchlist-asset']} onClick={() => router.push(`/ticker/${encodeURIComponent(t)}`)}>
+                    <span className={styles['home-watchlist-symbol']}>{t}</span>
+                    <span className={styles['home-watchlist-price']}>{typeof price === 'number' ? `$${price.toFixed(2)}` : 'LOADING...'}</span>
+                    <span className={`${styles['home-watchlist-change']}${isUp ? ' is-up' : ' is-down'}`}>
                       {typeof change === 'number' ? `${isUp ? '+' : ''}${change.toFixed(2)}` : '—'}
                     </span>
                     <i className="fa-solid fa-chevron-right" aria-hidden="true"></i>
                   </button>
                   <button
                     type="button"
-                    className={`favorite-toggle is-saved${confirmRemove === t ? ' is-confirming' : ''}`}
+                    className={`${styles['favorite-toggle']} is-saved${confirmRemove === t ? ' is-confirming' : ''}`}
                     onClick={() => confirmRemove === t ? removeFavorite(t) : setConfirmRemove(t)}
                     disabled={removingFavorite === t}
                     title={confirmRemove === t ? 'Click again to remove from watchlist' : 'Remove from watchlist'}

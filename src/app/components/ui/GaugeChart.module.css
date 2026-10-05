@@ -1,0 +1,41 @@
+/* GaugeChart styles — co-located CSS Module (Goal 4 Part B).
+ * Moved verbatim from src/app/styles/components.css GAUGE section. */
+
+/* === GAUGE ================================================================= */
+.gauge-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.gauge-svg {
+  width: 160px;
+  height: 100px;
+  overflow: visible;
+}
+
+.gauge-bg {
+  fill: none;
+  stroke: var(--bg-tertiary);
+  stroke-width: 12;
+  stroke-linecap: round;
+}
+
+.gauge-fill {
+  fill: none;
+  stroke-width: 12;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1s var(--ease-out);
+}
+
+.gauge-value {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.gauge-label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}

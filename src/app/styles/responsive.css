@@ -18,14 +18,7 @@
     background: rgba(0, 0, 0, 0.52);
     cursor: pointer;
   }
-  .chat-page-root {
-    width: calc(100% + var(--space-4) + var(--space-4));
-    margin-inline: calc(0px - var(--space-4));
-  }
-  .chat-messages { padding-inline: var(--space-4); }
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
-  .trade-levels { grid-template-columns: 1fr; }
-  .chat-bubble { max-width: 90%; }
 }
 
 @media (max-width: 480px) {
@@ -33,7 +26,4 @@
   .app-menu-status { display: none; }
   .app-menu-brand { min-width: 48px; }
   .app-menu-trigger { padding-inline: 7px; }
-  .price-value { font-size: var(--text-3xl); }
-  .verdict-direction { font-size: var(--text-3xl); }
-  .verdict-confidence { font-size: var(--text-3xl); }
 }

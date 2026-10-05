@@ -1,0 +1,38 @@
+/* PriceDisplay styles — co-located CSS Module (Goal 4 Part B).
+ * Moved verbatim from src/app/styles/components.css PRICE DISPLAY section.
+ * State tokens (.positive/.negative) stay plain strings in TSX, matched via
+ * :global(). Note: .price-display-sm is referenced by PriceDisplay.tsx but has
+ * no rule anywhere (unstyled size variant) — no rule created for it.
+ * Responsive .price-value tweak stays in responsive.css (global breakpoint). */
+
+/* === PRICE DISPLAY ========================================================= */
+.price-display {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.price-value {
+  font-size: var(--text-4xl);
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.price-change {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.price-change:global(.positive) { color: var(--bull); }
+.price-change:global(.negative) { color: var(--bear); }
+
+/* === RESPONSIVE (moved from responsive.css) === */
+@media (max-width: 480px) {
+  .price-value { font-size: var(--text-3xl); }
+}

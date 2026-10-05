@@ -1,4 +1,5 @@
 import React from 'react';
+import styles from './AnalysisCards.module.css';
 import { ThoughtAccordion } from '../components/ui/ThoughtAccordion';
 import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
 import VerdictBox from '../components/ui/VerdictBox';
@@ -10,9 +11,9 @@ const money = (v: number | null | undefined, d = 2) => v != null ? `$${v.toFixed
 function PriceStrip({ ticker, price }: { ticker?: string; price?: number | null }) {
   if (price == null && !ticker) return null;
   return (
-    <div className="analysis-price-strip">
-      <span className="analysis-price-ticker">{ticker || 'PRICE'}</span>
-      <span className="analysis-price-value">{money(price)}</span>
+    <div className={styles['analysis-price-strip']}>
+      <span className={styles['analysis-price-ticker']}>{ticker || 'PRICE'}</span>
+      <span className={styles['analysis-price-value']}>{money(price)}</span>
     </div>
   );
 }
@@ -57,12 +58,12 @@ export function IntradayCard({ data }: { data: any }) {
 
       {/* Strategic Thesis & Vision */}
       {verdict?.thesis && (
-        <div className="analysis-thesis-card">
-          <div className="analysis-thesis-header">
+        <div className={styles['analysis-thesis-card']}>
+          <div className={styles['analysis-thesis-header']}>
             <i className="fa-solid fa-compass" style={{ color: 'var(--accent-cyan)' }}></i>
             <span>Intraday Session Vision & Market Structure</span>
           </div>
-          <div className="analysis-thesis-body">
+          <div className={styles['analysis-thesis-body']}>
             {verdict.thesis}
           </div>
         </div>
@@ -70,12 +71,12 @@ export function IntradayCard({ data }: { data: any }) {
 
       {/* Strategic Catalyst Pillars */}
       {verdict?.reasons && verdict.reasons.length > 0 && (
-        <div className="analysis-catalyst-card">
-          <div className="analysis-catalyst-header">
+        <div className={styles['analysis-catalyst-card']}>
+          <div className={styles['analysis-catalyst-header']}>
             <i className="fa-solid fa-bolt" style={{ color: 'var(--accent-cyan)' }}></i>
             <span>Key Session Catalysts</span>
           </div>
-          <ul className="analysis-catalyst-list">
+          <ul className={styles['analysis-catalyst-list']}>
             {verdict.reasons.map((r: string, idx: number) => (
               <li key={idx}>{r}</li>
             ))}
@@ -84,42 +85,42 @@ export function IntradayCard({ data }: { data: any }) {
       )}
 
       {/* Quick Summary Pill Bar */}
-      <div className="analysis-summary-bar">
+      <div className={styles['analysis-summary-bar']}>
         {md?.rsi != null && (
-          <div className="analysis-summary-pill">
-            <span className="analysis-pill-label">RSI</span>
-            <span className={`analysis-pill-val ${md.rsi > 70 ? 'text-bear' : md.rsi < 30 ? 'text-bull' : ''}`}>{fmt(md.rsi, 1)}</span>
+          <div className={styles['analysis-summary-pill']}>
+            <span className={styles['analysis-pill-label']}>RSI</span>
+            <span className={`${styles['analysis-pill-val']} ${md.rsi > 70 ? 'text-bear' : md.rsi < 30 ? 'text-bull' : ''}`}>{fmt(md.rsi, 1)}</span>
           </div>
         )}
         {macro?.market_regime && (
-          <div className="analysis-summary-pill">
-            <span className="analysis-pill-label">Regime</span>
-            <span className="analysis-pill-val">{macro.market_regime}</span>
+          <div className={styles['analysis-summary-pill']}>
+            <span className={styles['analysis-pill-label']}>Regime</span>
+            <span className={styles['analysis-pill-val']}>{macro.market_regime}</span>
           </div>
         )}
         {macro?.vix_level != null && (
-          <div className="analysis-summary-pill">
-            <span className="analysis-pill-label">VIX</span>
-            <span className="analysis-pill-val">{fmt(macro.vix_level, 1)}</span>
+          <div className={styles['analysis-summary-pill']}>
+            <span className={styles['analysis-pill-label']}>VIX</span>
+            <span className={styles['analysis-pill-val']}>{fmt(macro.vix_level, 1)}</span>
           </div>
         )}
         {sent?.fear_greed?.value != null && (
-          <div className="analysis-summary-pill">
-            <span className="analysis-pill-label">Sentiment</span>
-            <span className="analysis-pill-val">{sent.fear_greed.value}</span>
+          <div className={styles['analysis-summary-pill']}>
+            <span className={styles['analysis-pill-label']}>Sentiment</span>
+            <span className={styles['analysis-pill-val']}>{sent.fear_greed.value}</span>
           </div>
         )}
       </div>
 
       {/* Dashboard Deep-Dive CTA */}
-      <div className="analysis-dashboard-cta">
-        <div className="analysis-dashboard-cta-text">
-          <span className="analysis-dashboard-cta-title">Explore {sym} Ticker Dashboard</span>
-          <span className="analysis-dashboard-cta-sub">Interactive chart, multi-timeframe indicators, order book & live news</span>
+      <div className={styles['analysis-dashboard-cta']}>
+        <div className={styles['analysis-dashboard-cta-text']}>
+          <span className={styles['analysis-dashboard-cta-title']}>Explore {sym} Ticker Dashboard</span>
+          <span className={styles['analysis-dashboard-cta-sub']}>Interactive chart, multi-timeframe indicators, order book & live news</span>
         </div>
         <a
           href={`/ticker/${encodeURIComponent(sym)}`}
-          className="analysis-dashboard-cta-btn"
+          className={styles['analysis-dashboard-cta-btn']}
         >
           <span>Open Dashboard</span>
           <i className="fa-solid fa-arrow-up-right-from-square"></i>
@@ -169,12 +170,12 @@ export function LongtermCard({ data }: { data: any }) {
 
       {/* Strategic Investment Thesis & Business Vision */}
       {verdict?.thesis && (
-        <div className="analysis-thesis-card">
-          <div className="analysis-thesis-header">
+        <div className={styles['analysis-thesis-card']}>
+          <div className={styles['analysis-thesis-header']}>
             <i className="fa-solid fa-compass" style={{ color: 'var(--accent-cyan)' }}></i>
             <span>Investment Thesis & Secular Business Vision</span>
           </div>
-          <div className="analysis-thesis-body">
+          <div className={styles['analysis-thesis-body']}>
             {verdict.thesis}
           </div>
         </div>
@@ -182,12 +183,12 @@ export function LongtermCard({ data }: { data: any }) {
 
       {/* Strategic Catalyst Pillars */}
       {verdict?.reasons && verdict.reasons.length > 0 && (
-        <div className="analysis-catalyst-card">
-          <div className="analysis-catalyst-header">
+        <div className={styles['analysis-catalyst-card']}>
+          <div className={styles['analysis-catalyst-header']}>
             <i className="fa-solid fa-bolt" style={{ color: 'var(--accent-cyan)' }}></i>
             <span>Secular Catalysts & Strategic Pillars</span>
           </div>
-          <ul className="analysis-catalyst-list">
+          <ul className={styles['analysis-catalyst-list']}>
             {verdict.reasons.map((r: string, idx: number) => (
               <li key={idx}>{r}</li>
             ))}
@@ -197,35 +198,35 @@ export function LongtermCard({ data }: { data: any }) {
 
       {/* 52-Week Context Bar */}
       {md?.fiftyTwoWeekHigh != null && (
-        <div className="analysis-summary-bar">
-          <div className="analysis-summary-pill">
-            <span className="analysis-pill-label">52W High</span>
-            <span className="analysis-pill-val">${fmt(md.fiftyTwoWeekHigh)}</span>
+        <div className={styles['analysis-summary-bar']}>
+          <div className={styles['analysis-summary-pill']}>
+            <span className={styles['analysis-pill-label']}>52W High</span>
+            <span className={styles['analysis-pill-val']}>${fmt(md.fiftyTwoWeekHigh)}</span>
           </div>
-          <div className="analysis-summary-pill">
-            <span className="analysis-pill-label">From High</span>
-            <span className="analysis-pill-val text-bear">{fmt(md.from52wHigh, 1)}%</span>
+          <div className={styles['analysis-summary-pill']}>
+            <span className={styles['analysis-pill-label']}>From High</span>
+            <span className={`${styles['analysis-pill-val']} text-bear`}>{fmt(md.from52wHigh, 1)}%</span>
           </div>
-          <div className="analysis-summary-pill">
-            <span className="analysis-pill-label">52W Low</span>
-            <span className="analysis-pill-val">${fmt(md.fiftyTwoWeekLow)}</span>
+          <div className={styles['analysis-summary-pill']}>
+            <span className={styles['analysis-pill-label']}>52W Low</span>
+            <span className={styles['analysis-pill-val']}>${fmt(md.fiftyTwoWeekLow)}</span>
           </div>
-          <div className="analysis-summary-pill">
-            <span className="analysis-pill-label">From Low</span>
-            <span className="analysis-pill-val text-bull">+{fmt(md.from52wLow, 1)}%</span>
+          <div className={styles['analysis-summary-pill']}>
+            <span className={styles['analysis-pill-label']}>From Low</span>
+            <span className={`${styles['analysis-pill-val']} text-bull`}>+{fmt(md.from52wLow, 1)}%</span>
           </div>
         </div>
       )}
 
       {/* Dashboard Deep-Dive CTA */}
-      <div className="analysis-dashboard-cta">
-        <div className="analysis-dashboard-cta-text">
-          <span className="analysis-dashboard-cta-title">Explore {sym} Ticker Dashboard</span>
-          <span className="analysis-dashboard-cta-sub">Interactive chart, multi-timeframe indicators, order book & live news</span>
+      <div className={styles['analysis-dashboard-cta']}>
+        <div className={styles['analysis-dashboard-cta-text']}>
+          <span className={styles['analysis-dashboard-cta-title']}>Explore {sym} Ticker Dashboard</span>
+          <span className={styles['analysis-dashboard-cta-sub']}>Interactive chart, multi-timeframe indicators, order book & live news</span>
         </div>
         <a
           href={`/ticker/${encodeURIComponent(sym)}`}
-          className="analysis-dashboard-cta-btn"
+          className={styles['analysis-dashboard-cta-btn']}
         >
           <span>Open Dashboard</span>
           <i className="fa-solid fa-arrow-up-right-from-square"></i>

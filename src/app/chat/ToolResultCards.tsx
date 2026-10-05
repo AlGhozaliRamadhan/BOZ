@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import styles from './ToolResultCards.module.css';
 import { describeToolCall, parseWebSources } from './tool-result-details';
 import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
 
@@ -74,7 +75,7 @@ export function ToolResultStack({ results }: { results: ToolResult[] }) {
   if (!done.length) return null;
 
   return (
-    <div className="tool-result-stack">
+    <div className={styles['tool-result-stack']}>
       {done.map((r, i) => (
         <ToolResultCard key={`${r.tool}-${i}`} result={r} />
       ))}
@@ -90,20 +91,20 @@ function ToolResultCard({ result }: { result: ToolResult }) {
     const symbol = String(result.args?.symbol || 'Ticker').toUpperCase();
     const detail = result.detail || result.preview || result.fact || 'No dashboard data returned.';
     return (
-      <div className="tool-card animate-fadeIn">
-        <div className="tool-card-kicker">
+      <div className={`${styles['tool-card']} animate-fadeIn`}>
+        <div className={styles['tool-card-kicker']}>
           <i className="fa-solid fa-table-columns" style={{ marginRight: '5px' }}></i>
           Ticker Dashboard
         </div>
-        <div className="tool-card-row">
-          <div className="tool-card-title">{describeToolCall(tool, { symbol })}</div>
+        <div className={styles['tool-card-row']}>
+          <div className={styles['tool-card-title']}>{describeToolCall(tool, { symbol })}</div>
           {result.quality && <span className={`badge ${result.quality === 'confirmed' ? 'badge-bull' : 'badge-neutral'}`}>{result.quality}</span>}
         </div>
-        {result.fact && <div className="tool-card-sub">{result.fact}</div>}
+        {result.fact && <div className={styles['tool-card-sub']}>{result.fact}</div>}
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
-          className="tool-card-expand"
+          className={styles['tool-card-expand']}
           aria-expanded={expanded}
         >
           <i className={`fa-solid fa-chevron-${expanded ? 'up' : 'down'}`} />
@@ -119,18 +120,18 @@ function ToolResultCard({ result }: { result: ToolResult }) {
     const p = parsePrice(result.preview, result.fact);
     const chg = p.change != null ? Number(p.change) : null;
     return (
-      <div className="tool-card animate-fadeIn">
-        <div className="tool-card-kicker">
+      <div className={`${styles['tool-card']} animate-fadeIn`}>
+        <div className={styles['tool-card-kicker']}>
           <i className="fa-solid fa-chart-line" style={{ marginRight: '5px' }}></i>
           Live Price Data
         </div>
-        <div className="tool-card-row">
+        <div className={styles['tool-card-row']}>
           <div>
-            <div className="tool-card-title">{p.symbol || String(result.args?.symbol_or_name || 'Price')}</div>
-            {p.name && <div className="tool-card-sub">{p.name}</div>}
+            <div className={styles['tool-card-title']}>{p.symbol || String(result.args?.symbol_or_name || 'Price')}</div>
+            {p.name && <div className={styles['tool-card-sub']}>{p.name}</div>}
           </div>
-          <div className="tool-card-metric">
-            <span className="tool-card-price">${p.price ?? '--'}</span>
+          <div className={styles['tool-card-metric']}>
+            <span className={styles['tool-card-price']}>${p.price ?? '--'}</span>
             {chg != null && (
               <span className={`badge ${chg >= 0 ? 'badge-bull' : 'badge-bear'}`} style={{ fontSize: '11px', padding: '2px 8px' }}>
                 {chg >= 0 ? '+' : ''}{chg.toFixed(2)}%
@@ -139,7 +140,7 @@ function ToolResultCard({ result }: { result: ToolResult }) {
           </div>
         </div>
         {(p.range || p.prev) && (
-          <div className="tool-card-meta">
+          <div className={styles['tool-card-meta']}>
             {p.range && <span><strong style={{ color: 'var(--text-secondary)' }}>Day Range:</strong> {p.range}</span>}
             {p.prev && <span><strong style={{ color: 'var(--text-secondary)' }}>Prev Close:</strong> ${p.prev}</span>}
           </div>
@@ -157,8 +158,8 @@ function ToolResultCard({ result }: { result: ToolResult }) {
     const query = String(result.args?.query || result.fact || 'Search Query');
     const visibleSources = expanded ? sources : sources.slice(0, 6);
     return (
-      <div className="tool-card animate-fadeIn">
-        <div className="tool-card-kicker" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className={`${styles['tool-card']} animate-fadeIn`}>
+        <div className={styles['tool-card-kicker']} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>
             <i className={isSearch ? 'fa-solid fa-globe' : 'fa-solid fa-newspaper'} style={{ marginRight: '5px' }}></i>
             {isSearch ? 'Web Intelligence' : 'Market News Feed'}
@@ -169,27 +170,27 @@ function ToolResultCard({ result }: { result: ToolResult }) {
             </span>
           )}
         </div>
-        <div className="tool-card-title" style={{ fontSize: '13px', color: 'var(--text-primary)', marginBottom: '6px' }}>
+        <div className={styles['tool-card-title']} style={{ fontSize: '13px', color: 'var(--text-primary)', marginBottom: '6px' }}>
           {query}
         </div>
         {sources.length > 0 ? (
-          <ul className="tool-card-list">
+          <ul className={styles['tool-card-list']}>
             {visibleSources.map((source, i) => (
               <li key={`${source.url ?? source.title}-${i}`} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
                 <span style={{ color: 'var(--accent-cyan)', fontSize: '10px', marginTop: '3px' }}>•</span>
                 <span>
                   {source.url ? (
-                    <a href={source.url} target="_blank" rel="noreferrer" className="tool-card-source-link">
+                    <a href={source.url} target="_blank" rel="noreferrer" className={styles['tool-card-source-link']}>
                       {source.title}
                     </a>
                   ) : source.title}
-                  {source.summary && <span className="tool-card-source-summary"> — {source.summary}</span>}
+                  {source.summary && <span className={styles['tool-card-source-summary']}> — {source.summary}</span>}
                 </span>
               </li>
             ))}
           </ul>
         ) : lines.length > 0 ? (
-          <ul className="tool-card-list">
+          <ul className={styles['tool-card-list']}>
             {(expanded ? lines : lines.slice(0, 6)).map((line, i) => (
               <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
                 <span style={{ color: 'var(--accent-cyan)', fontSize: '10px', marginTop: '3px' }}>•</span>
@@ -198,7 +199,7 @@ function ToolResultCard({ result }: { result: ToolResult }) {
             ))}
           </ul>
         ) : (
-          <div className="tool-card-sub">{result.fact || 'No headlines retrieved'}</div>
+          <div className={styles['tool-card-sub']}>{result.fact || 'No headlines retrieved'}</div>
         )}
         {(sources.length > 6 || lines.length > 6) && (
           <button
@@ -228,16 +229,16 @@ function ToolResultCard({ result }: { result: ToolResult }) {
     const fgVal = s.fg != null ? Number(s.fg) : null;
     const bullVal = s.bull != null ? Number(s.bull) : null;
     return (
-      <div className="tool-card animate-fadeIn">
-        <div className="tool-card-kicker">
+      <div className={`${styles['tool-card']} animate-fadeIn`}>
+        <div className={styles['tool-card-kicker']}>
           <i className="fa-solid fa-gauge-high" style={{ marginRight: '5px' }}></i>
           Crowd Sentiment & Positioning
         </div>
-        <div className="tool-card-grid">
+        <div className={styles['tool-card-grid']}>
           <div style={{ padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-sm)' }}>
-            <div className="tool-card-sub">Fear & Greed Index</div>
+            <div className={styles['tool-card-sub']}>Fear & Greed Index</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', marginTop: '4px' }}>
-              <span className="tool-card-price" style={{
+              <span className={styles['tool-card-price']} style={{
                 color: fgVal != null ? (fgVal > 60 ? '#00c853' : fgVal < 40 ? '#ff5252' : 'var(--text-primary)') : undefined
               }}>
                 {s.fg ?? '--'}
@@ -246,9 +247,9 @@ function ToolResultCard({ result }: { result: ToolResult }) {
             </div>
           </div>
           <div style={{ padding: '8px', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-sm)' }}>
-            <div className="tool-card-sub">StockTwits Crowd Ratio</div>
+            <div className={styles['tool-card-sub']}>StockTwits Crowd Ratio</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', marginTop: '4px' }}>
-              <span className="tool-card-price" style={{
+              <span className={styles['tool-card-price']} style={{
                 color: bullVal != null ? (bullVal > 60 ? '#00c853' : bullVal < 40 ? '#ff5252' : 'var(--text-primary)') : undefined
               }}>
                 {bullVal != null ? `${bullVal.toFixed(0)}%` : '--'}
@@ -260,7 +261,7 @@ function ToolResultCard({ result }: { result: ToolResult }) {
           </div>
         </div>
         {s.signals.length > 0 && (
-          <div className="tool-card-meta" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+          <div className={styles['tool-card-meta']} style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
             {s.signals.map((sig: string) => (
               <span key={sig} className={`badge ${
                 sig.includes('BULL') ? 'badge-bull' :
@@ -282,8 +283,8 @@ function ToolResultCard({ result }: { result: ToolResult }) {
     const persona = AGENT_PERSONAS[agentName] || { icon: 'fa-robot', role: 'Specialized Sub-Agent', color: 'var(--accent-cyan)' };
     const task = String(result.args?.task || '');
     return (
-      <div className="tool-card animate-fadeIn" style={{ borderLeft: `3px solid ${persona.color}` }}>
-        <div className="tool-card-kicker" style={{ color: persona.color, display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <div className={`${styles['tool-card']} animate-fadeIn`} style={{ borderLeft: `3px solid ${persona.color}` }}>
+        <div className={styles['tool-card-kicker']} style={{ color: persona.color, display: 'flex', alignItems: 'center', gap: '6px' }}>
           <i className={`fa-solid ${persona.icon}`}></i>
           Sub-Agent: {result.args?.agent_name ? String(result.args.agent_name) : 'Specialist'} ({persona.role})
         </div>
@@ -303,14 +304,14 @@ function ToolResultCard({ result }: { result: ToolResult }) {
   if (tool === 'scan_indonesia_momentum') {
     const lines = parseHeadlines(result.preview);
     return (
-      <div className="tool-card animate-fadeIn">
-        <div className="tool-card-kicker">
+      <div className={`${styles['tool-card']} animate-fadeIn`}>
+        <div className={styles['tool-card-kicker']}>
           <i className="fa-solid fa-radar" style={{ marginRight: '5px' }}></i>
           IDX Screeners & Expert Signal
         </div>
-        <div className="tool-card-title" style={{ fontSize: '13px' }}>{result.fact || 'Market screen'}</div>
+        <div className={styles['tool-card-title']} style={{ fontSize: '13px' }}>{result.fact || 'Market screen'}</div>
         {lines.length > 0 && (
-          <ul className="tool-card-list">
+          <ul className={styles['tool-card-list']}>
             {(expanded ? lines : lines.slice(0, 4)).map((line, i) => (
               <li key={i}>{line}</li>
             ))}
@@ -341,12 +342,12 @@ function ToolResultCard({ result }: { result: ToolResult }) {
   // 6. MEMORY UPDATE TOOL
   if (tool === 'update_memory') {
     return (
-      <div className="tool-card animate-fadeIn" style={{ borderLeft: '3px solid var(--accent-cyan)' }}>
-        <div className="tool-card-kicker">
+      <div className={`${styles['tool-card']} animate-fadeIn`} style={{ borderLeft: '3px solid var(--accent-cyan)' }}>
+        <div className={styles['tool-card-kicker']}>
           <i className="fa-solid fa-brain" style={{ marginRight: '5px' }}></i>
           Long-Term Memory Stored
         </div>
-        <div className="tool-card-sub" style={{ color: 'var(--text-primary)', fontSize: '12px' }}>
+        <div className={styles['tool-card-sub']} style={{ color: 'var(--text-primary)', fontSize: '12px' }}>
           {String(result.args?.fact || result.fact || 'Preference saved')}
         </div>
       </div>
@@ -355,14 +356,14 @@ function ToolResultCard({ result }: { result: ToolResult }) {
 
   // GENERIC FALLBACK
   return (
-    <div className="tool-card animate-fadeIn">
-      <div className="tool-card-kicker">{describeToolCall(tool, result.args)}</div>
-      <div className="tool-card-sub">{result.fact || (result.success === false ? 'No data' : 'Done')}</div>
+    <div className={`${styles['tool-card']} animate-fadeIn`}>
+      <div className={styles['tool-card-kicker']}>{describeToolCall(tool, result.args)}</div>
+      <div className={styles['tool-card-sub']}>{result.fact || (result.success === false ? 'No data' : 'Done')}</div>
       {(result.detail || result.preview) && (
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
-          className="tool-card-expand"
+          className={styles['tool-card-expand']}
           aria-expanded={expanded}
         >
           <i className={`fa-solid fa-chevron-${expanded ? 'up' : 'down'}`} />
@@ -376,7 +377,7 @@ function ToolResultCard({ result }: { result: ToolResult }) {
 
 function ToolDetail({ detail }: { detail: string }) {
   return (
-    <pre className="tool-card-detail" aria-label="Tool result details">
+    <pre className={styles['tool-card-detail']} aria-label="Tool result details">
       {detail.slice(0, 16_000)}
     </pre>
   );

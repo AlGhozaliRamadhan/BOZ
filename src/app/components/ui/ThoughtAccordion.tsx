@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'isomorphic-dompurify';
+import styles from './ThoughtAccordion.module.css';
 import type { ToolResult } from '../../chat/ToolResultCards';
 import { parseWebSources, type WebSourceDetail } from '../../chat/tool-result-details';
 
@@ -212,12 +213,12 @@ export function ThoughtAccordion({
 
   return (
     <div
-      className={`thought-accordion ${isOpen ? 'is-open' : 'is-closed'} ${isStreaming ? 'is-streaming' : ''} accent-${accent} ${className}`}
+      className={`${styles['thought-accordion']} ${isOpen ? 'is-open' : 'is-closed'} ${isStreaming ? 'is-streaming' : ''} accent-${accent} ${className}`}
       style={style}
     >
       {/* Header row */}
       <div
-        className={`thought-header ${isOpen ? 'is-open' : ''}`}
+        className={`${styles['thought-header']} ${isOpen ? 'is-open' : ''}`}
         onClick={toggleOpen}
         role="button"
         tabIndex={0}
@@ -229,10 +230,10 @@ export function ThoughtAccordion({
           }
         }}
       >
-        <div className="thought-row-main">
+        <div className={styles['thought-row-main']}>
           {isStreaming ? (
             <svg
-              className="spinner-spin thought-spinner"
+              className={`${styles['spinner-spin']} ${styles['thought-spinner']}`}
               width="13"
               height="13"
               viewBox="0 0 24 24"
@@ -247,7 +248,7 @@ export function ThoughtAccordion({
             </svg>
           ) : (
             <svg
-              className={`thought-chevron ${isOpen ? 'is-open' : ''}`}
+              className={`${styles['thought-chevron']} ${isOpen ? 'is-open' : ''}`}
               width="13"
               height="13"
               viewBox="0 0 24 24"
@@ -262,22 +263,22 @@ export function ThoughtAccordion({
             </svg>
           )}
 
-          <span className="thought-label">{label}</span>
+          <span className={styles['thought-label']}>{label}</span>
 
           {!isStreaming && stepCount > 1 && (
-            <span className="thought-step-badge">{stepCount} steps</span>
+            <span className={styles['thought-step-badge']}>{stepCount} steps</span>
           )}
 
           {!isStreaming && formattedDuration && (
-            <span className="thought-duration">{formattedDuration}</span>
+            <span className={styles['thought-duration']}>{formattedDuration}</span>
           )}
         </div>
 
-        <div className="thought-actions" onClick={(e) => e.stopPropagation()}>
+        <div className={styles['thought-actions']} onClick={(e) => e.stopPropagation()}>
           {combinedText.length > 0 && (
             <button
               type="button"
-              className={`thought-action-btn ${copied ? 'is-copied' : ''}`}
+              className={`${styles['thought-action-btn']} ${copied ? 'is-copied' : ''}`}
               onClick={handleCopy}
               title="Copy analysis activity"
               aria-label={copied ? 'Copied' : 'Copy analysis activity'}
@@ -299,29 +300,29 @@ export function ThoughtAccordion({
 
       {/* Expandable Timeline Track */}
       {isOpen && (
-        <div ref={contentRef} className="thought-content-area" onScroll={handleScroll}>
-          <div className="thought-timeline-track">
+        <div ref={contentRef} className={styles['thought-content-area']} onScroll={handleScroll}>
+          <div className={styles['thought-timeline-track']}>
             {steps.map((step, idx) => (
               <div
                 key={idx}
-                className={`thought-timeline-item type-${step.type} ${step.status === 'running' ? 'is-running' : ''}`}
+                className={`${styles['thought-timeline-item']} type-${step.type} ${step.status === 'running' ? 'is-running' : ''}`}
               >
-                <div className="thought-timeline-node">
+                <div className={styles['thought-timeline-node']}>
                   {step.type === 'tool' || step.type === 'search' ? (
-                    <span className="thought-node-dot">•</span>
+                    <span className={styles['thought-node-dot']}>•</span>
                   ) : (
-                    <svg className="thought-node-clock" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg className={styles['thought-node-clock']} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <circle cx="12" cy="12" r="10" />
                       <polyline points="12 6 12 12 16 14" />
                     </svg>
                   )}
                 </div>
 
-                <div className="thought-timeline-content">
+                <div className={styles['thought-timeline-content']}>
                   {step.type === 'tool' || step.type === 'search' ? (
-                    <div className="thought-tool-block">
-                      <div className="thought-tool-header">
-                        <span className="thought-tool-name">{step.toolName || step.title || 'tool_call'}</span>
+                    <div className={styles['thought-tool-block']}>
+                      <div className={styles['thought-tool-header']}>
+                        <span className={styles['thought-tool-name']}>{step.toolName || step.title || 'tool_call'}</span>
                         {step.status === 'running' && (
                           <span className="thought-tool-spinner" />
                         )}
@@ -336,7 +337,7 @@ export function ThoughtAccordion({
                     </div>
                   ) : (
                     <div
-                      className="thought-markdown-text"
+                      className={styles['thought-markdown-text']}
                       dangerouslySetInnerHTML={{ __html: formatThoughtHtml(step.content) }}
                     />
                   )}
@@ -345,16 +346,16 @@ export function ThoughtAccordion({
             ))}
 
             {isStreaming && (
-              <div className="thought-timeline-item is-running">
-                <div className="thought-timeline-node">
-                  <span className="thought-timeline-pulse" />
+              <div className={`${styles['thought-timeline-item']} is-running`}>
+                <div className={styles['thought-timeline-node']}>
+                  <span className={styles['thought-timeline-pulse']} />
                 </div>
               </div>
             )}
           </div>
 
           {modelName && (
-            <div className="thought-meta">{modelName}</div>
+            <div className={styles['thought-meta']}>{modelName}</div>
           )}
         </div>
       )}
@@ -383,11 +384,11 @@ function ToolTimelinePreview({
 
   return (
     <div>
-      <div className="thought-tool-preview">{shown}</div>
+      <div className={styles['thought-tool-preview']}>{shown}</div>
       {canExpand && (
         <button
           type="button"
-          className="thought-tool-toggle"
+          className={styles['thought-tool-toggle']}
           onClick={() => setExpanded((value) => !value)}
         >
           {expanded ? 'Show less' : 'Show more'}
@@ -403,14 +404,14 @@ function WebSearchSourceList({ sources }: { sources: WebSourceDetail[] }) {
   const remaining = sources.length - 5;
 
   return (
-    <div className="web-search-source-list" aria-label="Web search sources">
+    <div className={styles['web-search-source-list']} aria-label="Web search sources">
       {visibleSources.map((source, index) => (
         <WebSearchSource key={source.url ?? source.title + index} source={source} />
       ))}
       {remaining > 0 && (
         <button
           type="button"
-          className="thought-tool-toggle web-search-source-toggle"
+          className={`${styles['thought-tool-toggle']} ${styles['web-search-source-toggle']}`}
           onClick={() => setShowAll((value) => !value)}
         >
           {showAll ? 'Show less' : `Show ${remaining} more sources`}
@@ -428,7 +429,7 @@ function WebSearchSource({ source }: { source: WebSourceDetail }) {
   const faviconDomain = publisherDomain || resultDomain;
   const content = (
     <>
-      <span className="web-search-source-favicon" aria-hidden="true">
+      <span className={styles['web-search-source-favicon']} aria-hidden="true">
         {faviconDomain && (
           <img
             src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(faviconDomain)}&sz=32`}
@@ -440,18 +441,18 @@ function WebSearchSource({ source }: { source: WebSourceDetail }) {
           />
         )}
       </span>
-      <span className="web-search-source-copy">
-        <span className="web-search-source-title">{source.title}</span>
-        <span className="web-search-source-publisher">{label}</span>
+      <span className={styles['web-search-source-copy']}>
+        <span className={styles['web-search-source-title']}>{source.title}</span>
+        <span className={styles['web-search-source-publisher']}>{label}</span>
       </span>
     </>
   );
 
-  if (!destination) return <div className="web-search-source is-unlinked">{content}</div>;
+  if (!destination) return <div className={`${styles['web-search-source']} is-unlinked`}>{content}</div>;
 
   return (
     <a
-      className="web-search-source"
+      className={styles['web-search-source']}
       href={destination}
       target="_blank"
       rel="noreferrer"

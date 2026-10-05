@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { marked } from 'marked';
 import DOMPurify from 'isomorphic-dompurify';
 import { ThoughtAccordion } from '../components/ui/ThoughtAccordion';
+import styles from './ChatComponent.module.css';
+import composerStyles from './Composer.module.css';
 import { getEffort, getThinkingEnabled } from '../../shared/chat-options';
 import ChatModelPicker from './ChatModelPicker';
 import ChatEffortPicker from './ChatEffortPicker';
@@ -675,21 +677,21 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
   };
 
   return (
-    <div className="chat-page-root animate-fadeIn">
-      <div className="chat-container">
+    <div className={`${styles['chat-page-root']} animate-fadeIn`}>
+      <div className={styles['chat-container']}>
         {/* Messages */}
-        <div className="chat-messages">
+        <div className={styles['chat-messages']}>
             {messages.length === 0 && !loading ? (
               <div className="empty-state" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                 <div style={{ width: 80, height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
                   <img src="/logo-boz-transparant-white.png" alt="BOZ" style={{ width: 80, height: 80, objectFit: 'contain', borderRadius: '16px' }} />
                 </div>
-                <h2 className="chat-empty-title">{greeting}</h2>
+                <h2 className={styles['chat-empty-title']}>{greeting}</h2>
 
                 {currentQuote && (
-                  <div className="chat-empty-quote animate-fadeIn">
+                  <div className={`${styles['chat-empty-quote']} animate-fadeIn`}>
                     &ldquo;{currentQuote.text}&rdquo;
-                    <span className="chat-empty-quote-author"> — {currentQuote.author}</span>
+                    <span className={styles['chat-empty-quote-author']}> — {currentQuote.author}</span>
                   </div>
                 )}
 
@@ -706,7 +708,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                       key={i}
                       type="button"
                       onClick={() => sendMessage(s.action)}
-                      className="suggestion-chip"
+                      className={styles['suggestion-chip']}
                     >
                       {s.text}
                     </button>
@@ -716,10 +718,10 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
             ) : (
               <>
                 {messages.map((msg, i) => (
-                  <div key={i} className={`chat-bubble ${msg.role}`}>
+                  <div key={i} className={`${styles['chat-bubble']} ${msg.role}`}>
                     {msg.role === 'assistant' ? (
                       <div className="flex-row gap-3" style={{ width: '100%' }}>
-                        <div className="chat-assistant-avatar" style={{ flexShrink: 0, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div className={styles['chat-assistant-avatar']} style={{ flexShrink: 0, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <img src="/logo-boz-transparant-white.png" alt="BOZ" style={{ width: 24, height: 24, objectFit: 'contain' }} />
                         </div>
                         <div style={{ width: '100%', paddingTop: '2px' }}>
@@ -737,23 +739,23 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
                           {/* Ticker Typo Clarification Suggestions */}
                           {msg.suggestions && msg.suggestions.length > 0 && (
-                            <div className="chat-suggestion-group">
-                              <div className="chat-suggestion-label">Suggested Tickers:</div>
-                              <div className="chat-suggestion-cards">
+                            <div className={styles['chat-suggestion-group']}>
+                              <div className={styles['chat-suggestion-label']}>Suggested Tickers:</div>
+                              <div className={styles['chat-suggestion-cards']}>
                                 {msg.suggestions.map((s, si) => (
                                   <button
                                     key={si}
                                     type="button"
-                                    className="chat-suggestion-card"
+                                    className={styles['chat-suggestion-card']}
                                     onClick={() => sendMessage(s.command || `/intraday ${s.symbol}`)}
                                     title={`Run analysis for ${s.symbol}`}
                                   >
-                                    <div className="chat-suggestion-card-main">
-                                      <span className="chat-suggestion-symbol">{s.symbol}</span>
-                                      <span className="chat-suggestion-name">{s.name}</span>
+                                    <div className={styles['chat-suggestion-card-main']}>
+                                      <span className={styles['chat-suggestion-symbol']}>{s.symbol}</span>
+                                      <span className={styles['chat-suggestion-name']}>{s.name}</span>
                                     </div>
-                                    {s.exchange && <span className="chat-suggestion-exchange">{s.exchange}</span>}
-                                    <i className="fa-solid fa-arrow-right chat-suggestion-arrow"></i>
+                                    {s.exchange && <span className={styles['chat-suggestion-exchange']}>{s.exchange}</span>}
+                                    <i className={`fa-solid fa-arrow-right ${styles['chat-suggestion-arrow']}`}></i>
                                   </button>
                                 ))}
                               </div>
@@ -762,8 +764,8 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
                           {/* Assistant Message Actions */}
                           {msg.content && (
-                            <div className="chat-message-footer">
-                              <div className="chat-message-meta">
+                            <div className={styles['chat-message-footer']}>
+                              <div className={styles['chat-message-meta']}>
                                 {formatMessageTime(msg.createdAt) && (
                                   <span title={new Date(msg.createdAt!).toLocaleString()}>
                                     <i className="fa-regular fa-clock"></i>
@@ -798,7 +800,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                               <button
                                 type="button"
                                 onClick={() => copyMessage(msg.content, i)}
-                                className="chat-copy-btn"
+                                className={styles['chat-copy-btn']}
                                 title="Copy response to clipboard"
                               >
                                 <i className={copiedIndex === i ? 'fa-solid fa-check' : 'fa-regular fa-copy'} style={{ fontSize: '11px' }}></i>
@@ -809,10 +811,10 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                         </div>
                       </div>
                     ) : (
-                      <div className="chat-user-message">
+                      <div className={styles['chat-user-message']}>
                         <span>{msg.content}</span>
                         {formatMessageTime(msg.createdAt) && (
-                          <time dateTime={new Date(msg.createdAt!).toISOString()} className="chat-user-time">
+                          <time dateTime={new Date(msg.createdAt!).toISOString()} className={styles['chat-user-time']}>
                             Sent {formatMessageTime(msg.createdAt)}
                           </time>
                         )}
@@ -823,9 +825,9 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
                 {/* Loading indicator — streaming assistant response */}
                 {loading && (
-                  <div className={`chat-bubble assistant`}>
+                  <div className={`${styles['chat-bubble']} assistant`}>
                     <div className="flex-row gap-3" style={{ width: '100%' }}>
-                      <div className="chat-assistant-avatar" style={{ flexShrink: 0, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div className={styles['chat-assistant-avatar']} style={{ flexShrink: 0, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <img src="/logo-boz-transparant-white.png" alt="BOZ" style={{ width: 24, height: 24, objectFit: 'contain' }} />
                       </div>
                       <div style={{ width: '100%', paddingTop: '2px' }}>
@@ -859,9 +861,9 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
           </div>
 
           {/* Input Area (Claude-style composer) */}
-          <div className="chat-composer">
+          <div className={composerStyles['chat-composer']}>
             {input.startsWith('/') && !input.includes(' ') && input !== '/newsintel' && (
-              <div className="chat-slash-menu" role="listbox" aria-label="Commands">
+              <div className={composerStyles['chat-slash-menu']} role="listbox" aria-label="Commands">
                 {[
                   { cmd: '/intraday ', title: 'Intraday', desc: 'Live intraday analysis & key levels [ticker]', icon: 'fa-chart-line' },
                   { cmd: '/longterm ', title: 'Longterm', desc: 'Fundamental analysis & long-term outlook [ticker]', icon: 'fa-scale-balanced' },
@@ -873,14 +875,14 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                     role="option"
                     aria-selected="false"
                     onClick={() => { setInput(item.cmd); textareaRef.current?.focus(); }}
-                    className="chat-slash-item"
+                    className={composerStyles['chat-slash-item']}
                   >
-                    <span className="chat-slash-item-icon">
+                    <span className={composerStyles['chat-slash-item-icon']}>
                       <i className={`fa-solid ${item.icon}`}></i>
                     </span>
-                    <span className="chat-slash-item-text">
-                      <span className="chat-slash-item-title">{item.title}</span>
-                      <span className="chat-slash-item-desc">{item.desc}</span>
+                    <span className={composerStyles['chat-slash-item-text']}>
+                      <span className={composerStyles['chat-slash-item-title']}>{item.title}</span>
+                      <span className={composerStyles['chat-slash-item-desc']}>{item.desc}</span>
                     </span>
                   </button>
                 ))}
@@ -889,7 +891,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
             <textarea
               ref={textareaRef}
-              className="chat-composer-textarea"
+              className={composerStyles['chat-composer-textarea']}
               placeholder="Write a message or type '/' for commands..."
               value={input}
               rows={1}
@@ -897,11 +899,11 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
               onKeyDown={handleKeyDown}
             />
 
-            <div className="chat-composer-footer">
-              <div className="chat-composer-footer-left">
+            <div className={composerStyles['chat-composer-footer']}>
+              <div className={composerStyles['chat-composer-footer-left']}>
                 <button
                   type="button"
-                  className="chat-composer-action-btn"
+                  className={composerStyles['chat-composer-action-btn']}
                   onClick={() => {
                     setInput((prev) => (prev ? prev : '/'));
                     textareaRef.current?.focus();
@@ -913,13 +915,13 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                 </button>
               </div>
 
-              <div className="chat-composer-footer-right">
+              <div className={composerStyles['chat-composer-footer-right']}>
                 <ChatEffortPicker />
                 <ChatRiskPicker />
                 <ChatModelPicker />
                 <button
                   type="button"
-                  className={`chat-composer-send-btn ${loading ? 'active is-stop' : input.trim() ? 'active' : ''}`}
+                  className={`${composerStyles['chat-composer-send-btn']} ${loading ? 'active is-stop' : input.trim() ? 'active' : ''}`}
                   onClick={() => {
                     if (loading) {
                       stopStreaming();

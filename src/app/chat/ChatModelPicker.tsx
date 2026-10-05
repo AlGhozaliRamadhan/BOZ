@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import styles from './ChatModelPicker.module.css';
 
 interface ModelOption {
   id: string;
@@ -180,30 +181,30 @@ export default function ChatModelPicker() {
   });
 
   return (
-    <div className="chat-model-picker" ref={rootRef}>
+    <div className={styles['chat-model-picker']} ref={rootRef}>
       <button
         type="button"
-        className="chat-model-trigger"
+        className={styles['chat-model-trigger']}
         onClick={() => setOpen((v) => !v)}
         title={`${PROVIDER_LABEL[provider] || provider} / ${model || 'no model'}`}
         disabled={saving}
       >
-        <span className="chat-model-provider">{PROVIDER_LABEL[provider] || provider}</span>
-        <span className="chat-model-id">{shortModel}</span>
+        <span className={styles['chat-model-provider']}>{PROVIDER_LABEL[provider] || provider}</span>
+        <span className={styles['chat-model-id']}>{shortModel}</span>
         <i className={`fa-solid fa-chevron-${open ? 'up' : 'down'}`} style={{ fontSize: '10px', opacity: 0.7 }}></i>
       </button>
 
       {open && (
-        <div className="chat-model-menu animate-fadeIn">
+        <div className={`${styles['chat-model-menu']} animate-fadeIn`}>
           {/* Provider switcher */}
           {switchingProvider ? (
             <>
-              <div className="chat-model-menu-label">Switch provider</div>
+              <div className={styles['chat-model-menu-label']}>Switch provider</div>
               {PROVIDER_ORDER.map((pid) => (
                 <button
                   key={pid}
                   type="button"
-                  className={`chat-model-option${pid === provider ? ' active' : ''}`}
+                  className={`${styles['chat-model-option']}${pid === provider ? ' active' : ''}`}
                   onClick={() => switchProvider(pid)}
                   disabled={saving}
                 >
@@ -213,7 +214,7 @@ export default function ChatModelPicker() {
               ))}
               <button
                 type="button"
-                className="chat-model-settings"
+                className={styles['chat-model-settings']}
                 onClick={() => setSwitchingProvider(false)}
               >
                 ← Back to models
@@ -221,7 +222,7 @@ export default function ChatModelPicker() {
             </>
           ) : (
             <>
-              <div className="chat-model-menu-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className={styles['chat-model-menu-label']} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span>{PROVIDER_LABEL[provider] || provider} models</span>
                 <button
                   type="button"
@@ -243,12 +244,12 @@ export default function ChatModelPicker() {
               </div>
 
               {/* Search Box */}
-              <div className="chat-model-search-box">
-                <i className="fa-solid fa-magnifying-glass chat-model-search-icon"></i>
+              <div className={styles['chat-model-search-box']}>
+                <i className={`fa-solid fa-magnifying-glass ${styles['chat-model-search-icon']}`}></i>
                 <input
                   ref={searchInputRef}
                   type="text"
-                  className="chat-model-search-input"
+                  className={styles['chat-model-search-input']}
                   placeholder="Search models..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -266,7 +267,7 @@ export default function ChatModelPicker() {
                 {searchQuery && (
                   <button
                     type="button"
-                    className="chat-model-search-clear"
+                    className={styles['chat-model-search-clear']}
                     onClick={() => {
                       setSearchQuery('');
                       searchInputRef.current?.focus();
@@ -279,29 +280,29 @@ export default function ChatModelPicker() {
               </div>
 
               {/* Model list */}
-              <div className="chat-model-list">
+              <div className={styles['chat-model-list']}>
                 {filteredModels.length === 0 && listed.length > 0 && searchQuery && (
-                  <div className="chat-model-empty">
+                  <div className={styles['chat-model-empty']}>
                     No models matching &ldquo;{searchQuery}&rdquo;
                   </div>
                 )}
 
                 {filteredModels.length === 0 && listed.length === 0 && provider !== 'custom' && (
-                  <div className="chat-model-empty">No models listed for this provider.</div>
+                  <div className={styles['chat-model-empty']}>No models listed for this provider.</div>
                 )}
 
                 {filteredModels.map((m) => (
                   <button
                     key={m.id}
                     type="button"
-                    className={`chat-model-option${m.id === model ? ' active' : ''}`}
+                    className={`${styles['chat-model-option']}${m.id === model ? ' active' : ''}`}
                     onClick={() => applyModel(provider, m.id)}
                     disabled={saving}
                   >
-                    <div className="chat-model-option-info">
-                      <span className="chat-model-option-name">{m.label || m.id}</span>
+                    <div className={styles['chat-model-option-info']}>
+                      <span className={styles['chat-model-option-name']}>{m.label || m.id}</span>
                       {m.label && m.label !== m.id && (
-                        <span className="chat-model-option-id">{m.id}</span>
+                        <span className={styles['chat-model-option-id']}>{m.id}</span>
                       )}
                     </div>
                     {m.id === model && <i className="fa-solid fa-check" style={{ fontSize: '11px' }}></i>}
@@ -311,7 +312,7 @@ export default function ChatModelPicker() {
 
               {provider === 'custom' && (
                 <form
-                  className="chat-model-custom-row"
+                  className={styles['chat-model-custom-row']}
                   onSubmit={(e) => {
                     e.preventDefault();
                     applyModel('custom', customDraft || searchQuery);
@@ -322,9 +323,9 @@ export default function ChatModelPicker() {
                     value={customDraft}
                     onChange={(e) => setCustomDraft(e.target.value)}
                     placeholder="Type custom model ID"
-                    className="chat-model-custom-input"
+                    className={styles['chat-model-custom-input']}
                   />
-                  <button type="submit" disabled={saving || (!customDraft.trim() && !searchQuery.trim())} className="chat-model-custom-btn">
+                  <button type="submit" disabled={saving || (!customDraft.trim() && !searchQuery.trim())} className={styles['chat-model-custom-btn']}>
                     Use
                   </button>
                 </form>
@@ -332,7 +333,7 @@ export default function ChatModelPicker() {
 
               <button
                 type="button"
-                className="chat-model-settings"
+                className={styles['chat-model-settings']}
                 onClick={() => {
                   setOpen(false);
                   window.dispatchEvent(new Event('boz_open_settings'));

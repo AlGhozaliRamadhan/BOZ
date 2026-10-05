@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import styles from './Pickers.module.css';
 
 type RiskMode = 'auto' | 'on' | 'off';
 
@@ -70,23 +71,23 @@ export default function ChatRiskPicker() {
   };
 
   return (
-    <div className="chat-effort-picker" ref={rootRef}>
+    <div className={styles['chat-effort-picker']} ref={rootRef}>
       <button
         type="button"
-        className={`chat-effort-trigger ${open ? 'active' : ''}`}
+        className={`${styles['chat-effort-trigger']} ${open ? 'active' : ''}`}
         onClick={() => setOpen(!open)}
         title="Risk framing for analysis"
         aria-label={`Risk framing: ${riskMode}`}
         aria-expanded={open}
         disabled={saving}
       >
-        <span className="chat-effort-label">{RISK_LABEL[riskMode]}</span>
+        <span className={styles['chat-effort-label']}>{RISK_LABEL[riskMode]}</span>
         <i className="fa-solid fa-chevron-up" style={{ fontSize: '8px', opacity: 0.4 }}></i>
       </button>
 
       {open && (
-        <div className="chat-effort-menu animate-fadeIn">
-          <div className="chat-effort-menu-header">
+        <div className={`${styles['chat-effort-menu']} animate-fadeIn`}>
+          <div className={styles['chat-effort-menu-header']}>
             <span>Risk Framing</span>
           </div>
           {RISK_OPTIONS.map((opt) => {
@@ -95,11 +96,11 @@ export default function ChatRiskPicker() {
               <button
                 key={opt.value}
                 type="button"
-                className={`chat-effort-option ${isSelected ? 'selected' : ''}`}
+                className={`${styles['chat-effort-option']} ${isSelected ? 'selected' : ''}`}
                 onClick={() => void selectRiskMode(opt.value)}
               >
-                <div className="chat-effort-option-info">
-                  <div className="chat-effort-option-name">
+                <div className={styles['chat-effort-option-info']}>
+                  <div className={styles['chat-effort-option-name']}>
                     <span>{opt.name}</span>
                     {isSelected && (
                       <i
@@ -108,7 +109,7 @@ export default function ChatRiskPicker() {
                       ></i>
                     )}
                   </div>
-                  <div className="chat-effort-option-desc">{opt.desc}</div>
+                  <div className={styles['chat-effort-option-desc']}>{opt.desc}</div>
                 </div>
               </button>
             );

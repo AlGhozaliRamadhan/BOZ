@@ -1,0 +1,258 @@
+/* Composer + slash menu styles — co-located CSS Module (Goal 3).
+ * Moved verbatim from src/app/styles/components.css: CHAT COMPOSER section
+ * (lines ~662-806), SLASH COMMANDS POPUP section (~808-899), plus the stray
+ * `.chat-composer-send-btn.is-stop` rules (~1691-1702) co-located here.
+ * Keyframes (slideUp) stay global in animations.css — not redefined here.
+ * State tokens (.active, .is-stop) stay plain strings in TSX, matched via :global(). */
+
+/* === CHAT COMPOSER (Claude-style box) ===================================== */
+.chat-composer {
+  position: absolute;
+  bottom: var(--space-6);
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - var(--space-8));
+  max-width: 800px;
+  background: rgba(22, 22, 22, 0.95);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 12px 14px 10px 14px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 40px -10px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 20;
+}
+
+/* While the slash menu is open it sits flush on the composer, sharing one
+   continuous surface: menu takes the top rounding, composer the bottom. */
+.chat-composer:has(.chat-slash-menu) {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.chat-composer:has(.chat-slash-menu) .chat-slash-menu {
+  box-shadow: none;
+}
+
+.chat-composer:focus-within .chat-slash-menu {
+  background: rgba(26, 26, 26, 0.98);
+  border-color: rgba(255, 255, 255, 0.28);
+  border-bottom: none;
+}
+
+.chat-composer:focus-within {
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.12);
+  background: rgba(26, 26, 26, 0.98);
+}
+
+.chat-composer-textarea {
+  width: 100%;
+  min-height: 28px;
+  max-height: 180px;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 14.5px;
+  line-height: 1.5;
+  padding: 2px 2px 6px 2px;
+  overflow-y: auto;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.chat-composer-textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.chat-composer-textarea::-webkit-scrollbar {
+  width: 4px;
+}
+.chat-composer-textarea::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+.chat-composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.chat-composer-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-composer-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-composer-action-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s ease;
+}
+
+.chat-composer-action-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.chat-composer-send-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: rgba(255, 255, 255, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: not-allowed;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  flex-shrink: 0;
+}
+
+.chat-composer-send-btn:global(.active),
+.chat-composer-send-btn:not(:disabled) {
+  background: #ffffff;
+  color: #000000;
+  cursor: pointer;
+}
+
+.chat-composer-send-btn:not(:disabled):hover {
+  transform: scale(1.06);
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.3);
+}
+
+.chat-composer-send-btn:not(:disabled):active {
+  transform: scale(0.95);
+}
+
+.chat-composer-send-btn:global(.is-stop) {
+  background: rgba(255, 255, 255, 0.95);
+  color: #000000;
+  cursor: pointer;
+}
+
+.chat-composer-send-btn:global(.is-stop):hover {
+  background: #ff4757;
+  color: #ffffff;
+  transform: scale(1.06);
+  box-shadow: 0 0 14px rgba(255, 71, 87, 0.4);
+}
+
+/* === SLASH COMMANDS POPUP ================================================= */
+.chat-slash-menu {
+  position: absolute;
+  bottom: calc(100% - 1px);
+  left: -1px;
+  right: -1px;
+  background: rgba(22, 22, 22, 0.95);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: none;
+  border-radius: 20px 20px 0 0;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -10px 40px -10px rgba(0, 0, 0, 0.85);
+  z-index: 30;
+  animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  max-height: 320px;
+  overflow-y: auto;
+  transition: background-color 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.chat-slash-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease;
+  width: 100%;
+}
+
+.chat-slash-item:last-child {
+  border-bottom: none;
+}
+
+.chat-slash-item:first-child,
+.chat-slash-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+}
+
+.chat-slash-item:first-child {
+  border-bottom-color: transparent;
+}
+
+.chat-slash-item-icon {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.chat-slash-item:hover .chat-slash-item-icon,
+.chat-slash-item:first-child .chat-slash-item-icon {
+  color: #ffffff;
+}
+
+.chat-slash-item-text {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-slash-item-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.chat-slash-item-desc {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

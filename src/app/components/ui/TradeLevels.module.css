@@ -1,0 +1,45 @@
+/* TradeLevels styles — co-located CSS Module (Goal 4 Part B).
+ * Moved verbatim from src/app/styles/components.css TRADE LEVELS section.
+ * State tokens (.entry/.target/.stop) stay plain strings in TSX,
+ * matched here via :global(). Responsive single-column tweak stays in
+ * responsive.css (truly global breakpoint). */
+
+/* === TRADE LEVELS ========================================================== */
+.trade-levels {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+
+.trade-level-item {
+  text-align: center;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-glass);
+}
+
+.trade-level-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--space-2);
+}
+
+.trade-level-value {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.trade-level-value:global(.entry)  { color: var(--accent-cyan); }
+.trade-level-value:global(.target) { color: var(--success); }
+.trade-level-value:global(.stop)   { color: var(--danger); }
+
+/* === RESPONSIVE (moved from responsive.css) === */
+@media (max-width: 768px) {
+  .trade-levels { grid-template-columns: 1fr; }
+}

@@ -1,5 +1,7 @@
 'use client';
 
+import styles from './PriceDisplay.module.css';
+
 interface PriceDisplayProps {
   price: number;
   change?: number;
@@ -20,11 +22,11 @@ function formatChange(value: number): string {
 
 export default function PriceDisplay({ price, change, changePercent, size = 'lg' }: PriceDisplayProps) {
   const isPositive = (change ?? 0) >= 0;
-  const changeClass = `price-change ${isPositive ? 'positive' : 'negative'}`;
+  const changeClass = `${styles['price-change']} ${isPositive ? 'positive' : 'negative'}`;
 
   return (
-    <div className={`price-display ${size === 'sm' ? 'price-display-sm' : ''}`}>
-      <span className="price-value">{formatPrice(price)}</span>
+    <div className={`${styles['price-display']} ${size === 'sm' ? 'price-display-sm' : ''}`}>
+      <span className={styles['price-value']}>{formatPrice(price)}</span>
       {(change !== undefined || changePercent !== undefined) && (
         <span className={changeClass}>
           {isPositive ? '▲' : '▼'}
