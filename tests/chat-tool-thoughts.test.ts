@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toolStartThought, updateToolResultThought } from '../src/app/chat/tool-thoughts';
+import { toolStartThought, updateToolResultThought } from '../src/app/chat/_lib/tool-thoughts';
 
 describe('streamed tool thoughts', () => {
   it('updates the matching ticker result without replacing another fetch_price call', () => {

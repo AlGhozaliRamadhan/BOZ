@@ -1,62 +1,18 @@
-/* ChatComponent styles — co-located CSS Module (Goal 3 of CSS-modules migration).
- * Moved verbatim from src/app/styles/components.css: CHAT section (minus
- * .external-ai-brief-button, owned by ExternalAiBriefButton.tsx),
- * EMPTY STATE GREETING & QUOTE section, suggestion-chip, and
- * TYPO / TICKER SUGGESTION CARDS section.
+/* MessageList styles — co-located CSS Module.
+ * Message/bubble scope only: CHAT bubble, avatar, footer, TYPO / TICKER
+ * SUGGESTION CARDS, and ASSISTANT MARKDOWN rules moved verbatim from
+ * src/app/styles/components.css via ChatComponent.module.css.
  * Keyframes (slideUp) stay global in animations.css — not redefined here.
  * Role/state tokens (.user/.assistant/.active) stay plain strings in TSX,
  * so they are matched here via :global().
- * Global primitives (empty-state, suggestion-chip? no — chip moved here;
- * toast, empty-state, badge, glass-card, flex-*, spinner, page-subtitle,
+ * Global primitives (.glass-card, .badge, flex-*, spinner, page-subtitle,
  * animate-fadeIn) stay in primitives.css/animations.css and stay plain in TSX.
  * NOTE: the assistant-bubble overrides below target the hashed .chat-bubble
  * plus the plain `assistant` token via :global(). The .glass-card / .badge
  * overrides stay live (both are global primitives in primitives.css, rendered
  * plain inside chat). The old .verdict-box / .trade-level-item overrides were
  * deleted: VerdictBox.tsx and TradeLevels.tsx render hashed module classes,
- * so a :global() override could never match.
-
-/* === CHAT ================================================================== */
-.chat-page-root {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  width: calc(100% + var(--space-6) + var(--space-6));
-  margin-inline: calc(0px - var(--space-6));
-  overflow: hidden;
-}
-
-.chat-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  position: relative;
-  max-width: none;
-  margin: 0;
-  width: 100%;
-  overflow: hidden;
-}
-
-.chat-messages {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: var(--space-6) var(--space-4) 140px var(--space-4);
-  padding-inline: max(var(--space-4), calc(50% - 424px));
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
-  scrollbar-gutter: stable;
-}
-
-.chat-messages::-webkit-scrollbar {
-  width: 5px;
-}
-.chat-messages::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
-}
+ * so a :global() override could never match. */
 
 .chat-bubble {
   max-width: 70%;
@@ -157,57 +113,6 @@
   line-height: 1;
   text-align: right;
   font-variant-numeric: tabular-nums;
-}
-
-/* === EMPTY STATE GREETING & QUOTE ========================================= */
-.chat-empty-title {
-  font-size: 26px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 12px;
-  letter-spacing: -0.02em;
-  text-align: center;
-}
-
-.chat-empty-quote {
-  font-size: 13.5px;
-  color: var(--text-secondary);
-  font-style: italic;
-  max-width: 580px;
-  text-align: center;
-  line-height: 1.6;
-  margin-bottom: 30px;
-  padding: 0 16px;
-}
-
-.chat-empty-quote-author {
-  font-weight: 600;
-  font-style: normal;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-/* Minimal text suggestion chips (Claude-style) */
-.suggestion-chip {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 24px;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  font-family: var(--font-sans);
-}
-.suggestion-chip:hover {
-  border-color: rgba(255, 255, 255, 0.25);
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateY(-1px);
-}
-.suggestion-chip:active {
-  transform: scale(0.98);
 }
 
 /* === TYPO / TICKER SUGGESTION CARDS ======================================= */
@@ -411,10 +316,5 @@
 
 /* === RESPONSIVE (moved from responsive.css) === */
 @media (max-width: 768px) {
-  .chat-page-root {
-    width: calc(100% + var(--space-4) + var(--space-4));
-    margin-inline: calc(0px - var(--space-4));
-  }
-  .chat-messages { padding-inline: var(--space-4); }
   .chat-bubble { max-width: 90%; }
 }
