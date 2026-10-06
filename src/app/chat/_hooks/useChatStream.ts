@@ -22,9 +22,17 @@ import {
 } from '../_lib/chat-sessions';
 import type { ChatMessage } from '../_lib/chat-types';
 
-/** New-session ids use the same alphabet the session store sanitizer accepts. */
+/**
+ * New-session ids use the same alphabet the session store sanitizer accepts.
+ * Uses Web Crypto (not Math.random): ids route sessions, so CodeQL treats
+ * them as a security context.
+ */
 function createSessionId(): string {
-  const random = Math.random().toString(36).substring(2, 10);
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  let random = '';
+  for (const byte of bytes) random += byte.toString(36);
+  random = random.replace(/[^a-z0-9]+/g, '').padEnd(8, '0').substring(0, 8);
   return `chat-${Date.now().toString(36)}-${random}`;
 }
 
