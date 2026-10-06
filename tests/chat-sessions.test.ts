@@ -7,7 +7,7 @@ import {
   reconcileInterruptedSessions,
   upsertSession,
   type ChatSessionStorage,
-} from '../src/app/chat/chat-sessions';
+} from '../src/app/chat/_lib/chat-sessions';
 
 function fakeStorage(): ChatSessionStorage {
   const store = new Map<string, string>();

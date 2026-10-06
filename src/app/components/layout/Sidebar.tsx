@@ -7,8 +7,8 @@ import DesktopUpdateControl from '../ui/DesktopUpdateControl';
 import {
   getSessionStatus,
   readSessions,
-} from '../../chat/chat-sessions';
-import { stopStream } from '../../chat/chat-stream-manager';
+} from '../../chat/_lib/chat-sessions';
+import { stopStream } from '../../chat/_lib/chat-stream-manager';
 import type { ChatGenerationStatus } from '@/shared/chat-generation-status';
 import {
   DEFAULT_PROFILE,

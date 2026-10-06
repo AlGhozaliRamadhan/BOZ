@@ -1,6 +1,8 @@
-// ─── chat/chat-sessions.ts ──────────────────────────────────────────────────
-// Local persistence for chat sessions, including per-message generation status
-// so the recent-chat list can show whether a reply finished or not.
+// ─── chat/_lib/chat-sessions.ts ─────────────────────────────────────────────
+// Status-aware session store: local persistence for chat sessions, including
+// per-message generation status so the recent-chat list can show whether a
+// reply finished or not. Shares the `boz_chat_sessions` key (and JSON shape)
+// with chat-storage.ts; `status` is optional so plain writes stay compatible.
 // Storage helpers take an explicit storage handle (default: window.localStorage)
 // so they stay testable; browser event announces are SSR-guarded.
 
@@ -14,38 +16,11 @@ import {
   type ChatGenerationStatus,
 } from '@/shared/chat-generation-status';
 import type { AssistantMessageMetrics } from './chat-message-metrics';
-import type { ToolResult } from './ToolResultCards';
+import type { ToolResult } from '@/shared/chat-tool-results';
+import type { ChatMessage, ChatSession } from './chat-types';
 
 export const CHAT_SESSIONS_KEY = 'boz_chat_sessions';
 export const CHAT_UPDATED_EVENT = 'boz_chat_updated';
-
-export interface TickerSuggestion {
-  symbol: string;
-  name: string;
-  exchange?: string;
-  command?: string;
-}
-
-export interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  createdAt?: number;
-  metrics?: AssistantMessageMetrics;
-  data?: any;
-  type?: 'intraday' | 'longterm' | 'newsintel' | 'chat';
-  thoughts?: string[];
-  tools?: ToolResult[];
-  suggestions?: TickerSuggestion[];
-  status?: ChatGenerationStatus;
-}
-
-export interface ChatSession {
-  id: string;
-  title: string;
-  messages: ChatMessage[];
-  updatedAt: number;
-  status?: ChatGenerationStatus;
-}
 
 export interface ChatSessionStorage {
   getItem(key: string): string | null;
@@ -72,7 +47,8 @@ export function defaultSessionStorage(): ChatSessionStorage {
 
 export function sanitizeSessionId(id: unknown): string | null {
   if (typeof id !== 'string') return null;
-  return /^[A-Za-z0-9_-]+$/.test(id) ? id : null;
+  // Accepts the current safe alphabet plus legacy base64 output (`+/=`).
+  return /^[A-Za-z0-9_+/=.-]+$/.test(id) ? id : null;
 }
 
 function sanitizeMessage(raw: unknown): ChatMessage | null {
@@ -96,7 +72,7 @@ function sanitizeMessage(raw: unknown): ChatMessage | null {
   }
   if (Array.isArray(candidate.thoughts)) message.thoughts = candidate.thoughts.filter((t): t is string => typeof t === 'string');
   if (Array.isArray(candidate.tools)) message.tools = candidate.tools as ToolResult[];
-  if (Array.isArray(candidate.suggestions)) message.suggestions = candidate.suggestions as TickerSuggestion[];
+  if (Array.isArray(candidate.suggestions)) message.suggestions = candidate.suggestions as ChatMessage['suggestions'];
   if (isChatGenerationStatus(candidate.status)) message.status = candidate.status;
   return message;
 }

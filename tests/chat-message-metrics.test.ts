@@ -4,7 +4,7 @@ import {
   estimateOutputTokens,
   formatDuration,
   formatTokensPerSecond,
-} from '../src/app/chat/chat-message-metrics';
+} from '../src/app/chat/_lib/chat-message-metrics';
 
 describe('chat message metrics', () => {
   it('records estimated output tokens and client-side streaming timing', () => {

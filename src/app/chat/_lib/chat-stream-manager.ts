@@ -1,7 +1,7 @@
-// ─── chat/chat-stream-manager.ts ────────────────────────────────────────────
+// ─── chat/_lib/chat-stream-manager.ts ───────────────────────────────────────
 // Module-level owner of in-flight chat generations. The fetch + SSE reader live
-// here instead of in ChatComponent state, so navigating to the dashboard (which
-// unmounts ChatComponent) only drops the UI subscription — the stream keeps
+// here instead of in hook/component state, so navigating to the dashboard (which
+// unmounts the chat view) only drops the UI subscription — the stream keeps
 // running, persists progress to the session store, and finishes on its own.
 // Components subscribe to render live progress and reattach on remount.
 //
@@ -14,15 +14,15 @@ import {
   appendAssistantMessage,
   defaultSessionStorage,
   patchAssistantMessage,
-  type ChatMessage,
 } from './chat-sessions';
+import type { ChatMessage } from './chat-types';
 import { toolStartThought, updateToolResultThought } from './tool-thoughts';
 import {
   buildPausedChatResponse,
   describeChatStreamFailure,
   type ChatStreamFailure,
 } from '@/shared/chat-stream-failure';
-import type { ToolResult } from './ToolResultCards';
+import type { ToolResult } from '@/shared/chat-tool-results';
 
 export type StreamSnapshotStatus = 'streaming' | 'done' | 'error' | 'cancelled';
 

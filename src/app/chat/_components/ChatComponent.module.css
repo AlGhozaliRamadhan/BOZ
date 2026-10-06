@@ -1,0 +1,63 @@
+/* ChatComponent styles — co-located CSS Module (Goal 3 of CSS-modules migration).
+ * Page/container scope only: CHAT root/container/messages rules moved verbatim
+ * from src/app/styles/components.css. Bubble/avatar/suggestion rules live in
+ * MessageList.module.css; empty-state greeting/quote/chip rules live in
+ * EmptyState.module.css.
+ * Keyframes (slideUp) stay global in animations.css — not redefined here.
+ * Global primitives (empty-state, toast, flex-*, spinner, page-subtitle,
+ * animate-fadeIn) stay in primitives.css/animations.css and stay plain in TSX.
+ * NOTE: this module owns no :global() overrides. The assistant-bubble markdown
+ * overrides live in MessageList.module.css; the .glass-card / .badge overrides
+ * there stay live (both are global primitives in primitives.css, rendered
+ * plain inside chat). */
+
+/* === CHAT ================================================================== */
+.chat-page-root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  width: calc(100% + var(--space-6) + var(--space-6));
+  margin-inline: calc(0px - var(--space-6));
+  overflow: hidden;
+}
+
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  position: relative;
+  max-width: none;
+  margin: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-6) var(--space-4) 140px var(--space-4);
+  padding-inline: max(var(--space-4), calc(50% - 424px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  scrollbar-gutter: stable;
+}
+
+.chat-messages::-webkit-scrollbar {
+  width: 5px;
+}
+.chat-messages::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+}
+
+/* === RESPONSIVE (moved from responsive.css) === */
+@media (max-width: 768px) {
+  .chat-page-root {
+    width: calc(100% + var(--space-4) + var(--space-4));
+    margin-inline: calc(0px - var(--space-4));
+  }
+  .chat-messages { padding-inline: var(--space-4); }
+}

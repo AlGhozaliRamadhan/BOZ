@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeToolCall, parseWebSources } from '../src/app/chat/tool-result-details.js';
+import { describeToolCall, parseWebSources } from '../src/shared/tool-result-details.js';
 
 describe('tool result detail helpers', () => {
   it('extracts linked search candidates and their summaries', () => {
