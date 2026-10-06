@@ -4,31 +4,25 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getShellNavigationTarget } from './shell-menu';
-
-type MenuId = 'file' | 'edit' | 'view' | 'help';
+import { searchShellCommands, type SettingsTab, type ShellCommand } from './shell-commands';
 
 interface AppMenuBarProps {
-  sidebarCollapsed: boolean;
-  tickerVisible: boolean;
   onToggleSidebar: () => void;
-  onToggleTicker: () => void;
-  onResetLayout: () => void;
 }
 
-function dispatchShellEvent(name: string): void {
-  window.dispatchEvent(new Event(name));
+function dispatchShellEvent(name: string, detail?: { tab?: SettingsTab }): void {
+  window.dispatchEvent(new CustomEvent(name, { detail }));
 }
 
 export default function AppMenuBar({
-  sidebarCollapsed,
-  tickerVisible,
   onToggleSidebar,
-  onToggleTicker,
-  onResetLayout,
 }: AppMenuBarProps) {
   const router = useRouter();
-  const menuRootRef = useRef<HTMLDivElement>(null);
-  const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
+  const searchRootRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
   const [isDesktopWindow, setIsDesktopWindow] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -67,27 +61,42 @@ export default function AppMenuBar({
     };
   }, []);
 
+  const openSearch = () => {
+    setSearchOpen(true);
+    searchInputRef.current?.focus();
+  };
+
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
-      if (!menuRootRef.current?.contains(event.target as Node)) setOpenMenu(null);
+      if (!searchRootRef.current?.contains(event.target as Node)) {
+        setSearchOpen(false);
+        setActiveIndex(0);
+      }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpenMenu(null);
+      if (event.key === 'Escape') {
+        setSearchOpen(false);
+        setActiveIndex(0);
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') {
         event.preventDefault();
         onToggleSidebar();
-        setOpenMenu(null);
+        setSearchOpen(false);
       }
       if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 'n') {
         event.preventDefault();
         router.push(getShellNavigationTarget('newChat'));
         dispatchShellEvent('boz_new_chat');
-        setOpenMenu(null);
+        setSearchOpen(false);
       }
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === ',') {
         event.preventDefault();
         dispatchShellEvent('boz_open_settings');
-        setOpenMenu(null);
+        setSearchOpen(false);
+      }
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        openSearch();
       }
     };
 
@@ -99,28 +108,53 @@ export default function AppMenuBar({
     };
   }, [onToggleSidebar, router]);
 
-  const closeMenu = () => setOpenMenu(null);
-  const toggleMenu = (menu: MenuId) => setOpenMenu(current => current === menu ? null : menu);
+  const results = searchShellCommands(query);
 
-  const newChat = () => {
-    router.push(getShellNavigationTarget('newChat'));
-    dispatchShellEvent('boz_new_chat');
-    closeMenu();
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query, searchOpen]);
+
+  const runCommand = (command: ShellCommand) => {
+    if (command.kind === 'route' && command.href) {
+      router.push(command.href);
+    } else {
+      switch (command.action) {
+        case 'new-chat':
+          router.push(getShellNavigationTarget('newChat'));
+          dispatchShellEvent('boz_new_chat');
+          break;
+        case 'open-settings':
+          dispatchShellEvent('boz_open_settings', command.settingsTab ? { tab: command.settingsTab } : undefined);
+          break;
+        case 'open-about':
+          dispatchShellEvent('boz_open_about');
+          break;
+        default:
+          break;
+      }
+    }
+    setSearchOpen(false);
+    setQuery('');
+    setActiveIndex(0);
+    searchInputRef.current?.blur();
   };
 
-  const runEditCommand = (command: 'copy' | 'selectAll') => {
-    document.execCommand(command === 'copy' ? 'copy' : 'selectAll');
-    closeMenu();
-  };
-
-  const openSettings = () => {
-    dispatchShellEvent('boz_open_settings');
-    closeMenu();
-  };
-
-  const openAbout = () => {
-    dispatchShellEvent('boz_open_about');
-    closeMenu();
+  const handleSearchKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === 'ArrowDown' && results.length > 0) {
+      event.preventDefault();
+      setSearchOpen(true);
+      setActiveIndex(current => (current + 1) % results.length);
+    } else if (event.key === 'ArrowUp' && results.length > 0) {
+      event.preventDefault();
+      setSearchOpen(true);
+      setActiveIndex(current => (current - 1 + results.length) % results.length);
+    } else if (event.key === 'Enter') {
+      const selected = results[activeIndex];
+      if (searchOpen && selected) {
+        event.preventDefault();
+        runCommand(selected);
+      }
+    }
   };
 
   const runWindowCommand = async (command: 'minimize' | 'toggleMaximize' | 'close') => {
@@ -137,13 +171,13 @@ export default function AppMenuBar({
 
   const handleTitleBarDoubleClick = (event: React.MouseEvent) => {
     if (!isDesktopWindow) return;
-    if ((event.target as HTMLElement).closest('button, a, [role="menu"]')) return;
+    if ((event.target as HTMLElement).closest('button, a, input, [role="listbox"], [role="option"]')) return;
     void runWindowCommand('toggleMaximize');
   };
 
   const handleTitleBarMouseDown = (event: React.MouseEvent) => {
     if (event.button !== 0) return;
-    if ((event.target as HTMLElement).closest('button, a, input, [role="menu"], [role="menuitem"]')) return;
+    if ((event.target as HTMLElement).closest('button, a, input, [role="listbox"], [role="option"]')) return;
     void (async () => {
       try {
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
@@ -154,101 +188,116 @@ export default function AppMenuBar({
     })();
   };
 
-  const menus: Array<{ id: MenuId; label: string; items: Array<{ label: string; icon: string; shortcut?: string; onSelect: () => void }> }> = [
-    {
-      id: 'file',
-      label: 'File',
-      items: [
-        { label: 'New Chat', icon: 'fa-regular fa-pen-to-square', shortcut: 'Ctrl+N', onSelect: newChat },
-        { label: 'Dashboard', icon: 'fa-regular fa-compass', onSelect: () => { router.push(getShellNavigationTarget('dashboard')); closeMenu(); } },
-      ],
-    },
-    {
-      id: 'edit',
-      label: 'Edit',
-      items: [
-        { label: 'Copy', icon: 'fa-regular fa-copy', shortcut: 'Ctrl+C', onSelect: () => runEditCommand('copy') },
-        { label: 'Select All', icon: 'fa-regular fa-square-check', shortcut: 'Ctrl+A', onSelect: () => runEditCommand('selectAll') },
-      ],
-    },
-    {
-      id: 'view',
-      label: 'View',
-      items: [
-        {
-          label: sidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar',
-          icon: 'fa-solid fa-bars',
-          shortcut: 'Ctrl+B',
-          onSelect: () => { onToggleSidebar(); closeMenu(); },
-        },
-        {
-          label: tickerVisible ? 'Hide Market Ticker' : 'Show Market Ticker',
-          icon: 'fa-solid fa-chart-line',
-          onSelect: () => { onToggleTicker(); closeMenu(); },
-        },
-        { label: 'Reset Layout', icon: 'fa-solid fa-arrow-rotate-left', onSelect: () => { onResetLayout(); closeMenu(); } },
-      ],
-    },
-    {
-      id: 'help',
-      label: 'Help',
-      items: [
-        { label: 'Settings', icon: 'fa-solid fa-gear', shortcut: 'Ctrl+Shift+,', onSelect: openSettings },
-        { label: 'About BOZ', icon: 'fa-solid fa-circle-info', onSelect: openAbout },
-      ],
-    },
-  ];
-
   return (
     <header className="app-menu-bar" data-tauri-drag-region onMouseDown={handleTitleBarMouseDown} onDoubleClick={handleTitleBarDoubleClick}>
-      <div className="app-menu-bar-left" ref={menuRootRef} data-tauri-drag-region>
+      <div className="app-menu-bar-left" data-tauri-drag-region>
         <Link href="/" className="app-menu-brand" aria-label="BOZ home">
           <img src="/logo-boz-transparant-white.png" alt="" aria-hidden="true" />
-          <span>BOZ</span>
         </Link>
-        <nav className="app-menu-items" aria-label="Application menu">
-          {menus.map(menu => (
-            <div className="app-menu-item" key={menu.id}>
-              <button
-                type="button"
-                className={`app-menu-trigger${openMenu === menu.id ? ' is-open' : ''}`}
-                aria-haspopup="menu"
-                aria-expanded={openMenu === menu.id}
-                onClick={() => toggleMenu(menu.id)}
-              >
-                {menu.label}
-              </button>
-              {openMenu === menu.id && (
-                <div className="app-menu-dropdown" role="menu" aria-label={`${menu.label} menu`}>
-                  {menu.items.map(item => (
-                    <button type="button" role="menuitem" className="app-menu-command" key={item.label} onClick={item.onSelect}>
-                      <span className="app-menu-command-main">
-                        <i className={item.icon} aria-hidden="true" />
-                        <span>{item.label}</span>
-                      </span>
-                      {item.shortcut && <kbd>{item.shortcut}</kbd>}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </nav>
       </div>
 
-      {isDesktopWindow && (
-        <div className="app-menu-window-controls" aria-label="Window controls">
-          <button type="button" className="app-menu-window-button" onClick={() => void runWindowCommand('minimize')} title="Minimize" aria-label="Minimize">
-            <i className="fa-solid fa-minus" aria-hidden="true" />
+      <div className="app-menu-bar-center" ref={searchRootRef}>
+        <div className="app-menu-nav" role="group" aria-label="Page navigation">
+          <button
+            type="button"
+            className="app-menu-icon-button"
+            onClick={() => router.back()}
+            title="Back"
+            aria-label="Go back"
+          >
+            <i className="fa-solid fa-arrow-left" aria-hidden="true" />
           </button>
-          <button type="button" className="app-menu-window-button" onClick={() => void runWindowCommand('toggleMaximize')} title={isMaximized ? 'Restore' : 'Maximize'} aria-label={isMaximized ? 'Restore' : 'Maximize'}>
-            <i className={isMaximized ? 'fa-regular fa-window-restore' : 'fa-regular fa-square'} aria-hidden="true" />
-          </button>
-          <button type="button" className="app-menu-window-button is-close" onClick={() => void runWindowCommand('close')} title="Close" aria-label="Close">
-            <i className="fa-solid fa-xmark" aria-hidden="true" />
+          <button
+            type="button"
+            className="app-menu-icon-button"
+            onClick={() => router.forward()}
+            title="Forward"
+            aria-label="Go forward"
+          >
+            <i className="fa-solid fa-arrow-right" aria-hidden="true" />
           </button>
         </div>
-      )}
+        <div className="app-menu-search">
+          <i className="fa-solid fa-magnifying-glass app-menu-search-icon" aria-hidden="true" />
+          <input
+            ref={searchInputRef}
+            id="app-menu-search"
+            type="text"
+            role="combobox"
+            aria-expanded={searchOpen}
+            aria-controls="app-menu-search-list"
+            aria-activedescendant={searchOpen && results[activeIndex] ? `app-menu-search-option-${results[activeIndex].id}` : undefined}
+            aria-label="Search"
+            className="app-menu-search-input"
+            placeholder="Search"
+            autoComplete="off"
+            spellCheck={false}
+            value={query}
+            onChange={event => {
+              setQuery(event.target.value);
+              setSearchOpen(true);
+            }}
+            onFocus={() => setSearchOpen(true)}
+            onKeyDown={handleSearchKeyDown}
+          />
+          {query && (
+            <button
+              type="button"
+              className="app-menu-search-clear"
+              onClick={() => {
+                setQuery('');
+                openSearch();
+              }}
+              title="Clear search"
+              aria-label="Clear search"
+            >
+              <i className="fa-solid fa-xmark" aria-hidden="true" />
+            </button>
+          )}
+          {searchOpen && (
+            <div className="app-menu-dropdown app-menu-search-results" role="listbox" id="app-menu-search-list" aria-label="Matching destinations">
+              {results.length === 0 ? (
+                <div className="app-menu-search-empty">No matches</div>
+              ) : (
+                results.map((command, index) => (
+                  <button
+                    type="button"
+                    role="option"
+                    id={`app-menu-search-option-${command.id}`}
+                    aria-selected={index === activeIndex}
+                    className={`app-menu-command${index === activeIndex ? ' is-active' : ''}`}
+                    key={command.id}
+                    onClick={() => runCommand(command)}
+                    onMouseEnter={() => setActiveIndex(index)}
+                  >
+                    <span className="app-menu-command-main">
+                      <i className={command.icon} aria-hidden="true" />
+                      <span>{command.label}</span>
+                    </span>
+                    {command.hint && <kbd>{command.hint}</kbd>}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="app-menu-bar-right">
+        {isDesktopWindow && (
+          <div className="app-menu-window-controls" aria-label="Window controls">
+            <button type="button" className="app-menu-window-button" onClick={() => void runWindowCommand('minimize')} title="Minimize" aria-label="Minimize">
+              <i className="fa-solid fa-minus" aria-hidden="true" />
+            </button>
+            <button type="button" className="app-menu-window-button" onClick={() => void runWindowCommand('toggleMaximize')} title={isMaximized ? 'Restore' : 'Maximize'} aria-label={isMaximized ? 'Restore' : 'Maximize'}>
+              <i className={isMaximized ? 'fa-regular fa-window-restore' : 'fa-regular fa-square'} aria-hidden="true" />
+            </button>
+            <button type="button" className="app-menu-window-button is-close" onClick={() => void runWindowCommand('close')} title="Close" aria-label="Close">
+              <i className="fa-solid fa-xmark" aria-hidden="true" />
+            </button>
+          </div>
+        )}
+      </div>
     </header>
   );
 }

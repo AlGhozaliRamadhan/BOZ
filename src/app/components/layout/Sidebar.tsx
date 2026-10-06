@@ -5,6 +5,12 @@ import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import DesktopUpdateControl from '../ui/DesktopUpdateControl';
 import {
+  getSessionStatus,
+  readSessions,
+} from '../../chat/chat-sessions';
+import { stopStream } from '../../chat/chat-stream-manager';
+import type { ChatGenerationStatus } from '@/shared/chat-generation-status';
+import {
   DEFAULT_PROFILE,
   PROFILE_EVENT,
   profileInitial,
@@ -44,7 +50,13 @@ const navItems: NavItem[] = [
 
 export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProps) {
   const router = useRouter();
-  const [chatSessions, setChatSessions] = useState<{id: string, title: string}[]>([]);
+  interface RecentChatEntry {
+    id: string;
+    title: string;
+    status: ChatGenerationStatus;
+  }
+
+  const [chatSessions, setChatSessions] = useState<RecentChatEntry[]>([]);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
@@ -62,15 +74,13 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isProfileMenuOpen]);
 
-  const sanitizeSessionId = (id: unknown): string | null => {
-    if (typeof id !== 'string') return null;
-    return /^[A-Za-z0-9_-]+$/.test(id) ? id : null;
-  };
-
   const deleteSession = (e: React.MouseEvent, id: string) => {
     e.preventDefault();
     e.stopPropagation();
     try {
+      // Stop a live generation first: otherwise the background stream would
+      // re-persist progress into a session the user just deleted.
+      stopStream(id);
       const stored = localStorage.getItem('boz_chat_sessions');
       if (stored) {
         const parsed = JSON.parse(stored);
@@ -88,28 +98,21 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
     }
   };
 
+  // Recent chats read through the session store, so every row carries its
+  // generation status: streaming (still generating elsewhere), done,
+  // error/interrupted (needs attention), or cancelled (stopped by the user).
   useEffect(() => {
     const loadSessions = () => {
       try {
-        const stored = localStorage.getItem('boz_chat_sessions');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (!Array.isArray(parsed)) {
-            setChatSessions([]);
-            return;
-          }
-          const sessions = parsed
-            .map((s: any) => {
-              const safeId = sanitizeSessionId(s?.id);
-              if (!safeId || typeof s?.title !== 'string') return null;
-              return { id: safeId, title: s.title, updatedAt: Number(s?.updatedAt) || 0 };
-            })
-            .filter((s): s is { id: string; title: string; updatedAt: number } => s !== null);
-          sessions.sort((a, b) => b.updatedAt - a.updatedAt);
-          setChatSessions(sessions.map(({ id, title }) => ({ id, title })));
-        } else {
-          setChatSessions([]);
-        }
+        const sessions = readSessions(window.localStorage);
+        sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+        setChatSessions(
+          sessions.map((session) => ({
+            id: session.id,
+            title: session.title,
+            status: getSessionStatus(session),
+          })),
+        );
       } catch (e) {
         setChatSessions([]);
       }
@@ -157,19 +160,21 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
               <span className="sidebar-link-icon">{item.icon}</span>
               <span className="sidebar-link-label">{item.label}</span>
             </Link>
-            {item.href === '/chat' && isActive('/chat') && !collapsed && (
+            {item.href === '/chat' && !collapsed && (
               <div className="sidebar-chat-subnav animate-fadeIn">
-                <Link
-                  href="/chat"
-                  onClick={() => {
-                    window.dispatchEvent(new Event('boz_new_chat'));
-                  }}
-                  className="sidebar-new-chat-btn"
-                  title="Start a fresh conversation"
-                >
-                  <i className="fa-solid fa-plus"></i>
-                  <span>New Chat</span>
-                </Link>
+                {isActive('/chat') && (
+                  <Link
+                    href="/chat"
+                    onClick={() => {
+                      window.dispatchEvent(new Event('boz_new_chat'));
+                    }}
+                    className="sidebar-new-chat-btn"
+                    title="Start a fresh conversation"
+                  >
+                    <i className="fa-solid fa-plus"></i>
+                    <span>New Chat</span>
+                  </Link>
+                )}
 
                 {chatSessions.length > 0 && (
                   <div className="sidebar-recent-chats">
@@ -177,14 +182,37 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
                     {chatSessions.slice(0, 10).map((session) => {
                       const chatHref = `/chat/${session.id}`;
                       const isSelected = pathname === chatHref;
+                      const statusLabel =
+                        session.status === 'streaming'
+                          ? 'Generating…'
+                          : session.status === 'error' || session.status === 'interrupted'
+                            ? 'Needs attention'
+                            : session.status === 'cancelled'
+                              ? 'Stopped'
+                              : 'Finished';
                       return (
-                        <div key={session.id} className={`sidebar-chat-item-wrapper${isSelected ? ' active' : ''}`}>
+                        <div key={session.id} className={`sidebar-chat-item-wrapper${isSelected ? ' active' : ''} sidebar-chat-status-${session.status}`}>
                           <Link 
                             href={chatHref}
                             className={`sidebar-chat-link${isSelected ? ' active' : ''}`}
-                            title={session.title}
+                            title={`${session.title} — ${statusLabel}`}
                           >
-                            <i className="fa-regular fa-message sidebar-chat-icon"></i>
+                            {session.status === 'streaming' ? (
+                              <span className="sidebar-chat-status-icon is-generating" aria-label="Generating">
+                                <span className="spinner spinner-xs" aria-hidden="true" />
+                              </span>
+                            ) : (
+                              <i
+                                className={`sidebar-chat-icon ${
+                                  session.status === 'done' || session.status === undefined
+                                    ? 'fa-regular fa-message'
+                                    : session.status === 'cancelled'
+                                      ? 'fa-regular fa-circle-stop'
+                                      : 'fa-solid fa-triangle-exclamation'
+                                }`}
+                                aria-label={statusLabel}
+                              />
+                            )}
                             <span className="sidebar-chat-title">{session.title}</span>
                           </Link>
                           <button

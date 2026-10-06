@@ -220,8 +220,10 @@ const ModelBadge = ({
   );
 };
 
-export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
-  const [activeTab, setActiveTab] = useState<'profile' | 'providers' | 'general'>('profile');
+export type SettingsTab = 'profile' | 'providers' | 'general';
+
+export default function SettingsModal({ isOpen, initialTab = 'profile', onClose }: { isOpen: boolean, initialTab?: SettingsTab, onClose: () => void }) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -303,9 +305,9 @@ export default function SettingsModal({ isOpen, onClose }: { isOpen: boolean, on
     if (isOpen) {
       fetchSettings();
       setSearchQuery('');
-      setActiveTab('profile');
+      setActiveTab(initialTab);
     }
-  }, [isOpen, fetchSettings]);
+  }, [isOpen, fetchSettings, initialTab]);
 
   useEffect(() => {
     // Remove credentials persisted by releases before the write-only settings API.

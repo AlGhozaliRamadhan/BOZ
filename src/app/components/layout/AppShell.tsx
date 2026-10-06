@@ -62,10 +62,6 @@ export default function AppShell({ children }: AppShellProps) {
     }
   }, [hydrated, preferences]);
 
-  const updatePreferences = (patch: Partial<ShellPreferences>) => {
-    setPreferences(current => ({ ...current, ...patch }));
-  };
-
   const toggleSidebar = useCallback(() => {
     if (window.matchMedia('(max-width: 768px)').matches) {
       setMobileSidebarOpen(current => !current);
@@ -74,16 +70,10 @@ export default function AppShell({ children }: AppShellProps) {
     setPreferences(current => ({ ...current, sidebarCollapsed: !current.sidebarCollapsed }));
   }, []);
 
-  const resetLayout = () => setPreferences(DEFAULT_SHELL_PREFERENCES);
-
   return (
     <div className={`app-shell${preferences.sidebarCollapsed ? ' app-shell-sidebar-collapsed' : ''}${preferences.tickerVisible ? '' : ' app-shell-ticker-hidden'}${mobileSidebarOpen ? ' app-shell-mobile-sidebar-open' : ''}`}>
       <AppMenuBar
-        sidebarCollapsed={preferences.sidebarCollapsed}
-        tickerVisible={preferences.tickerVisible}
         onToggleSidebar={toggleSidebar}
-        onToggleTicker={() => updatePreferences({ tickerVisible: !preferences.tickerVisible })}
-        onResetLayout={resetLayout}
       />
       <div className="app-layout">
         {mobileSidebarOpen && (

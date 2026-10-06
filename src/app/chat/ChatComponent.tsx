@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { marked } from 'marked';
 import DOMPurify from 'isomorphic-dompurify';
@@ -12,19 +12,31 @@ import ChatModelPicker from './ChatModelPicker';
 import ChatEffortPicker from './ChatEffortPicker';
 import ChatRiskPicker from './ChatRiskPicker';
 import type { ToolResult } from './ToolResultCards';
-import { toolStartThought, updateToolResultThought } from './tool-thoughts';
 import {
-  buildAssistantMessageMetrics,
   formatDuration,
   formatTokensPerSecond,
   type AssistantMessageMetrics,
 } from './chat-message-metrics';
 import { fallbackChatTitle, normalizeGeneratedChatTitle } from './chat-title';
 import {
-  buildPausedChatResponse,
-  describeChatStreamFailure,
-  type ChatStreamFailure,
-} from '@/shared/chat-stream-failure';
+  flushStreamProgress,
+  getStreamSnapshot,
+  isStreamActive,
+  startStream,
+  stopStream,
+  subscribeToStream,
+  type StreamSnapshot,
+} from './chat-stream-manager';
+import {
+  announceSessionsChanged,
+  defaultSessionStorage,
+  readSession,
+  readSessions,
+  reconcileInterruptedSessions,
+  upsertSession,
+  writeSessions,
+} from './chat-sessions';
+import type { ChatGenerationStatus } from '@/shared/chat-generation-status';
 
 export interface TickerSuggestion {
   symbol: string;
@@ -43,6 +55,7 @@ export interface ChatMessage {
   thoughts?: string[];
   tools?: ToolResult[];
   suggestions?: TickerSuggestion[];
+  status?: ChatGenerationStatus;
 }
 
 export interface ChatSession {
@@ -50,6 +63,7 @@ export interface ChatSession {
   title: string;
   messages: ChatMessage[];
   updatedAt: number;
+  status?: ChatGenerationStatus;
 }
 
 function formatContent(content: string): string {
@@ -70,44 +84,15 @@ function formatMessageTime(timestamp?: number): string | null {
   }).format(timestamp);
 }
 
-type ChatStreamError = Error & ChatStreamFailure;
-
-function streamFailureFromPayload(payload: unknown, status?: number): ChatStreamFailure {
-  const candidate = payload && typeof payload === 'object' && !Array.isArray(payload)
-    ? payload as Record<string, unknown>
-    : {};
-  const message = typeof candidate.error === 'string'
-    ? candidate.error
-    : typeof candidate.message === 'string'
-      ? candidate.message
-      : undefined;
-
-  return {
-    status,
-    code: typeof candidate.code === 'string' ? candidate.code : undefined,
-    message,
-  };
-}
-
-function streamFailureFromError(error: unknown): ChatStreamFailure {
-  if (!error || typeof error !== 'object') return {};
-  const candidate = error as Partial<ChatStreamFailure> & { message?: unknown };
-  return {
-    status: typeof candidate.status === 'number' ? candidate.status : undefined,
-    code: typeof candidate.code === 'string' ? candidate.code : undefined,
-    message: typeof candidate.message === 'string' ? candidate.message : undefined,
-  };
-}
-
-function createChatStreamError(failure: ChatStreamFailure): ChatStreamError {
-  const error = new Error(failure.message ?? 'Chat stream failed') as ChatStreamError;
-  Object.assign(error, failure);
-  return error;
-}
-
 interface MarketQuote {
   text: string;
   author: string;
+}
+
+/** New-session ids use the same alphabet the session store sanitizer accepts. */
+function createSessionId(): string {
+  const random = Math.random().toString(36).substring(2, 10);
+  return `chat-${Date.now().toString(36)}-${random}`;
 }
 
 const MARKET_QUOTES: MarketQuote[] = [
@@ -228,7 +213,48 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const chatIdRef = useRef<string | undefined>(chatId);
+  chatIdRef.current = chatId;
+
+  // Id minted for a fresh chat before the route updates to /chat/[id].
+  // Lets stop + reattach logic target the right session during the gap.
+  const pendingSessionRef = useRef<string | null>(null);
+  // Sessions whose first exchange just finished and still need an AI title.
+  const needsTitleRef = useRef<Set<string>>(new Set());
+
+  /** Renders the persisted messages of `id` into component state. */
+  const refreshMessages = useCallback((id: string | undefined | null) => {
+    if (typeof window === 'undefined') return;
+    if (!id) {
+      setMessages([]);
+      setStreamingContent('');
+      setStreamingThoughts([]);
+      setToolStatuses([]);
+      return;
+    }
+    try {
+      const session = readSession(defaultSessionStorage(), id);
+      if (session && id === chatIdRef.current) {
+        setMessages(session.messages);
+      }
+    } catch (e) {
+      console.error('Failed to load chat session', e);
+    }
+  }, []);
+
+  /** Mirrors a manager snapshot into local render state. */
+  const applySnapshot = useCallback((snapshot: StreamSnapshot | null) => {
+    if (!snapshot) {
+      setStreamingContent('');
+      setStreamingThoughts([]);
+      setToolStatuses([]);
+      return;
+    }
+    setStreamingContent(snapshot.content);
+    setStreamingThoughts(snapshot.thoughts);
+    setToolStatuses(snapshot.tools);
+    setError(snapshot.status === 'error' ? snapshot.error : null);
+  }, []);
 
   useEffect(() => {
     setGreeting(getRandomGreeting());
@@ -254,27 +280,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     return () => clearInterval(interval);
   }, [loading, loadingType]);
 
-  useEffect(() => {
-    if (chatId) {
-      const stored = localStorage.getItem('boz_chat_sessions');
-      if (stored) {
-        try {
-          const sessions: ChatSession[] = JSON.parse(stored);
-          const session = sessions.find(s => s.id === chatId);
-          if (session) {
-            setMessages(session.messages);
-          }
-        } catch (e) {
-          console.error('Failed to load chat session', e);
-        }
-      }
-    } else {
-      setMessages([]);
-      setStreamingContent('');
-      setStreamingThoughts([]);
-      setToolStatuses([]);
-    }
-  }, [chatId]);
+
 
   useEffect(() => {
     const handleNewChat = () => {
@@ -300,22 +306,19 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
   }, [input]);
 
   const saveSession = (id: string, msgs: ChatMessage[]) => {
+    // Persists through the session store so every view (chat, sidebar)
+    // observes the same messages + generation status. Saving never touches
+    // the manager-owned stream — it must not interrupt a generation.
     try {
-      const stored = localStorage.getItem('boz_chat_sessions');
-      let sessions: ChatSession[] = stored ? JSON.parse(stored) : [];
-      const index = sessions.findIndex(s => s.id === id);
-      const title = fallbackChatTitle(msgs.find(m => m.role === 'user')?.content);
-      
-      if (index >= 0) {
-        sessions[index].messages = msgs;
-        sessions[index].updatedAt = Date.now();
-        sessions[index].title ||= title;
-      } else {
-        sessions.push({ id, title, messages: msgs, updatedAt: Date.now() });
-      }
-      localStorage.setItem('boz_chat_sessions', JSON.stringify(sessions));
-      // Dispatch an event so sidebar can update
-      window.dispatchEvent(new Event('boz_chat_updated'));
+      const storage = defaultSessionStorage();
+      const existing = readSession(storage, id);
+      const title = fallbackChatTitle(msgs.find((m) => m.role === 'user')?.content);
+      upsertSession(storage, {
+        id,
+        title: existing?.title || title,
+        messages: msgs,
+        updatedAt: Date.now(),
+      });
     } catch (e) {
       console.error('Failed to save session', e);
     }
@@ -326,14 +329,15 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     if (!title) return;
 
     try {
-      const stored = localStorage.getItem('boz_chat_sessions');
-      const sessions: ChatSession[] = stored ? JSON.parse(stored) : [];
-      const index = sessions.findIndex(session => session.id === id);
+      const storage = defaultSessionStorage();
+      const sessions = readSessions(storage);
+      const index = sessions.findIndex((session) => session.id === id);
       if (index < 0) return;
 
-      sessions[index].title = title;
-      localStorage.setItem('boz_chat_sessions', JSON.stringify(sessions));
-      window.dispatchEvent(new Event('boz_chat_updated'));
+      // Title-only write: preserves messages, status, and updatedAt ordering.
+      sessions[index] = { ...sessions[index], title };
+      writeSessions(storage, sessions);
+      announceSessionsChanged();
     } catch (error) {
       console.error('Failed to save generated chat title', error);
     }
@@ -386,217 +390,114 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     window.addEventListener('boz_settings_updated', loadModel);
     return () => window.removeEventListener('boz_settings_updated', loadModel);
   }, []);
-
-  const stopStreaming = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-  };
-
-  const executeStreamChat = async (
-    command: string,
-    historyMessages: ChatMessage[],
-    startedAt: number,
-  ): Promise<ChatMessage> => {
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    let accumulatedContent = '';
-    let accumulatedThoughts: string[] = [];
-    const collectedTools: ToolResult[] = [];
-    let firstTokenAt: number | undefined;
-
-    const createReply = (content: string): ChatMessage => {
-      const completedAt = Date.now();
-      return {
-        role: 'assistant',
-        content,
-        createdAt: completedAt,
-        metrics: buildAssistantMessageMetrics({
-          content,
-          startedAt,
-          firstTokenAt,
-          completedAt,
-          toolCount: collectedTools.filter(tool => tool.status === 'done').length,
-        }),
-        thoughts: accumulatedThoughts.length > 0 ? [...accumulatedThoughts] : undefined,
-        tools: collectedTools.filter(tool => tool.status === 'done'),
-      };
-    };
-
+  /** Titles a first exchange whose AI title was lost (e.g. finished in background). */
+  const maybeGenerateMissingTitle = useCallback((id: string) => {
     try {
-      const res = await fetch('/api/chat/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          message: command,
-          history: historyMessages.map(({ role, content }) => ({ role, content })),
-          effort: getEffort(),
-          thinking: getThinkingEnabled(),
-          model: activeModel || undefined,
-        }),
-      });
+      const done = readSession(defaultSessionStorage(), id);
+      if (!done || done.messages.length !== 2) return;
+      const userMessage = done.messages.find((m) => m.role === 'user');
+      const assistantMessage = done.messages.find((m) => m.role === 'assistant');
+      if (!userMessage || !assistantMessage) return;
+      if (assistantMessage.status !== 'done') return;
+      if (done.title !== fallbackChatTitle(userMessage.content)) return;
+      void generateSessionTitle(id, [userMessage, assistantMessage]);
+    } catch {
+      // Title generation is best-effort.
+    }
+  }, []);
 
-      if (!res.ok) {
-        let payload: unknown;
-        try { payload = await res.json(); } catch {}
-        throw createChatStreamError(streamFailureFromPayload(payload, res.status));
+  // Attaches this view to the manager-owned stream for the current session.
+  // Navigation only drops this subscription — the stream keeps running in the
+  // background, persists progress, and finishes on its own. Returning
+  // reattaches to the live snapshot or the persisted result. Cleanup
+  // unsubscribes; it must NEVER abort (only the stop button aborts).
+  useEffect(() => {
+    if (chatId) pendingSessionRef.current = null;
+    const targetId = chatId ?? pendingSessionRef.current;
+    if (typeof window === 'undefined') return undefined;
+
+    // Real app quits / reloads leave streaming rows with no live runner.
+    // Reconcile is idempotent and skips every session with a live stream.
+    try {
+      const storage = defaultSessionStorage();
+      const reconciled = reconcileInterruptedSessions(readSessions(storage), isStreamActive);
+      if (reconciled.changed) {
+        writeSessions(storage, reconciled.sessions);
+        announceSessionsChanged();
       }
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No readable stream');
+    } catch {
+      // Reconciliation is best-effort; the view still renders below.
+    }
 
-      const decoder = new TextDecoder();
-      let buffer = '';
+    refreshMessages(targetId);
+    const live = targetId ? getStreamSnapshot(targetId) : null;
+    applySnapshot(live);
+    setLoading(live?.status === 'streaming');
+    if (live && live.status !== 'streaming') {
+      refreshMessages(targetId);
+      if (targetId && needsTitleRef.current.delete(targetId)) {
+        maybeGenerateMissingTitle(targetId);
+      } else if (targetId) {
+        maybeGenerateMissingTitle(targetId);
+      }
+    }
 
-      while (true) {
-        if (controller.signal.aborted) {
-          try { await reader.cancel(); } catch {}
-          break;
-        }
-
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        let currentEvent = '';
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEvent = line.substring(7).trim();
-          } else if (line.startsWith('data: ')) {
-            const dataStr = line.substring(6).trim();
-            if (!dataStr) continue;
-
-            if (currentEvent === 'token') {
-              firstTokenAt ??= Date.now();
-              let token: any = dataStr;
-              try { token = JSON.parse(dataStr); } catch {}
-              
-              if (typeof token === 'string') {
-                accumulatedContent += token.replace(/\\n/g, '\n');
-              } else if (token && typeof token === 'object' && token.message) {
-                accumulatedContent += token.message;
-              } else {
-                accumulatedContent += String(token);
-              }
-              setStreamingContent(accumulatedContent);
-            } else if (currentEvent === 'tool_start') {
-              try {
-                const data = JSON.parse(dataStr);
-                collectedTools.push({ tool: data.tool, status: 'running', args: data.args });
-                setToolStatuses([...collectedTools]);
-                accumulatedThoughts.push(toolStartThought(data.tool, data.args));
-                setStreamingThoughts([...accumulatedThoughts]);
-              } catch (e) {}
-            } else if (currentEvent === 'tool_result') {
-              try {
-                const data = JSON.parse(dataStr);
-                const idx = collectedTools.findIndex(t =>
-                  t.tool === data.tool &&
-                  t.status === 'running' &&
-                  JSON.stringify(t.args ?? {}) === JSON.stringify(data.args ?? {}),
-                );
-                const next: ToolResult = {
-                  tool: data.tool,
-                  status: 'done',
-                  fact: data.fact,
-                  quality: data.quality,
-                  success: data.success,
-                  preview: data.preview,
-                  detail: data.detail,
-                  args: data.args ?? (idx !== -1 ? collectedTools[idx].args : undefined),
-                };
-                if (idx !== -1) collectedTools[idx] = next;
-                else collectedTools.push(next);
-                setToolStatuses([...collectedTools]);
-                accumulatedThoughts.splice(
-                  0,
-                  accumulatedThoughts.length,
-                  ...updateToolResultThought(accumulatedThoughts, {
-                    tool: data.tool,
-                    args: next.args,
-                    fact: data.fact,
-                  }),
-                );
-                setStreamingThoughts([...accumulatedThoughts]);
-              } catch (e) {}
-            } else if (currentEvent === 'thought_new') {
-              try {
-                let data = JSON.parse(dataStr);
-                if (typeof data !== 'string') {
-                  data = typeof data === 'object' && data.text ? data.text : JSON.stringify(data);
-                }
-                accumulatedThoughts.push(data);
-                setStreamingThoughts([...accumulatedThoughts]);
-              } catch {
-                accumulatedThoughts.push(dataStr);
-                setStreamingThoughts([...accumulatedThoughts]);
-              }
-            } else if (currentEvent === 'thought') {
-              let dataText = dataStr;
-              try {
-                let parsed = JSON.parse(dataStr);
-                if (typeof parsed !== 'string') {
-                  parsed = typeof parsed === 'object' && parsed.text ? parsed.text : JSON.stringify(parsed);
-                }
-                dataText = parsed;
-              } catch {}
-
-              const lastIdx = accumulatedThoughts.length - 1;
-              const lastItem = lastIdx >= 0 ? accumulatedThoughts[lastIdx] : null;
-              const isLastItemToolOrHeader = lastItem && (
-                lastItem.startsWith('tool used: ') ||
-                lastItem.startsWith('• tool_call: ') ||
-                lastItem.startsWith('Searched: ') ||
-                lastItem.startsWith('Branching off:') ||
-                lastItem.startsWith('Branches are in') ||
-                lastItem.startsWith('Before answering')
-              );
-
-              if (accumulatedThoughts.length === 0 || isLastItemToolOrHeader) {
-                accumulatedThoughts.push(dataText);
-              } else {
-                accumulatedThoughts[lastIdx] += dataText;
-              }
-              setStreamingThoughts([...accumulatedThoughts]);
-            } else if (currentEvent === 'error') {
-              let payload: unknown;
-              try { payload = JSON.parse(dataStr); } catch { payload = { message: dataStr }; }
-              throw createChatStreamError(streamFailureFromPayload(payload));
-            }
+    if (!targetId) return undefined;
+    const observedId = targetId;
+    const flushOnHide = () => {
+      flushStreamProgress(observedId);
+    };
+    window.addEventListener('pagehide', flushOnHide);
+    document.addEventListener('visibilitychange', flushOnHide);
+    const unsubscribe = subscribeToStream(observedId, (next) => {
+      if (observedId !== (chatIdRef.current ?? pendingSessionRef.current)) return;
+      applySnapshot(next);
+      setLoading(next.status === 'streaming');
+      if (next.status === 'streaming') return;
+      refreshMessages(observedId);
+      if (needsTitleRef.current.delete(observedId)) {
+        const done = readSession(defaultSessionStorage(), observedId);
+        if (done) {
+          const reversed = [...done.messages].reverse();
+          const userMessage = reversed.find((m) => m.role === 'user');
+          const assistantMessage = reversed.find((m) => m.role === 'assistant');
+          if (userMessage && assistantMessage) {
+            void generateSessionTitle(observedId, [userMessage, assistantMessage]);
           }
         }
+      } else {
+        // Background finish without a live needsTitle entry (unmounted when
+        // the first exchange completed) still deserves an AI title.
+        maybeGenerateMissingTitle(observedId);
       }
+    });
+    return () => {
+      window.removeEventListener('pagehide', flushOnHide);
+      document.removeEventListener('visibilitychange', flushOnHide);
+      unsubscribe();
+    };
+  }, [chatId, refreshMessages, applySnapshot, maybeGenerateMissingTitle]);
 
-      if (controller.signal.aborted) {
-        return createReply(accumulatedContent || '[Generation stopped]');
-      }
-      if (!accumulatedContent) {
-        return createReply(buildPausedChatResponse({
-          completedResearch: accumulatedThoughts.length > 0 || collectedTools.some(tool => tool.status === 'done'),
-          failure: { message: 'The stream ended before the model sent a final response' },
-        }));
-      }
-      return createReply(accumulatedContent);
-    } catch (err: unknown) {
-      if (controller.signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
-        return createReply(accumulatedContent || '[Generation stopped]');
-      }
-      return createReply(buildPausedChatResponse({
-        partialContent: accumulatedContent,
-        completedResearch: accumulatedThoughts.length > 0 || collectedTools.some(tool => tool.status === 'done'),
-        failure: streamFailureFromError(err),
-      }));
-    } finally {
-      abortControllerRef.current = null;
-    }
+  // Only the stop button aborts a generation. Unmounting (dashboard
+  // navigation, accidental exit) merely drops the UI subscription — the
+  // manager-owned stream keeps running and finishes on its own.
+  const stopStreaming = () => {
+    const targetId = chatIdRef.current ?? pendingSessionRef.current;
+    if (targetId) stopStream(targetId);
   };
 
   const sendMessage = async (override?: string) => {
+    // Manager state is the single-flight source of truth, not view-local
+    // loading: a remounted view can have loading=false while a background
+    // generation is still running. Never persist a second user turn while
+    // streaming — just reattach to the live snapshot.
+    const liveTarget = chatIdRef.current ?? pendingSessionRef.current;
+    if (liveTarget && isStreamActive(liveTarget)) {
+      const snapshot = getStreamSnapshot(liveTarget);
+      applySnapshot(snapshot);
+      setLoading(snapshot?.status === 'streaming');
+      return;
+    }
     if (loading) return;
     if (!override && !input.trim()) return;
 
@@ -611,49 +512,44 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     setLoadingType(command.toLowerCase());
     setError(null);
 
-    let activeChatId = chatId;
-    if (!activeChatId) {
-      activeChatId = btoa(Date.now().toString() + Math.random().toString(36).substring(7)).replace(/=/g, '');
-      saveSession(activeChatId, updatedMessages);
-    } else {
-      saveSession(activeChatId, updatedMessages);
-    }
-
+    // Persist the user message, then hand the generation to the module-level
+    // stream manager. From here the reply survives unmount: progress is
+    // persisted to the session store and this view reattaches on remount.
+    let targetId = chatIdRef.current;
+    const isFirstExchange = messages.length === 0;
     try {
-      const reply = await executeStreamChat(command, messages, sentAt);
-
-      const finalMessages = [...updatedMessages, reply];
-      setMessages(finalMessages);
-      setStreamingContent('');
-      setStreamingThoughts([]);
-      setToolStatuses([]);
-      saveSession(activeChatId, finalMessages);
-      if (messages.length === 0) {
-        void generateSessionTitle(activeChatId, [userMessage, reply]);
+      if (!targetId) {
+        targetId = createSessionId();
+        pendingSessionRef.current = targetId;
+        saveSession(targetId, updatedMessages);
+        router.replace('/chat/' + targetId);
+      } else {
+        saveSession(targetId, updatedMessages);
       }
+      if (isFirstExchange) needsTitleRef.current.add(targetId);
 
+      const history = messages.map(({ role, content }) => ({ role, content }));
+      const started = startStream({
+        sessionId: targetId,
+        command,
+        history,
+        effort: getEffort(),
+        thinking: getThinkingEnabled(),
+        model: activeModel || undefined,
+        startedAt: sentAt,
+      });
+      if (!started) {
+        // A generation is already running for this session — just attach to it.
+        const snapshot = getStreamSnapshot(targetId);
+        applySnapshot(snapshot);
+        setLoading(snapshot?.status === 'streaming');
+      }
     } catch (err) {
-      const failure = streamFailureFromError(err);
-      setError(describeChatStreamFailure(failure));
-      const errMessages = [
-        ...updatedMessages,
-        {
-          role: 'assistant',
-          content: buildPausedChatResponse({ failure }),
-          createdAt: Date.now(),
-        } as ChatMessage,
-      ];
-      setMessages(errMessages);
-      setStreamingContent('');
-      setStreamingThoughts([]);
-      setToolStatuses([]);
-      saveSession(activeChatId, errMessages);
-    } finally {
+      console.error('Failed to start chat generation', err);
       setLoading(false);
+      if (targetId) needsTitleRef.current.delete(targetId);
+    } finally {
       textareaRef.current?.focus();
-      if (chatId !== activeChatId) {
-        router.replace('/chat/' + activeChatId);
-      }
     }
   };
 
@@ -665,6 +561,63 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
       }
     }
   };
+
+  /** Re-issues the last user prompt after an error/interrupt (terminal states never auto-resume). */
+  const retryLastGeneration = useCallback(() => {
+    const targetId = chatIdRef.current ?? pendingSessionRef.current;
+    if (!targetId || loading || isStreamActive(targetId)) return;
+    const session = readSession(defaultSessionStorage(), targetId);
+    const thread = session?.messages ?? messages;
+    const lastUserIndex = [...thread].map((m) => m.role).lastIndexOf('user');
+    if (lastUserIndex < 0) return;
+    const command = thread[lastUserIndex].content;
+    const history = thread.slice(0, lastUserIndex).map(({ role, content }) => ({ role, content }));
+    const startedAt = Date.now();
+    setLoading(true);
+    setLoadingStep(0);
+    setLoadingType(command.toLowerCase());
+    setError(null);
+    try {
+      const started = startStream({
+        sessionId: targetId,
+        command,
+        history,
+        effort: getEffort(),
+        thinking: getThinkingEnabled(),
+        model: activeModel || undefined,
+        startedAt,
+      });
+      if (!started) {
+        const snapshot = getStreamSnapshot(targetId);
+        applySnapshot(snapshot);
+        setLoading(snapshot?.status === 'streaming');
+      }
+    } catch (err) {
+      console.error('Failed to retry chat generation', err);
+      setLoading(false);
+    }
+  }, [loading, messages, activeModel, applySnapshot]);
+
+  // While a background generation is live, the persisted trailing placeholder
+  // (partial content, status streaming) would double-render with the live
+  // bubble. Hide it from the list; the bubble is the source of truth.
+  const displayMessages =
+    loading && messages.length > 0
+      ? (() => {
+          const last = messages[messages.length - 1];
+          if (last.role === 'assistant' && last.status === 'streaming') {
+            return messages.slice(0, -1);
+          }
+          return messages;
+        })()
+      : messages;
+  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+  const showRetry =
+    !loading &&
+    !!lastMessage &&
+    lastMessage.role === 'assistant' &&
+    (lastMessage.status === 'error' || lastMessage.status === 'interrupted') &&
+    !(chatIdRef.current && isStreamActive(chatIdRef.current));
 
 
 
@@ -681,7 +634,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
       <div className={styles['chat-container']}>
         {/* Messages */}
         <div className={styles['chat-messages']}>
-            {messages.length === 0 && !loading ? (
+            {displayMessages.length === 0 && !loading ? (
               <div className="empty-state" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                 <div style={{ width: 80, height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
                   <img src="/logo-boz-transparant-white.png" alt="BOZ" style={{ width: 80, height: 80, objectFit: 'contain', borderRadius: '16px' }} />
@@ -717,7 +670,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
               </div>
             ) : (
               <>
-                {messages.map((msg, i) => (
+                {displayMessages.map((msg, i) => (
                   <div key={i} className={`${styles['chat-bubble']} ${msg.role}`}>
                     {msg.role === 'assistant' ? (
                       <div className="flex-row gap-3" style={{ width: '100%' }}>
@@ -850,6 +803,29 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
                             </span>
                           </div>
                         )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Retry affordance — terminal error/interrupt never auto-resumes. */}
+                {showRetry && (
+                  <div className={`${styles['chat-bubble']} assistant`}>
+                    <div className="flex-row gap-3" style={{ width: '100%' }}>
+                      <div style={{ width: '100%' }}>
+                        <div className="page-subtitle" style={{ margin: '0 0 8px' }}>
+                          {lastMessage?.status === 'interrupted'
+                            ? 'Generation was interrupted (app closed or reloaded). Partial progress is saved.'
+                            : 'Generation hit an error. Partial progress is saved.'}
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={retryLastGeneration}
+                        >
+                          <i className="fa-solid fa-rotate-right"></i>
+                          <span>Retry generation</span>
+                        </button>
                       </div>
                     </div>
                   </div>
