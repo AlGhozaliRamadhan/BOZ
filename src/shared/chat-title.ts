@@ -24,7 +24,33 @@ export function normalizeGeneratedChatTitle(value: unknown): string | null {
   const title = cleanTitle(value)
     .replace(/^(?:chat\s*)?title\s*:\s*/i, '')
     .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/[.…]+$/, '')
     .trim();
 
   return title ? truncateTitle(title) : null;
+}
+
+/**
+ * Makes a chat title unique against existing history titles (case-insensitive).
+ * Keeps the base when free, otherwise appends ` (2)`, ` (3)`, … while staying
+ * within `maxLength` so the sidebar never shows two identical rows.
+ */
+export function ensureUniqueChatTitle(
+  base: string,
+  existing: readonly string[],
+  maxLength: number = MAX_CHAT_TITLE_LENGTH,
+): string {
+  const taken = new Set(existing.map((t) => t.trim().toLowerCase()).filter(Boolean));
+  const cleanBase = cleanTitle(base) || FALLBACK_CHAT_TITLE;
+  const candidate = truncateTitle(cleanBase);
+  if (!taken.has(candidate.toLowerCase())) return candidate;
+
+  for (let n = 2; n < 1000; n++) {
+    const suffix = ` (${n})`;
+    const room = Math.max(0, maxLength - suffix.length);
+    const shortened = Array.from(cleanBase).slice(0, room).join('').trimEnd();
+    const next = `${shortened}${suffix}`;
+    if (!taken.has(next.toLowerCase())) return next;
+  }
+  return candidate;
 }

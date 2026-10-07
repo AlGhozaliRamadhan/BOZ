@@ -92,4 +92,5 @@ CLAUDE.md
 .agents/
 .claude/
 .worktrees/
+skills-lock.json
 docs/improvements.md

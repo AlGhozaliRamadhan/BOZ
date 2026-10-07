@@ -94,6 +94,7 @@ export interface ChatRequestBody {
 export interface ChatTitleRequestBody {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   model?: string;
+  existingTitles?: string[];
 }
 
 export function validateChatRequestBody(body: unknown): ChatRequestBody {
@@ -172,7 +173,20 @@ export function validateChatTitleRequestBody(body: unknown): ChatTitleRequestBod
     model = candidate.model.trim() || undefined;
   }
 
-  return { messages, model };
+  let existingTitles: string[] | undefined;
+  if (candidate.existingTitles !== undefined) {
+    if (!Array.isArray(candidate.existingTitles) || candidate.existingTitles.length > 20) {
+      throw new InvalidRequestBodyError('Existing titles must be an array of at most 20 titles');
+    }
+    existingTitles = candidate.existingTitles
+      .filter((t): t is string => typeof t === 'string')
+      .map((t) => t.replace(/\s+/g, ' ').trim().slice(0, 60))
+      .filter(Boolean)
+      .slice(0, 20);
+    if (existingTitles.length === 0) existingTitles = undefined;
+  }
+
+  return { messages, model, existingTitles };
 }
 
 export function requestBodyErrorResponse(error: unknown): NextResponse | null {

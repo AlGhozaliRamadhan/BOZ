@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   appendAssistantMessage,
   getSessionStatus,
+  loadListedSessions,
   patchAssistantMessage,
   readSessions,
   reconcileInterruptedSessions,
   upsertSession,
+  writeSessions,
   type ChatSessionStorage,
 } from '../src/app/chat/_lib/chat-sessions';
 
@@ -111,5 +113,52 @@ describe('chat sessions', () => {
     const session = result.sessions.find((s) => s.id === 'user-only')!;
     expect(session.messages.length).toBe(2);
     expect(session.messages[1].status).toBe('interrupted');
+  });
+
+  it('loadListedSessions sorts newest first without touching storage', () => {
+    const storage = fakeStorage();
+    writeSessions(storage, [
+      {
+        id: 'old',
+        title: 'Old',
+        messages: [{ role: 'assistant', content: 'done', status: 'done' }],
+        updatedAt: 100,
+      },
+      {
+        id: 'new',
+        title: 'New',
+        messages: [{ role: 'assistant', content: 'done', status: 'done' }],
+        updatedAt: 200,
+      },
+    ]);
+    const before = storage.getItem('boz_chat_sessions');
+    const listed = loadListedSessions(storage, () => false, false);
+    expect(listed.map((s) => s.id)).toEqual(['new', 'old']);
+    expect(storage.getItem('boz_chat_sessions')).toBe(before);
+  });
+
+  it('loadListedSessions with reconcile heals orphans but keeps live streams', () => {
+    const storage = fakeStorage();
+    upsertSession(storage, {
+      id: 'live',
+      title: 'Live',
+      messages: [
+        { role: 'user', content: 'q' },
+        { role: 'assistant', content: 'partial', status: 'streaming' },
+      ],
+      updatedAt: 0,
+    });
+    upsertSession(storage, {
+      id: 'orphan',
+      title: 'Orphan',
+      messages: [{ role: 'user', content: 'q' }],
+      updatedAt: 0,
+    });
+    const listed = loadListedSessions(storage, (id) => id === 'live', true);
+    expect(getSessionStatus(listed.find((s) => s.id === 'live')!)).toBe('streaming');
+    expect(getSessionStatus(listed.find((s) => s.id === 'orphan')!)).toBe('interrupted');
+    // Healing persists, so a later refresh keeps the interrupted status.
+    const stored = readSessions(storage);
+    expect(getSessionStatus(stored.find((s) => s.id === 'orphan')!)).toBe('interrupted');
   });
 });

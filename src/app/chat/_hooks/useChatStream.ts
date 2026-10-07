@@ -87,10 +87,13 @@ export function useChatStream({
   const refreshMessages = useCallback((id: string | undefined | null) => {
     if (typeof window === 'undefined') return;
     if (!id) {
-      setMessages([]);
-      setStreamingContent('');
-      setStreamingThoughts([]);
-      setToolStatuses([]);
+      // Functional guards: a fresh `[]` is a new reference every time, so an
+      // unconditional setMessages([]) re-renders even when already empty and
+      // retriggers the attach effect -> "Maximum update depth exceeded" on /chat.
+      setMessages((prev) => (prev.length === 0 ? prev : []));
+      setStreamingContent((prev) => (prev === '' ? prev : ''));
+      setStreamingThoughts((prev) => (prev.length === 0 ? prev : []));
+      setToolStatuses((prev) => (prev.length === 0 ? prev : []));
       return;
     }
     try {
@@ -106,9 +109,9 @@ export function useChatStream({
   /** Mirrors a manager snapshot into local render state. */
   const applySnapshot = useCallback((snapshot: StreamSnapshot | null) => {
     if (!snapshot) {
-      setStreamingContent('');
-      setStreamingThoughts([]);
-      setToolStatuses([]);
+      setStreamingContent((prev) => (prev === '' ? prev : ''));
+      setStreamingThoughts((prev) => (prev.length === 0 ? prev : []));
+      setToolStatuses((prev) => (prev.length === 0 ? prev : []));
       return;
     }
     setStreamingContent(snapshot.content);

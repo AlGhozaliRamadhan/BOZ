@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ChatMessage } from '../_lib/chat-types';
 import {
   NEW_CHAT_EVENT,
@@ -19,35 +19,47 @@ export function useChatHistory(chatId?: string) {
         setMessages(session.messages);
       }
     } else {
-      setMessages([]);
+      setMessages((prev) => (prev.length === 0 ? prev : []));
     }
   }, [chatId]);
 
   useEffect(() => {
     const handleNewChat = () => {
-      setMessages([]);
+      setMessages((prev) => (prev.length === 0 ? prev : []));
       setResetSignal(s => s + 1);
     };
     window.addEventListener(NEW_CHAT_EVENT, handleNewChat);
     return () => window.removeEventListener(NEW_CHAT_EVENT, handleNewChat);
   }, []);
 
-  const persistSession = (id: string, msgs: ChatMessage[]) => {
+  const persistSession = useCallback((id: string, msgs: ChatMessage[]) => {
     saveChatSession(id, msgs);
-  };
+  }, []);
 
-  const requestSessionTitle = async (
+  const requestSessionTitle = useCallback(async (
     id: string,
     titleMessages: ChatMessage[],
     model?: string,
   ) => {
     try {
+      let existingTitles: string[] | undefined;
+      try {
+        existingTitles = readChatSessions()
+          .filter((s) => s.id !== id)
+          .map((s) => s.title)
+          .filter(Boolean)
+          .slice(-20);
+        if (existingTitles.length === 0) existingTitles = undefined;
+      } catch {
+        existingTitles = undefined;
+      }
       const response = await fetch('/api/chat/title', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: titleMessages.map(({ role, content }) => ({ role, content: content.slice(0, 4_000) })),
           model: model || undefined,
+          existingTitles,
         }),
       });
       if (!response.ok) return;
@@ -58,7 +70,7 @@ export function useChatHistory(chatId?: string) {
     } catch {
       // Keep the first-message title when a background title request fails.
     }
-  };
+  }, []);
 
   return { messages, setMessages, persistSession, requestSessionTitle, resetSignal };
 }
