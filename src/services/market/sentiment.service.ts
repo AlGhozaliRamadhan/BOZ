@@ -213,7 +213,16 @@ export class SentimentService {
         }
       }
     } catch (err) {
-      log.warn('crowd', `StockTwits ${stockTwitsSymbol ?? ticker} error: ${(err as Error).message}`);
+      const status = (err as any)?.response?.status as number | undefined;
+      const msg = (err as Error).message;
+      // 403/429 from StockTwits is an expected provider WAF block (datacenter IP
+      // or missing app auth), not a code bug — degrade quietly, keep the warn
+      // channel for unexpected failures.
+      if (status === 403 || status === 429 || /status code 403/.test(msg)) {
+        log.crowd('stocktwits', clr.dim(`blocked (${status ?? 403}) for ${stockTwitsSymbol ?? ticker} — skipping`));
+      } else {
+        log.warn('crowd', `StockTwits ${stockTwitsSymbol ?? ticker} error: ${msg}`);
+      }
     }
 
     // ── Reddit Social Buzz ─────────────────────────────────────────────────────

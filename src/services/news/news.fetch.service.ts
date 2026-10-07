@@ -142,7 +142,7 @@ export class NewsFetchService {
       'https://www.marketwatch.com/rss/realtimeheadlines',
     ],
     oil:   ['https://oilprice.com/rss/main'],
-    forex: ['https://www.fxstreet.com/rss/news'],
+    forex: ['https://www.fxstreet.com/rss/news', 'https://www.dailyfx.com/feeds/market-news'],
     economy: [
       'https://www.cnbc.com/id/100003114/device/rss/rss.html',
       'https://feeds.bbci.co.uk/news/business/rss.xml',
@@ -532,7 +532,8 @@ export class NewsFetchService {
           } catch (e: any) {
             const status = e?.response?.status as number | undefined;
             if (status === 404) log.warn('news', `RSS ${category}: 404 — URL may have moved (${url})`);
-            else if (status === 503 || status === 429) log.info('news', `RSS ${category}: temporarily unavailable (${status})`);
+            else if (status === 403 || status === 429 || status === 503)
+              log.info('news', `RSS ${category}: blocked/unavailable (${status}) — skipping ${url}`);
             else log.warn('news', `RSS ${category}: ${e.message}`);
           }
         }
@@ -605,7 +606,15 @@ export class NewsFetchService {
 
       try {
         const res = await this.withRetry('stocktwits_trending', () =>
-          axios.get('https://api.stocktwits.com/api/2/trending/symbols.json', { headers: this.headers, timeout: 5000 }),
+          axios.get('https://api.stocktwits.com/api/2/trending/symbols.json', {
+            headers: {
+              ...this.headers,
+              Accept: 'application/json',
+              Referer: 'https://stocktwits.com/',
+              Origin: 'https://stocktwits.com',
+            },
+            timeout: 5000,
+          }),
         );
         for (const sym of (res.data?.symbols ?? []).slice(0, 15)) {
           crowd.stocktwits_trending.push({ symbol: sym.symbol, title: sym.title, watchlist_count: sym.watchlist_count });

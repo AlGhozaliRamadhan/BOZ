@@ -6,9 +6,9 @@ import { useRouter, usePathname } from 'next/navigation';
 import DesktopUpdateControl from '../ui/DesktopUpdateControl';
 import {
   getSessionStatus,
-  readSessions,
+  loadListedSessions,
 } from '../../chat/_lib/chat-sessions';
-import { stopStream } from '../../chat/_lib/chat-stream-manager';
+import { isStreamActive, stopStream } from '../../chat/_lib/chat-stream-manager';
 import type { ChatGenerationStatus } from '@/shared/chat-generation-status';
 import {
   DEFAULT_PROFILE,
@@ -101,11 +101,17 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
   // Recent chats read through the session store, so every row carries its
   // generation status: streaming (still generating elsewhere), done,
   // error/interrupted (needs attention), or cancelled (stopped by the user).
+  // Reconcile once on mount — not on every update event — so a reload that
+  // lands outside the chat (e.g. the dashboard) never leaves a spinner stuck
+  // on an orphaned generation. Per-event reconcile would race a just-sent
+  // user message: its persist announces before startStream registers the
+  // live runner, and the trailing user turn would read as orphaned. The
+  // persisted rollup is the source of truth afterwards: the stream manager
+  // stamps it on every persist, finish, and stop.
   useEffect(() => {
-    const loadSessions = () => {
+    const loadSessions = (reconcile: boolean) => {
       try {
-        const sessions = readSessions(window.localStorage);
-        sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+        const sessions = loadListedSessions(window.localStorage, isStreamActive, reconcile);
         setChatSessions(
           sessions.map((session) => ({
             id: session.id,
@@ -117,9 +123,10 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
         setChatSessions([]);
       }
     };
-    loadSessions();
-    window.addEventListener('boz_chat_updated', loadSessions);
-    return () => window.removeEventListener('boz_chat_updated', loadSessions);
+    loadSessions(true);
+    const handleUpdated = () => loadSessions(false);
+    window.addEventListener('boz_chat_updated', handleUpdated);
+    return () => window.removeEventListener('boz_chat_updated', handleUpdated);
   }, []);
 
   useEffect(() => {

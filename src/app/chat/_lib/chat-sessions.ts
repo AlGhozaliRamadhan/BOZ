@@ -229,6 +229,30 @@ export function patchAssistantMessage(
   return true;
 }
 
+/**
+ * Sorted sessions for the recent-chat list, newest first. Reconcile is opt-in
+ * so live views can refresh on every store event without racing a just-sent
+ * user turn (its persist announces before the stream runner registers, and
+ * the trailing user message would read as orphaned). Mount paths pass `true`
+ * to heal orphaned generations after a reload that lands outside the chat.
+ */
+export function loadListedSessions(
+  storage: ChatSessionStorage = defaultSessionStorage(),
+  isActive: (sessionId: string) => boolean = () => false,
+  reconcile = false,
+): ChatSession[] {
+  const stored = readSessions(storage);
+  let listed = stored;
+  if (reconcile) {
+    const result = reconcileInterruptedSessions(stored, isActive);
+    if (result.changed) {
+      writeSessions(storage, result.sessions);
+      listed = result.sessions;
+    }
+  }
+  return [...listed].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
 export interface ReconcileResult {
   sessions: ChatSession[];
   changed: boolean;

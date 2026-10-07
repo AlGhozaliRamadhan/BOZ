@@ -1,4 +1,4 @@
-import { fallbackChatTitle, normalizeGeneratedChatTitle } from '@/shared/chat-title';
+import { ensureUniqueChatTitle, fallbackChatTitle, normalizeGeneratedChatTitle } from '@/shared/chat-title';
 import type { ChatMessage, ChatSession } from './chat-types';
 
 export const CHAT_SESSIONS_STORAGE_KEY = 'boz_chat_sessions';
@@ -30,14 +30,18 @@ export function saveChatSession(id: string, msgs: ChatMessage[]): void {
     const stored = localStorage.getItem(CHAT_SESSIONS_STORAGE_KEY);
     const sessions: ChatSession[] = stored ? JSON.parse(stored) : [];
     const index = sessions.findIndex(s => s.id === id);
-    const title = fallbackChatTitle(msgs.find(m => m.role === 'user')?.content);
+    const fallback = fallbackChatTitle(msgs.find(m => m.role === 'user')?.content);
 
     if (index >= 0) {
       sessions[index].messages = msgs;
       sessions[index].updatedAt = Date.now();
-      sessions[index].title ||= title;
+      if (!sessions[index].title) {
+        const others = sessions.filter(s => s.id !== id).map(s => s.title);
+        sessions[index].title = ensureUniqueChatTitle(fallback, others);
+      }
     } else {
-      sessions.push({ id, title, messages: msgs, updatedAt: Date.now() });
+      const others = sessions.map(s => s.title);
+      sessions.push({ id, title: ensureUniqueChatTitle(fallback, others), messages: msgs, updatedAt: Date.now() });
     }
     localStorage.setItem(CHAT_SESSIONS_STORAGE_KEY, JSON.stringify(sessions));
     // Dispatch an event so sidebar can update
@@ -48,8 +52,8 @@ export function saveChatSession(id: string, msgs: ChatMessage[]): void {
 }
 
 export function saveGeneratedChatTitle(id: string, candidate: unknown): void {
-  const title = normalizeGeneratedChatTitle(candidate);
-  if (!title) return;
+  const normalized = normalizeGeneratedChatTitle(candidate);
+  if (!normalized) return;
 
   try {
     const stored = localStorage.getItem(CHAT_SESSIONS_STORAGE_KEY);
@@ -57,7 +61,8 @@ export function saveGeneratedChatTitle(id: string, candidate: unknown): void {
     const index = sessions.findIndex(session => session.id === id);
     if (index < 0) return;
 
-    sessions[index].title = title;
+    const others = sessions.filter(session => session.id !== id).map(s => s.title);
+    sessions[index].title = ensureUniqueChatTitle(normalized, others);
     localStorage.setItem(CHAT_SESSIONS_STORAGE_KEY, JSON.stringify(sessions));
     window.dispatchEvent(new Event(CHAT_UPDATED_EVENT));
   } catch (error) {
