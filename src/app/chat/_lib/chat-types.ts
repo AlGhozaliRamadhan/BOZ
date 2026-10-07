@@ -1,4 +1,5 @@
 import type { AssistantMessageMetrics } from './chat-message-metrics';
+import type { ChatGenerationStatus } from '@/shared/chat-generation-status';
 import type { ToolResult } from '@/shared/chat-tool-results';
 
 export interface TickerSuggestion {
@@ -18,6 +19,7 @@ export interface ChatMessage {
   thoughts?: string[];
   tools?: ToolResult[];
   suggestions?: TickerSuggestion[];
+  status?: ChatGenerationStatus;
 }
 
 export interface ChatSession {
@@ -25,6 +27,7 @@ export interface ChatSession {
   title: string;
   messages: ChatMessage[];
   updatedAt: number;
+  status?: ChatGenerationStatus;
 }
 
 export interface MarketQuote {

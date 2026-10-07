@@ -16,6 +16,8 @@ interface MessageListProps {
   toolStatuses: ToolResult[];
   onSendCommand: (command: string) => void;
   endRef: RefObject<HTMLDivElement | null>;
+  showRetry?: boolean;
+  onRetry?: () => void;
 }
 
 export default function MessageList({
@@ -26,6 +28,8 @@ export default function MessageList({
   toolStatuses,
   onSendCommand,
   endRef,
+  showRetry,
+  onRetry,
 }: MessageListProps) {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
@@ -35,9 +39,24 @@ export default function MessageList({
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
+  // While a background generation is live, the persisted trailing placeholder
+  // (partial content, status streaming) would double-render with the live
+  // bubble. Hide it from the list; the bubble is the source of truth.
+  const displayMessages =
+    loading && messages.length > 0
+      ? (() => {
+          const last = messages[messages.length - 1];
+          if (last.role === 'assistant' && last.status === 'streaming') {
+            return messages.slice(0, -1);
+          }
+          return messages;
+        })()
+      : messages;
+  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+
   return (
     <>
-      {messages.map((msg, i) => (
+      {displayMessages.map((msg, i) => (
         <div key={i} className={`${styles['chat-bubble']} ${msg.role}`}>
           {msg.role === 'assistant' ? (
             <div className="flex-row gap-3" style={{ width: '100%' }}>
@@ -170,6 +189,29 @@ export default function MessageList({
                   </span>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Retry affordance — terminal error/interrupt never auto-resumes. */}
+      {showRetry && (
+        <div className={`${styles['chat-bubble']} assistant`}>
+          <div className="flex-row gap-3" style={{ width: '100%' }}>
+            <div style={{ width: '100%' }}>
+              <div className="page-subtitle" style={{ margin: '0 0 8px' }}>
+                {lastMessage?.status === 'interrupted'
+                  ? 'Generation was interrupted (app closed or reloaded). Partial progress is saved.'
+                  : 'Generation hit an error. Partial progress is saved.'}
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={onRetry}
+              >
+                <i className="fa-solid fa-rotate-right"></i>
+                <span>Retry generation</span>
+              </button>
             </div>
           </div>
         </div>

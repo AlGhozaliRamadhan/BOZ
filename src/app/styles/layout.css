@@ -305,6 +305,28 @@
   background: rgba(255, 255, 255, 0.06);
 }
 
+.sidebar-chat-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.sidebar-chat-status-icon.is-generating .spinner-xs {
+  border-top-color: var(--accent-cyan);
+}
+
+.sidebar-chat-status-error .sidebar-chat-icon,
+.sidebar-chat-status-interrupted .sidebar-chat-icon {
+  color: var(--accent-amber, #f5a623);
+  opacity: 0.9;
+}
+
+.sidebar-chat-status-cancelled .sidebar-chat-icon {
+  opacity: 0.45;
+}
+
 .sidebar-chat-item-wrapper.active {
   background: rgba(255, 255, 255, 0.1);
 }
@@ -936,13 +958,12 @@
   align-items: center;
 }
 
-.app-menu-bar-left { gap: 10px; min-width: 0; }
+.app-menu-bar-left { gap: 10px; min-width: 0; flex: 1 1 0; }
 
 .app-menu-brand {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  min-width: 68px;
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 650;
@@ -958,36 +979,161 @@
   object-fit: contain;
 }
 
-.app-menu-items { gap: 2px; }
-.app-menu-item { position: relative; }
-
-.app-menu-trigger,
-.app-menu-icon-button {
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font: inherit;
+/* === CENTER NAV + FEATURE SEARCH =============================================== */
+.app-menu-bar-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 460px;
+  min-width: 0;
+  /* Optical centering: nudge the pill down so it sits mid-bar. */
+  transform: translateY(2px);
 }
 
-.app-menu-trigger {
+.app-menu-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.app-menu-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.app-menu-search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.app-menu-search-input {
+  width: 100%;
   height: 30px;
-  padding: 0 10px;
+  padding: 0 28px 0 30px;
+  border: 1px solid #343434;
   border-radius: var(--radius-sm);
-  font-size: 13px;
-}
-
-.app-menu-trigger:hover,
-.app-menu-trigger.is-open,
-.app-menu-icon-button:hover {
-  background: #2a2a2a;
-  border-color: #383838;
+  background: #1d1d1d;
   color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
+  transition: border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
 }
 
-.app-menu-trigger:focus-visible,
-.app-menu-icon-button:focus-visible,
+.app-menu-search-input::placeholder { color: var(--text-muted); }
+
+.app-menu-search-input:focus {
+  border-color: #4a4a4a;
+  background: #222;
+  box-shadow: none;
+}
+
+.app-menu-search-input:focus-visible {
+  outline: none;
+}
+
+.app-menu-search-clear {
+  position: absolute;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.app-menu-search-clear:hover { background: #303030; color: var(--text-primary); }
+
+.app-menu-search-results {
+  left: 0;
+  right: 0;
+  width: auto;
+  min-width: 0;
+  transform: none;
+  max-height: 320px;
+  overflow-y: auto;
+  transform-origin: top center;
+  animation: app-menu-search-reveal 420ms var(--ease-out);
+  will-change: opacity, transform;
+}
+
+@keyframes app-menu-search-reveal {
+  from { opacity: 0; transform: translateY(-18px) scale(0.95); filter: blur(8px); }
+  to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+/* Row cascade: whole rows rise into place as the panel opens (icons untouched). */
+.app-menu-search-results .app-menu-command,
+.app-menu-search-results .app-menu-search-empty {
+  animation: app-menu-search-item 300ms var(--ease-out) backwards;
+}
+
+.app-menu-search-results .app-menu-command:nth-child(2) { animation-delay: 45ms; }
+.app-menu-search-results .app-menu-command:nth-child(3) { animation-delay: 90ms; }
+.app-menu-search-results .app-menu-command:nth-child(4) { animation-delay: 135ms; }
+.app-menu-search-results .app-menu-command:nth-child(5) { animation-delay: 180ms; }
+.app-menu-search-results .app-menu-command:nth-child(6) { animation-delay: 225ms; }
+.app-menu-search-results .app-menu-command:nth-child(n+7) { animation-delay: 270ms; }
+
+@keyframes app-menu-search-item {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-menu-search-results { animation: none; }
+  .app-menu-search-results .app-menu-command,
+  .app-menu-search-results .app-menu-search-empty { animation: none; }
+  .app-menu-search-input { transition: none; }
+}
+
+.app-menu-search-results .app-menu-command-main {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.app-menu-search-results .app-menu-command-main span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-menu-search-results .app-menu-command kbd {
+  flex-shrink: 0;
+}
+
+.app-menu-command.is-active { background: #303030; color: var(--text-primary); }
+.app-menu-command.is-active i { color: var(--text-primary); }
+
+.app-menu-search-empty {
+  padding: 10px 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.app-menu-bar-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1 1 0;
+  min-width: 0;
+}
 .app-menu-command:focus-visible,
+.app-menu-icon-button:focus-visible,
 .sidebar-link:focus-visible,
 .sidebar-collapse-btn:focus-visible {
   outline: 1px solid #8ab4f8;
@@ -1051,7 +1197,26 @@
 
 .app-menu-bar-actions { gap: 3px; }
 .app-menu-status { gap: 6px; margin-right: 6px; color: var(--text-muted); font-size: 11px; }
-.app-menu-icon-button { width: 30px; height: 30px; border-radius: var(--radius-sm); font-size: 13px; }
+.app-menu-icon-button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-menu-icon-button:hover {
+  background: #2a2a2a;
+  border-color: #383838;
+  color: var(--text-primary);
+}
 
 /* === CUSTOM WINDOW CHROME (frameless desktop, single title/menu bar) ======== */
 .app-menu-bar {

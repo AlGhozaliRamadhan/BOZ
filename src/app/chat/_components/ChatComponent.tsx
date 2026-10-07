@@ -34,6 +34,8 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     toolStatuses,
     sendMessage,
     stopStreaming,
+    retryLastGeneration,
+    showRetry,
   } = useChatStream({
     chatId,
     messages,
@@ -97,6 +99,8 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
               toolStatuses={toolStatuses}
               onSendCommand={sendMessage}
               endRef={messagesEndRef}
+              showRetry={showRetry}
+              onRetry={retryLastGeneration}
             />
           )}
         </div>
