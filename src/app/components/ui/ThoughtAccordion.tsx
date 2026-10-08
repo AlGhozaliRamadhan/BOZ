@@ -232,20 +232,7 @@ export function ThoughtAccordion({
       >
         <div className={styles['thought-row-main']}>
           {isStreaming ? (
-            <svg
-              className={`${styles['spinner-spin']} ${styles['thought-spinner']}`}
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
-            </svg>
+            <span className="spinner spinner-xs" aria-hidden="true" style={{ flexShrink: 0 }} />
           ) : (
             <svg
               className={`${styles['thought-chevron']} ${isOpen ? 'is-open' : ''}`}

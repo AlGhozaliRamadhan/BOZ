@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { jsonResponse, errorResponse, parseBody, requestBodyErrorResponse } from '@/app/lib/api-helpers';
 import { AIService } from '@/services/ai/ai.service';
-import { buildTradeLevels } from '@/shared/trade-levels';
+import { buildPotentialLevels } from '@/shared/trade-levels';
 import { formatCrowdSignalEvidence } from '@/shared/evidence-attribution';
 import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
 
@@ -36,13 +36,17 @@ export async function POST(request: NextRequest) {
     const verdict = await aiService.analyze(prompt);
 
     // Legacy levels (fixed-percentage math). Canonical math is risk_calc
-    // in shared/risk-math.ts. WATCH/uncertain emits no levels.
-    let tradeLevels = null;
-    if (verdict.status === 'ok') {
-      const action = verdict.prediction === 'UP' ? 'BUY' : verdict.prediction === 'DOWN' ? 'SELL' : 'WATCH';
-      if (action === 'BUY' || action === 'SELL') {
-        tradeLevels = buildTradeLevels(marketData.lastCandleFull.close, action as 'BUY' | 'SELL', verdict.confidence, '');
-      }
+    // in shared/risk-math.ts. Always emit a potential envelope — even on
+    // WATCH / uncertain / error — so callers still show where price could go.
+    const verdictLean = verdict as { prediction?: 'UP' | 'DOWN' | 'UNKNOWN'; confidence?: number };
+    const tradeLevels = buildPotentialLevels(
+      marketData.lastCandleFull.close ?? null,
+      verdict.status === 'ok' ? verdict.prediction : (verdictLean.prediction ?? 'UNKNOWN'),
+      verdict.status === 'ok' ? verdict.confidence : (verdictLean.confidence ?? 50),
+      '',
+    );
+    if (verdict.status !== 'ok') {
+      tradeLevels.isPotential = true;
     }
 
     return jsonResponse({

@@ -34,6 +34,11 @@ const navItems: NavItem[] = [
   {
     label: 'Dashboard',
     href: '/',
+    icon: <i className="fa-solid fa-gauge-high"></i>,
+  },
+  {
+    label: 'Discover',
+    href: '/discover',
     icon: <i className="fa-regular fa-compass"></i>,
   },
   {
@@ -150,6 +155,14 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
+    // Discover is the home for ticker views: keep it highlighted on
+    // /discover, /ticker/*, and the legacy /dashboard/* redirect path.
+    if (href === '/discover')
+      return (
+        pathname === '/discover' ||
+        pathname.startsWith('/ticker') ||
+        pathname.startsWith('/dashboard')
+      );
     return pathname.startsWith(href);
   };
 
@@ -169,19 +182,17 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
             </Link>
             {item.href === '/chat' && !collapsed && (
               <div className="sidebar-chat-subnav animate-fadeIn">
-                {isActive('/chat') && (
-                  <Link
-                    href="/chat"
-                    onClick={() => {
-                      window.dispatchEvent(new Event('boz_new_chat'));
-                    }}
-                    className="sidebar-new-chat-btn"
-                    title="Start a fresh conversation"
-                  >
-                    <i className="fa-solid fa-plus"></i>
-                    <span>New Chat</span>
-                  </Link>
-                )}
+                <Link
+                  href="/chat"
+                  onClick={() => {
+                    window.dispatchEvent(new Event('boz_new_chat'));
+                  }}
+                  className="sidebar-new-chat-btn"
+                  title="Start a fresh conversation"
+                >
+                  <i className="fa-solid fa-plus"></i>
+                  <span>New Chat</span>
+                </Link>
 
                 {chatSessions.length > 0 && (
                   <div className="sidebar-recent-chats">

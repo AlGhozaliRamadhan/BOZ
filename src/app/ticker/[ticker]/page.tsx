@@ -6,6 +6,7 @@ import TradingViewChart from '@/app/components/ui/TradingViewChart';
 import TechnicalStrip from '@/app/components/ui/TechnicalStrip';
 import { buildStocktwitsPulse, stocktwitsContrarianNote } from '@/shared/crowd-pulse';
 import ExternalAiBriefButton from '@/app/components/ui/ExternalAiBriefButton';
+import { recordRecentTicker } from '@/shared/discover';
 import styles from './TickerPage.module.css';
 
 interface QuoteData {
@@ -182,6 +183,11 @@ export default function DashboardPage() {
       setTickerInput(ticker);
       setChartStyle(loadChartStyle(ticker));
       setConfirmUnfavorite(false);
+      try {
+        recordRecentTicker(window.localStorage, ticker);
+      } catch {
+        // Recent-ticker history is best-effort.
+      }
 
       try {
         const favs = JSON.parse(localStorage.getItem('boz_favorites') || '[]');

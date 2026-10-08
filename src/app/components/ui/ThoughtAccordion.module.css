@@ -7,7 +7,7 @@
  * in components.css; no rule is fabricated for it. */
 .thought-accordion {
   position: relative;
-  margin: 6px 0 12px;
+  margin: 0 0 12px;
   background: transparent;
   border: none;
   box-shadow: none;
@@ -25,14 +25,6 @@
   user-select: none;
   border-radius: 6px;
   transition: all 0.15s ease;
-}
-
-.thought-header:hover {
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.thought-header:hover .thought-label {
-  color: var(--text-primary, #ffffff);
 }
 
 .thought-row-main {
@@ -112,7 +104,6 @@
 
 .thought-action-btn:hover {
   color: var(--text-primary, #ffffff);
-  background: rgba(255, 255, 255, 0.08);
 }
 
 .thought-action-btn:global(.is-copied) {

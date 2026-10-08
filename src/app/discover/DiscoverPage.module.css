@@ -1,0 +1,312 @@
+/* DiscoverPage styles — dense professional market board.
+ * Search primitives come from TickerPage.module.css; everything below is
+ * Discover-owned: index tape, market tabs, dense quote tables, watchlist. */
+
+.discover-page {
+  width: 100%;
+  padding: 0 var(--space-4) var(--space-6);
+  background: var(--bg-primary);
+}
+
+.discover-section-title {
+  margin: 0 0 var(--space-3);
+  color: var(--text-secondary);
+  font: 700 12px var(--font-mono);
+  letter-spacing: 0.06em;
+}
+
+/* ── Market snapshot (stacked grid, no sliding) ─────────────────────── */
+.discover-tape {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: var(--space-6);
+}
+
+.discover-tape-card {
+  min-width: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border-glass);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  text-align: left;
+}
+
+.discover-tape-card:hover { border-color: var(--border-glass-hover, #444); }
+
+.discover-tape-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #888;
+}
+
+.discover-tape-price {
+  margin: 4px 0 2px;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+
+.discover-tape-change { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.discover-tape-change:global(.is-up) { color: var(--success); }
+.discover-tape-change:global(.is-down) { color: var(--danger); }
+
+/* ── Market tabs ────────────────────────────────────────────────── */
+.discover-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-glass);
+  margin-bottom: var(--space-4);
+}
+
+.discover-tab {
+  padding: 10px 16px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.discover-tab:hover { color: #fff; }
+.discover-tab:global(.is-active) { border-bottom-color: var(--accent-violet); color: #fff; }
+.discover-tab:disabled { cursor: wait; opacity: 0.6; }
+
+.discover-board-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: var(--space-3);
+}
+
+.discover-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #3b3b3b;
+  border-radius: 7px;
+  background: var(--bg-secondary);
+  color: #858585;
+  font-size: 11px;
+}
+
+.discover-filter input {
+  width: 170px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ── Dense quote table ──────────────────────────────────────────── */
+.discover-table { border-top: 1px solid var(--border-glass); }
+
+.discover-thead,
+.discover-row-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr)) minmax(0, 1.4fr) minmax(0, 1fr) 44px 32px;
+  align-items: center;
+  gap: 8px;
+}
+
+.discover-thead {
+  padding: 8px 4px;
+  color: #666;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.discover-thead > span:nth-child(n+2) { text-align: right; }
+
+.discover-row { border-bottom: 1px solid var(--border-glass); }
+
+.discover-row-grid {
+  width: 100%;
+  padding: 9px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  text-align: left;
+}
+
+.discover-row-grid:hover { background: rgba(255, 255, 255, 0.02); }
+
+.discover-cell-id { min-width: 0; }
+.discover-cell-id strong { display: block; font-size: 13px; color: #fff; }
+.discover-cell-id span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: #888;
+}
+
+.discover-num { text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+.discover-num:global(.is-up) { color: var(--success); }
+.discover-num:global(.is-down) { color: var(--danger); }
+
+.discover-signal {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.discover-signal:global(.is-buy) { color: var(--success); }
+.discover-signal:global(.is-sell) { color: var(--danger); }
+.discover-signal:global(.is-watch) { color: #888; }
+
+.discover-setup {
+  color: #777;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.discover-star {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #555;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.discover-star:hover { color: #ffd700; }
+.discover-star:global(.is-saved) { color: #ffd700; }
+
+.discover-go { color: var(--text-muted); font-size: 10px; }
+.discover-row-grid:hover .discover-go { color: #fff; }
+
+/* ── Status / misc ──────────────────────────────────────────────── */
+.discover-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 4px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.discover-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  margin-bottom: var(--space-4);
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.discover-retry {
+  padding: 6px 12px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.discover-foot {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 10px 4px 0;
+  color: #666;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.discover-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-cyan);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.discover-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.discover-page-btn {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border-glass);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.discover-page-btn:hover:not(:disabled) { border-color: #555; color: #fff; }
+.discover-page-btn:disabled { cursor: default; opacity: 0.35; }
+.discover-page-btn:global(.is-current) { border-color: var(--accent-violet); color: #fff; }
+
+.discover-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.discover-chip {
+  padding: 7px 12px;
+  border: 1px solid var(--border-glass);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: #fff;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.discover-chip small { color: #888; font-weight: 400; }
+
+@media (max-width: 760px) {
+  .discover-thead { display: none; }
+  .discover-row-grid { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) 32px; }
+  .discover-hide-mobile { display: none; }
+  .discover-setup { display: none; }
+}

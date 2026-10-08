@@ -8,6 +8,7 @@ import MessageList from './MessageList';
 import { useChatHistory } from '../_hooks/useChatHistory';
 import { useChatStream } from '../_hooks/useChatStream';
 import { getRandomGreeting, MARKET_QUOTES } from '../_lib/greetings';
+import { takeChatPrefill } from '@/shared/discover';
 import type { MarketQuote } from '../_lib/chat-types';
 import { NEW_CHAT_EVENT } from '../_lib/chat-storage';
 
@@ -52,7 +53,17 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
   useEffect(() => {
     setGreeting(getRandomGreeting());
     setCurrentQuote(MARKET_QUOTES[Math.floor(Math.random() * MARKET_QUOTES.length)]);
-  }, []);
+    // Discover's agent strip stashes a one-shot prompt in sessionStorage.
+    // Pick it up on fresh /chat so the user lands with their question ready.
+    if (!chatId) {
+      try {
+        const prefill = takeChatPrefill(window.sessionStorage);
+        if (prefill) setInput(prefill);
+      } catch {
+        // Prefill is best-effort.
+      }
+    }
+  }, [chatId]);
 
   useEffect(() => {
     const handleNewChat = () => {

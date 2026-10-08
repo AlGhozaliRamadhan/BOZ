@@ -40,4 +40,11 @@ describe('shell command search', () => {
   it('returns every destination on an empty query', () => {
     expect(searchShellCommands('')).toHaveLength(SHELL_COMMANDS.length);
   });
+
+  it('exposes Discover as a ticker/search destination', () => {
+    const ids = searchShellCommands('discover').map(command => command.id);
+    expect(ids).toContain('go-discover');
+    const byTicker = searchShellCommands('discover ticker').map(command => command.id);
+    expect(byTicker).toContain('go-discover');
+  });
 });
