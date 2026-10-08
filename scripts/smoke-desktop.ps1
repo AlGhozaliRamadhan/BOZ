@@ -265,6 +265,11 @@ try {
   $result | ConvertTo-Json
 } finally {
   Get-NewBozNodeProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
+  if ($null -ne $baselineWebViewIds) {
+    @(Get-Process msedgewebview2 -ErrorAction SilentlyContinue |
+      Where-Object { $baselineWebViewIds -notcontains $_.Id }) |
+      Stop-Process -Force -ErrorAction SilentlyContinue
+  }
   foreach ($secondary in $secondaryProcesses) {
     if (-not $secondary.HasExited) {
       Stop-Process -Id $secondary.Id -Force -ErrorAction SilentlyContinue

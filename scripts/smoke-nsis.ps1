@@ -52,7 +52,19 @@ try {
 $deadline = (Get-Date).AddSeconds(15)
 while ((Test-Path -LiteralPath $uninstallKey) -or (Test-Path -LiteralPath $expectedInstallRoot)) {
   if ((Get-Date) -gt $deadline) {
-    throw 'BOZ did not fully remove its per-user registry entry and installation directory.'
+    $leftovers = @()
+    if (Test-Path -LiteralPath $uninstallKey) { $leftovers += "registry key still present: $uninstallKey" }
+    if (Test-Path -LiteralPath $expectedInstallRoot) {
+      $leftovers += "install directory still present: $expectedInstallRoot"
+      Get-ChildItem -LiteralPath $expectedInstallRoot -Recurse -Force -ErrorAction SilentlyContinue |
+        Select-Object -First 20 -ExpandProperty FullName |
+        ForEach-Object { $leftovers += "  remaining file: $_" }
+    }
+    $holders = @((Get-Process boz-desktop -ErrorAction SilentlyContinue | ForEach-Object Id) +
+      (Get-Process msedgewebview2 -ErrorAction SilentlyContinue | ForEach-Object Id) |
+      Select-Object -Unique)
+    if ($holders.Count -gt 0) { $leftovers += "processes still alive: $($holders -join ', ')" }
+    throw "BOZ did not fully remove its per-user registry entry and installation directory.`n$($leftovers -join "`n")"
   }
   Start-Sleep -Milliseconds 500
 }
