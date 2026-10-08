@@ -51,22 +51,37 @@ try {
 
 $deadline = (Get-Date).AddSeconds(15)
 while ((Test-Path -LiteralPath $uninstallKey) -or (Test-Path -LiteralPath $expectedInstallRoot)) {
-  if ((Get-Date) -gt $deadline) {
-    $leftovers = @()
-    if (Test-Path -LiteralPath $uninstallKey) { $leftovers += "registry key still present: $uninstallKey" }
-    if (Test-Path -LiteralPath $expectedInstallRoot) {
-      $leftovers += "install directory still present: $expectedInstallRoot"
-      Get-ChildItem -LiteralPath $expectedInstallRoot -Recurse -Force -ErrorAction SilentlyContinue |
-        Select-Object -First 20 -ExpandProperty FullName |
-        ForEach-Object { $leftovers += "  remaining file: $_" }
-    }
-    $holders = @((Get-Process boz-desktop -ErrorAction SilentlyContinue | ForEach-Object Id) +
-      (Get-Process msedgewebview2 -ErrorAction SilentlyContinue | ForEach-Object Id) |
-      Select-Object -Unique)
-    if ($holders.Count -gt 0) { $leftovers += "processes still alive: $($holders -join ', ')" }
-    throw "BOZ did not fully remove its per-user registry entry and installation directory.`n$($leftovers -join "`n")"
-  }
+  if ((Get-Date) -gt $deadline) { break }
   Start-Sleep -Milliseconds 500
 }
 
-Write-Host 'Verified per-user NSIS install, desktop launch, and uninstall.'
+# The NSIS uninstaller only removes files it installed. The Next.js sidecar
+# legitimately persists its route cache under resources\server\.next at
+# runtime (page renders during the smoke run create it), so that subtree is
+# expected residue. Everything else — especially the registry entry — must
+# be gone.
+$allowedCacheRoot = Join-Path $expectedInstallRoot 'resources\server\.next'
+$separator = [System.IO.Path]::DirectorySeparatorChar
+$offenders = @()
+if (Test-Path -LiteralPath $uninstallKey) { $offenders += "registry key still present: $uninstallKey" }
+if (Test-Path -LiteralPath $expectedInstallRoot) {
+  Get-ChildItem -LiteralPath $expectedInstallRoot -Recurse -Force -ErrorAction SilentlyContinue |
+    Where-Object {
+      $itemPath = $_.FullName
+      $inCache = $itemPath.Equals($allowedCacheRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $itemPath.StartsWith($allowedCacheRoot + $separator, [System.StringComparison]::OrdinalIgnoreCase)
+      $isCacheAncestor = $allowedCacheRoot.StartsWith($itemPath + $separator, [System.StringComparison]::OrdinalIgnoreCase)
+      -not ($inCache -or $isCacheAncestor)
+    } |
+    Select-Object -First 20 -ExpandProperty FullName |
+    ForEach-Object { $offenders += "unexpected residue: $_" }
+}
+if ($offenders.Count -gt 0) {
+  $holders = @((Get-Process boz-desktop -ErrorAction SilentlyContinue | ForEach-Object Id) +
+    (Get-Process msedgewebview2 -ErrorAction SilentlyContinue | ForEach-Object Id) |
+    Select-Object -Unique)
+  if ($holders.Count -gt 0) { $offenders += "processes still alive: $($holders -join ', ')" }
+  throw "BOZ did not fully remove its per-user registry entry and installation directory.`n$($offenders -join "`n")"
+}
+
+Write-Host 'Verified per-user NSIS install, desktop launch, and uninstall (Next.js runtime route cache excluded).'
