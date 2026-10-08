@@ -35,10 +35,14 @@ export async function POST(request: NextRequest) {
     const prompt = buildIntradayPrompt(ticker, marketData.lastCandleFull, macro, sentiment, chartPatterns);
     const verdict = await aiService.analyze(prompt);
 
+    // Legacy levels (fixed-percentage math). Canonical math is risk_calc
+    // in shared/risk-math.ts. WATCH/uncertain emits no levels.
     let tradeLevels = null;
     if (verdict.status === 'ok') {
       const action = verdict.prediction === 'UP' ? 'BUY' : verdict.prediction === 'DOWN' ? 'SELL' : 'WATCH';
-      tradeLevels = buildTradeLevels(marketData.lastCandleFull.close, action as 'BUY' | 'SELL' | 'WATCH', verdict.confidence, '');
+      if (action === 'BUY' || action === 'SELL') {
+        tradeLevels = buildTradeLevels(marketData.lastCandleFull.close, action as 'BUY' | 'SELL', verdict.confidence, '');
+      }
     }
 
     return jsonResponse({
@@ -88,6 +92,6 @@ Price Action & Structure:
 
 REQUIRED OUTPUT:
 1. "thesis": Multi-paragraph professional market breakdown explaining the intraday session vision, liquidity pools, order flow bias, and catalysts.
-2. "strategy": Concise, actionable execution blueprint (entry trigger, scaling, stop-loss management).
+2. "strategy": Concise, actionable execution blueprint (entry trigger, scaling, invalidation conditions). Do not invent entry/stop/target numbers here — levels come only from deterministic tool output.
 3. "reasons": 3-4 strategic catalyst points explaining the business/session rationale (NOT raw formula restatements).`;
 }

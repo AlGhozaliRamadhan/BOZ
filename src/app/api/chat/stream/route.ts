@@ -46,10 +46,54 @@ export async function POST(request: NextRequest) {
     error: 'Too many chat requests are already running',
   }, { status: 429 });
 
+  const clientSignal = request.signal;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     async start(controller) {
+      let released = false;
+      const doRelease = () => {
+        if (!released) {
+          released = true;
+          release();
+        }
+      };
+      let heartbeat: ReturnType<typeof setInterval> | null = null;
+      const stopHeartbeat = () => {
+        if (heartbeat) {
+          clearInterval(heartbeat);
+          heartbeat = null;
+        }
+      };
+      const onClientAbort = () => {
+        stopHeartbeat();
+        try {
+          controller.close();
+        } catch {
+          // Already closed.
+        }
+      };
+      if (clientSignal.aborted) {
+        doRelease();
+        try {
+          controller.close();
+        } catch {
+          // Already closed.
+        }
+        return;
+      }
+      clientSignal.addEventListener('abort', onClientAbort, { once: true });
+      // Keep-alive comment so proxies don't buffer and the client can tell
+      // a live-but-quiet engine apart from a dead connection. The client
+      // parser skips `: comment` lines, so no protocol change is needed.
+      heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(': heartbeat\n\n'));
+        } catch {
+          // Client went away; abort handler closes the stream.
+        }
+      }, 15000);
+
       const engine = new WebChatEngine();
 
       try {
@@ -59,30 +103,50 @@ export async function POST(request: NextRequest) {
           effort,
           thinking,
           model: body.model,
+          signal: clientSignal,
         })) {
+          if (clientSignal.aborted) break;
           const payload = JSON.stringify(event.data);
           const sseMessage = `event: ${event.type}\ndata: ${payload}\n\n`;
           controller.enqueue(encoder.encode(sseMessage));
         }
       } catch (err) {
-        const failure: ChatStreamFailure = {
-          status: typeof (err as { status?: unknown })?.status === 'number'
-            ? (err as { status: number }).status
-            : undefined,
-          code: typeof (err as { code?: unknown })?.code === 'string'
-            ? (err as { code: string }).code
-            : undefined,
-          message: err instanceof Error ? err.message : undefined,
-        };
-        const sseError = `event: error\ndata: ${JSON.stringify({
-          code: classifyChatStreamFailure(failure),
-          message: describeChatStreamFailure(failure),
-        })}\n\n`;
-        controller.enqueue(encoder.encode(sseError));
+        if (clientSignal.aborted || (err instanceof Error && err.name === 'AbortError')) {
+          // User pressed Stop: engine gave up without a terminal event.
+          // Just close; the client already settled as cancelled.
+        } else {
+          const failure: ChatStreamFailure = {
+            status: typeof (err as { status?: unknown })?.status === 'number'
+              ? (err as { status: number }).status
+              : undefined,
+            code: typeof (err as { code?: unknown })?.code === 'string'
+              ? (err as { code: string }).code
+              : undefined,
+            message: err instanceof Error ? err.message : undefined,
+          };
+          const sseError = `event: error\ndata: ${JSON.stringify({
+            code: classifyChatStreamFailure(failure),
+            message: describeChatStreamFailure(failure),
+          })}\n\n`;
+          try {
+            controller.enqueue(encoder.encode(sseError));
+          } catch {
+            // Client went away mid-error.
+          }
+        }
       } finally {
-        release();
-        controller.close();
+        stopHeartbeat();
+        clientSignal.removeEventListener('abort', onClientAbort);
+        doRelease();
+        try {
+          controller.close();
+        } catch {
+          // Already closed by abort handler.
+        }
       }
+    },
+    cancel() {
+      release();
     },
   });
 

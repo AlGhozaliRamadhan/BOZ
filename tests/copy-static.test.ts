@@ -27,7 +27,10 @@ describe('copy-static standalone sanitizer', () => {
     writeFileSync(join(staticRoot, 'chunk.js'), 'static asset');
     writeFileSync(join(publicRoot, 'logo.txt'), 'public asset');
     writeFileSync(join(standaloneRoot, '.env'), 'LOCAL_SECRET=not-for-package');
-    writeFileSync(join(traceRoot, 'route.js.nft.json'), '{"files":["C:/Users/example/.boz/.env"]}');
+    writeFileSync(join(traceRoot, 'route.js.nft.json'), '{"files":["C:/Users/example/.env"]}');
+    const bozSkillDir = join(moduleRoot, '.boz', 'skills', 'intraday');
+    mkdirSync(bozSkillDir, { recursive: true });
+    writeFileSync(join(bozSkillDir, 'SKILL.md'), 'skill');
 
     await run({ moduleRoot });
 
@@ -35,5 +38,6 @@ describe('copy-static standalone sanitizer', () => {
     expect(existsSync(join(traceRoot, 'route.js.nft.json'))).toBe(false);
     expect(existsSync(join(standaloneRoot, '.next', 'static', 'chunk.js'))).toBe(true);
     expect(existsSync(join(standaloneRoot, 'public', 'logo.txt'))).toBe(true);
+    expect(existsSync(join(standaloneRoot, '.boz', 'skills', 'intraday', 'SKILL.md'))).toBe(true);
   });
 });

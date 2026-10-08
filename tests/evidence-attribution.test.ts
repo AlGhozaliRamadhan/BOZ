@@ -22,9 +22,27 @@ describe('crowd-signal attribution', () => {
     });
 
     expect(result).toContain('Crowd signal (not a forecast)');
-    expect(result).toContain('[CNN Fear & Greed](https://production.dataviz.cnn.io/index/fearandgreed/graphdata)');
-    expect(result).toContain('[StockTwits](https://api.stocktwits.com/api/2/streams/symbol/NVDA.json)');
+    // API/data endpoints are named inline, never rendered as source links:
+    // linkifying them teaches the model to paste endpoint URLs as citations.
+    expect(result).toContain('CNN Fear & Greed');
+    expect(result).not.toContain('production.dataviz.cnn.io');
+    expect(result).toContain('StockTwits');
+    expect(result).not.toContain('api.stocktwits.com');
     expect(result).toContain('8 labelled messages out of 30 sampled');
+  });
+
+  it('still linkifies genuine publisher URLs', () => {
+    const result = formatCrowdSignalEvidence({
+      social_buzz: [
+        {
+          source: 'Reddit',
+          mentions: 12,
+          window: '30d',
+          source_url: 'https://www.reddit.com/r/stocks/comments/abc123/nvda_discussion/',
+        },
+      ],
+    });
+    expect(result).toContain('[Reddit](https://www.reddit.com/r/stocks/comments/abc123/nvda_discussion/)');
   });
 
   it('does not manufacture a source when no crowd data exists', () => {

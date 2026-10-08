@@ -304,7 +304,7 @@ export function ThoughtAccordion({
           <div className={styles['thought-timeline-track']}>
             {steps.map((step, idx) => (
               <div
-                key={idx}
+                key={`${step.type}-${step.toolName ?? step.title ?? 'thought'}-${idx}`}
                 className={`${styles['thought-timeline-item']} type-${step.type} ${step.status === 'running' ? 'is-running' : ''}`}
               >
                 <div className={styles['thought-timeline-node']}>

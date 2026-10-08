@@ -58,8 +58,7 @@ describe('sanitizeAssistantOutput', () => {
     expect(summary).toContain('Entry becomes attractive above $220');
   });
 
-  it('separates a detailed public analysis note from the concise answer', () => {
-    const result = parseAnalysisPassOutput(
+  it('separates a detailed public analysis note from the concise answer', () => {    const result = parseAnalysisPassOutput(
       `<analysis_note>
 Hourly price action rejected $215.10 and recovered to $216.94, showing buyers responded near support even though the session remains choppy.
 
@@ -68,10 +67,10 @@ Price is below the $219 SMA20 but above the $208.79 SMA50. That keeps the immedi
 Volume is light, so a long needs confirmation above $219. A stop near $210-$211 allows roughly one ATR of room, with $229.18 and $236.54 as the first two resistance targets.
 </analysis_note>
 <answer>Consider NVDA only after a volume-backed break above $219, using $210-$211 as the stop area and $229.18 then $236.54 as targets.</answer>`,
-      'Market read',
+      'Evidence brief',
     );
 
-    expect(result.analysis).toContain('**Market read**');
+    expect(result.analysis).toContain('**Evidence brief**');
     expect(result.analysis).toContain('rejected $215.10');
     expect(result.analysis).toContain('below the $219 SMA20');
     expect(result.analysis).toContain('Volume is light');

@@ -78,11 +78,15 @@ export async function POST(request: NextRequest) {
     const prompt = buildIntradayPrompt(symbol, last, macro, sentiment, chartPatterns);
     const verdict = await aiService.analyze(prompt);
 
-    // Build trade levels if verdict is ok
+    // Legacy levels (fixed-percentage math). Canonical math is risk_calc
+    // in shared/risk-math.ts. No clean setup (WATCH/uncertain)
+    // emits no levels: callers treat null as "No trade".
     let tradeLevels = null;
     if (verdict.status === 'ok') {
       const action = verdict.prediction === 'UP' ? 'BUY' : verdict.prediction === 'DOWN' ? 'SELL' : 'WATCH';
-      tradeLevels = buildTradeLevels(last.close, action as 'BUY' | 'SELL' | 'WATCH', verdict.confidence, '');
+      if (action === 'BUY' || action === 'SELL') {
+        tradeLevels = buildTradeLevels(last.close, action as 'BUY' | 'SELL', verdict.confidence, '');
+      }
     }
 
     return jsonResponse({

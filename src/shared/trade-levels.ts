@@ -1,6 +1,11 @@
 // ─── shared/trade-levels.ts ───────────────────────────────────────────────────
-// Reusable trade-level calculator.
-// Any agent or analyzer that needs entry / target / stop levels imports this.
+// Legacy trade-level calculator (fixed-percentage math, no R:R/invalidation).
+// DEPRECATED for new trade plans: canonical math is risk_calc
+// in shared/risk-math.ts (deterministic stop distance, ATR multiple, sizing,
+// per-target R:R, ordering/invalidation checks). Kept for backward compatibility
+// with existing callers and tests; do not extend.
+// Any agent or analyzer that needs entry / target / stop levels imports this
+// only for legacy display — new plans must go through risk-math.
 
 import { LATE_KEYWORDS } from './market-constants.js';
 

@@ -42,10 +42,14 @@ export async function POST(request: NextRequest) {
     const prompt = buildLongtermPrompt(ticker, marketData.lastCandleFull, macro, sentiment, chartPatterns, context52w);
     const verdict = await aiService.analyze(prompt);
 
+    // Legacy levels (fixed-percentage math). Canonical math is risk_calc
+    // in shared/risk-math.ts. WATCH/uncertain emits no levels.
     let tradeLevels = null;
     if (verdict.status === 'ok') {
       const action = verdict.prediction === 'UP' ? 'BUY' : verdict.prediction === 'DOWN' ? 'SELL' : 'WATCH';
-      tradeLevels = buildTradeLevels(marketData.lastCandleFull.close, action as 'BUY' | 'SELL' | 'WATCH', verdict.confidence, '');
+      if (action === 'BUY' || action === 'SELL') {
+        tradeLevels = buildTradeLevels(marketData.lastCandleFull.close, action as 'BUY' | 'SELL', verdict.confidence, '');
+      }
     }
 
     return jsonResponse({
@@ -92,6 +96,6 @@ Multi-Month Chart Structure:
 
 REQUIRED OUTPUT:
 1. "thesis": In-depth institutional investment thesis detailing the company's business model vision, secular growth catalysts, economic moat, competitive positioning, valuation multiple potential, and 3-12 month roadmap.
-2. "strategy": Concrete positioning strategy (accumulation bands, multi-tranche DCA, portfolio sizing, invalidation level).
+2. "strategy": Concrete positioning strategy (accumulation conditions, multi-tranche DCA, portfolio sizing, invalidation level). Do not invent band/price numbers here — levels come only from deterministic tool output; state missing inputs as missing.
 3. "reasons": 3-4 strategic catalyst pillars (e.g. secular industry adoption, earnings margin expansion, institutional accumulation) — do NOT write generic indicator statements.`;
 }

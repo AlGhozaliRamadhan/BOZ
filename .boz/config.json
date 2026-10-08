@@ -1,0 +1,5 @@
+{
+  "defaultSkill": "intraday",
+  "maxSkillChars": 4000,
+  "skills": ["intraday", "longterm", "newsintel", "global", "idx", "price", "sentiment", "help"]
+}

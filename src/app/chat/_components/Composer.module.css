@@ -164,6 +164,11 @@
   box-shadow: 0 0 14px rgba(255, 71, 87, 0.4);
 }
 
+.chat-composer-send-btn:global(.is-stopping) {
+  opacity: 0.85;
+  cursor: wait;
+}
+
 /* === SLASH COMMANDS POPUP ================================================= */
 .chat-slash-menu {
   position: absolute;

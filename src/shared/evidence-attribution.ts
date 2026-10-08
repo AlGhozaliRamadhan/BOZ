@@ -11,6 +11,7 @@ export const WEB_EVIDENCE_CITATION_RULES = [
   '  - Say “Multiple independent reports, including [Source A](URL) and [Source B](URL), indicate …” only when at least two distinct named publishers support the same point. Never say “multiple media says” or imply corroboration from one article.',
   '  - Separate evidence from BOZ’s inference. Use wording such as “Based on those reports and the market data, BOZ’s interpretation is …”. Calibrate uncertainty when sources are incomplete, disagree, or merely report an allegation.',
   '  - When web evidence was used, end with an “Evidence & sources” list containing the 2–4 most decision-relevant linked sources. Do not add a source list when no direct source URL was supplied.',
+  '  - Never paste API endpoint URLs, search-query URLs, or tool-internal addresses as sources. A URL appears only if a tool supplied it as the source URL of a publisher/article page, at most once each.',
   '  - Treat crowd data as an observation, not a forecast or consensus. Name the source and sample: “Crowd signal (not a forecast): [StockTwits](URL) showed X% bullish across N labelled messages.” Keep market-wide Fear & Greed separate from ticker-specific StockTwits/Reddit activity, and require price/volume confirmation before acting on either.',
 ].join('\n');
 
@@ -39,8 +40,26 @@ export interface CrowdSignalInput {
   }> | null;
 }
 
+/**
+ * Feed/API infrastructure (api.* hosts, /api/ paths, RSS/redirect URLs, data
+ * endpoints like graphdata) is named inline, never rendered as a clickable
+ * source link: linkifying it teaches the model to paste endpoint URLs as
+ * citations, which the answer contract forbids. Genuine publisher/article
+ * URLs still linkify.
+ */
+const ENDPOINT_SOURCE_PATTERN = /(^|[:\/.])api\.|\/api\/|graphdata|alternative\.me|\/rss|search\.rss|[?&]ceid=/i;
+
+function isEndpointSource(candidate: string): boolean {
+  try {
+    const url = new URL(candidate);
+    return ENDPOINT_SOURCE_PATTERN.test(url.hostname + url.pathname + url.search);
+  } catch {
+    return false;
+  }
+}
+
 function safeSourceLink(label: string, candidate?: string): string {
-  if (!candidate) return label;
+  if (!candidate || isEndpointSource(candidate)) return label;
   try {
     const url = new URL(candidate);
     return url.protocol === 'http:' || url.protocol === 'https:'

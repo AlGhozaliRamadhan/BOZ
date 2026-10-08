@@ -58,6 +58,9 @@ interface ActiveStream {
   accumulatedThoughts: string[];
   collectedTools: ToolResult[];
   lastPersistedAt: number;
+  /** Fallback that force-settles a stream whose abort never settled on its own. */
+  stopFallbackTimer: ReturnType<typeof setTimeout> | null;
+  forceCancel: (() => void) | null;
 }
 
 const activeStreams = new Map<string, ActiveStream>();
@@ -93,11 +96,23 @@ export function subscribeToStream(sessionId: string, listener: SnapshotListener)
   };
 }
 
-/** User-initiated cancel. Returns false when nothing was running. */
+/**
+ * User-initiated cancel. Returns false when nothing was running.
+ * Aborting normally settles the reader loop as `cancelled` at once; the
+ * fallback below guarantees it: if the abort hasn't settled the stream
+ * within a few seconds (hung reader/fetch), the stream is force-finished
+ * as `cancelled` so the Stop button always responds.
+ */
 export function stopStream(sessionId: string): boolean {
   const handle = activeStreams.get(sessionId);
   if (!handle) return false;
   handle.controller.abort();
+  if (!handle.stopFallbackTimer) {
+    handle.stopFallbackTimer = setTimeout(() => {
+      handle.stopFallbackTimer = null;
+      handle.forceCancel?.();
+    }, 4000);
+  }
   return true;
 }
 
@@ -213,6 +228,8 @@ export function startStream(request: StreamRequest): boolean {
     accumulatedThoughts: [],
     collectedTools: [],
     lastPersistedAt: Date.now(),
+    stopFallbackTimer: null,
+    forceCancel: null,
   };
   activeStreams.set(sessionId, handle);
 
@@ -229,6 +246,12 @@ async function runStream(
   const storage = defaultSessionStorage();
 
   const finish = (message: ChatMessage, snapshotStatus: StreamSnapshotStatus, error: string | null) => {
+    // Guard against double-settle (natural finish racing the stop fallback).
+    if (activeStreams.get(sessionId) !== handle) return;
+    if (handle.stopFallbackTimer) {
+      clearTimeout(handle.stopFallbackTimer);
+      handle.stopFallbackTimer = null;
+    }
     try {
       patchAssistantMessage(storage, sessionId, handle.messageIndex, {
         content: message.content,
@@ -250,6 +273,29 @@ async function runStream(
     notify(handle);
     activeStreams.delete(sessionId);
     handle.resolveSettled();
+    try {
+      const completedAt = Date.now();
+      console.info('[chat-stream] finished', {
+        sessionId,
+        reason: snapshotStatus,
+        durationMs: completedAt - handle.startedAt,
+        ttftMs: handle.firstTokenAt != null ? handle.firstTokenAt - handle.startedAt : null,
+        contentChars: message.content.length,
+      });
+    } catch {
+      // Logging must never break the stream.
+    }
+  };
+
+  // Force-settles as user-cancelled when an abort never settled the stream
+  // on its own. Always `cancelled`, never an error: stopping is not failing.
+  handle.forceCancel = () => {
+    if (activeStreams.get(sessionId) !== handle) return;
+    finish(
+      createReply(handle.snapshot.content || '[Generation stopped]', 'cancelled'),
+      'cancelled',
+      null,
+    );
   };
 
   const createReply = (content: string, status: ChatMessage['status']): ChatMessage => {
@@ -273,6 +319,18 @@ async function runStream(
     };
   };
 
+  // Cancelling the reader unblocks a `reader.read()` stuck awaiting bytes,
+  // so an abort settles the loop at once instead of hanging on the network.
+  let readerRef: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  const onAbortCancelReader = () => {
+    try {
+      void readerRef?.cancel();
+    } catch {
+      // Reader already closed.
+    }
+  };
+  controller.signal.addEventListener('abort', onAbortCancelReader, { once: true });
+
   try {
     const res = await fetch('/api/chat/stream', {
       method: 'POST',
@@ -294,9 +352,11 @@ async function runStream(
     }
     const reader = res.body?.getReader();
     if (!reader) throw new Error('No readable stream');
+    readerRef = reader as unknown as ReadableStreamDefaultReader<Uint8Array>;
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let sawDone = false;
 
     while (true) {
       if (controller.signal.aborted) {
@@ -334,6 +394,8 @@ async function runStream(
             }
             notify(handle);
             persistProgress(sessionId, handle, false);
+          } else if (currentEvent === 'done') {
+            sawDone = true;
           } else if (currentEvent === 'tool_start') {
             try {
               const data = JSON.parse(dataStr);
@@ -433,6 +495,8 @@ async function runStream(
       }
     }
 
+    controller.signal.removeEventListener('abort', onAbortCancelReader);
+
     if (controller.signal.aborted) {
       finish(
         createReply(handle.snapshot.content || '[Generation stopped]', 'cancelled'),
@@ -457,8 +521,31 @@ async function runStream(
       );
       return;
     }
+    if (!sawDone) {
+      // Connection closed after partial tokens without a terminal `done`
+      // event — treat as interrupted, not success, so retry shows.
+      const failure: ChatStreamFailure = {
+        code: 'connection_interrupted',
+        message: 'Connection closed before the final response completed',
+      };
+      finish(
+        createReply(
+          buildPausedChatResponse({
+            partialContent: handle.snapshot.content,
+            completedResearch: handle.accumulatedThoughts.length > 0 ||
+              handle.collectedTools.some((tool) => tool.status === 'done'),
+            failure,
+          }),
+          'error',
+        ),
+        'error',
+        describeChatStreamFailure(failure),
+      );
+      return;
+    }
     finish(createReply(handle.snapshot.content, 'done'), 'done', null);
   } catch (err: unknown) {
+    controller.signal.removeEventListener('abort', onAbortCancelReader);
     if (controller.signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
       finish(
         createReply(handle.snapshot.content || '[Generation stopped]', 'cancelled'),

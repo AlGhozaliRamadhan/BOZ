@@ -220,6 +220,10 @@ REASONS:
 - reason 1 (cite data above)
 - reason 2 (cite data above)
 - reason 3 (cite data above)
+
+CONTRACTS (legacy prompt path — canonical math lives in risk_calc):
+- TARGET/STOP numbers must trace to deterministic tool output. Missing data is stated as missing, never estimated. The words "illustrative", "derived", "approximate", "estimated", "conditional" and "rough" create NO exemption — without validated tool output, show NO computed levels.
+- Every answer carries a real likely-path table (Base + Alternative; header + '|---|---|' delimiter; columns Scenario | Trigger | Entry | Stop | TP1 | TP2 (runner) | R:R, one number per cell) and a first-person My take — even on wait days. Never emit "no trade", "no-trade", or FLAT as a terminal stance; say WAIT plus the trigger and what you would do when it prints.
 `;
 }
 
@@ -322,5 +326,9 @@ REASONS:
 - reason 1 (cite data above)
 - reason 2 (cite data above)
 - reason 3 (cite data above)
+
+CONTRACTS (legacy prompt path — canonical math lives in risk_calc):
+- TARGET/STOP numbers must trace to deterministic tool output. Missing data is stated as missing, never estimated.
+- If searches return nothing usable, say fundamentals are inconclusive and lower conviction. Do not force a view.
 `;
 }
