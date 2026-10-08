@@ -39,7 +39,7 @@ describe('copy-static run()', () => {
     expect(readFileSync(join(destB, 'app.css'), 'utf8')).toBe('body { color: red; }');
     expect(readFileSync(join(publicDest, 'logo-boz-transparant-black.png'), 'utf8')).toBe('transparent-logo');
     expect(result.copied).toEqual([destA, destB, publicDest]);
-    expect(result.skipped).toEqual([]);
+    expect(result.skipped).toEqual(['.boz']);
     expect(result.removed).toEqual([]);
   });
 
@@ -55,7 +55,7 @@ describe('copy-static run()', () => {
     const result = await run({ moduleRoot: root });
 
     expect(result.copied).toEqual([]);
-    expect(result.skipped).toEqual(['.next/static', 'public']);
+    expect(result.skipped).toEqual(['.next/static', 'public', '.boz']);
     expect(result.removed).toEqual(envFiles.map(name => join(standalone, name)));
     for (const name of envFiles) {
       expect(existsSync(join(standalone, name))).toBe(false);

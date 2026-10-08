@@ -61,6 +61,17 @@ export async function run({ moduleRoot }) {
     skipped.push('public');
   }
 
+  // Bundle default BOZ skills so the standalone/desktop server resolves
+  // `/cmd` triggers even when its cwd is `.next/standalone`.
+  const bozSrc = join(moduleRoot, '.boz');
+  const bozDest = join(standaloneRoot, '.boz');
+  if (existsSync(bozSrc)) {
+    cpSync(bozSrc, bozDest, { recursive: true, force: true });
+    copied.push(bozDest);
+  } else {
+    skipped.push('.boz');
+  }
+
   return { copied, skipped, removed };
 }
 

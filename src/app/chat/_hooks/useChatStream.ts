@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateA
 import { useRouter } from 'next/navigation';
 import { getEffort, getThinkingEnabled } from '@/shared/chat-options';
 import type { ToolResult } from '@/shared/chat-tool-results';
-import { fallbackChatTitle } from '@/shared/chat-title';
 import {
   flushStreamProgress,
   getStreamSnapshot,
@@ -12,6 +11,7 @@ import {
   subscribeToStream,
   type StreamSnapshot,
 } from '../_lib/chat-stream-manager';
+import { createSessionId, sessionNeedsTitle } from '../_lib/chat-ids';
 import {
   announceSessionsChanged,
   defaultSessionStorage,
@@ -23,18 +23,11 @@ import {
 import type { ChatMessage } from '../_lib/chat-types';
 
 /**
- * New-session ids use the same alphabet the session store sanitizer accepts.
- * Uses Web Crypto (not Math.random): ids route sessions, so CodeQL treats
- * them as a security context.
+ * Title requests in flight, module scope so concurrent hook instances (Strict
+ * Mode remounts, reattach races) never double-fire for one session. Entries
+ * are always removed in a `finally`, so a failed request stays retryable.
  */
-function createSessionId(): string {
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  let random = '';
-  for (const byte of bytes) random += byte.toString(36);
-  random = random.replace(/[^a-z0-9]+/g, '').padEnd(8, '0').substring(0, 8);
-  return `chat-${Date.now().toString(36)}-${random}`;
-}
+const inFlightTitleRequests = new Set<string>();
 
 interface UseChatStreamArgs {
   chatId?: string;
@@ -61,6 +54,7 @@ export function useChatStream({
 }: UseChatStreamArgs) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingStep, setLoadingStep] = useState(0);
   const [loadingType, setLoadingType] = useState<string | null>(null);
@@ -77,8 +71,18 @@ export function useChatStream({
   // Id minted for a fresh chat before the route updates to /chat/[id].
   // Lets stop + reattach logic target the right session during the gap.
   const pendingSessionRef = useRef<string | null>(null);
-  // Sessions whose first exchange just finished and still need an AI title.
-  const needsTitleRef = useRef<Set<string>>(new Set());
+  // Mirrors `stopping` state for idempotent stop clicks without impure updaters.
+  const stoppingRef = useRef(false);
+  // Failsafe: if a stop press never produces a terminal snapshot (hung
+  // reader, missed notification), the UI still releases within seconds.
+  // The manager settles the stream itself in the background.
+  const stopFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearStopFallback = () => {
+    if (stopFallbackRef.current) {
+      clearTimeout(stopFallbackRef.current);
+      stopFallbackRef.current = null;
+    }
+  };
 
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
@@ -118,23 +122,39 @@ export function useChatStream({
     setStreamingThoughts(snapshot.thoughts);
     setToolStatuses(snapshot.tools);
     setError(snapshot.status === 'error' ? snapshot.error : null);
+    if (snapshot.status !== 'streaming') {
+      clearStopFallback();
+      stoppingRef.current = false;
+      setStopping(false);
+    }
   }, []);
 
-  /** Titles a first exchange whose AI title was lost (e.g. finished in background). */
-  const maybeGenerateMissingTitle = useCallback((id: string) => {
+  /**
+   * Requests an AI title when the session still carries its placeholder
+   * (first-user-message fallback). Need is derived from stored state, so a
+   * request lost to failure, reload, or remount is retried on every later
+   * finish until a generated title actually lands and the sidebar updates.
+   */
+  const requestTitleForSession = useCallback((id: string) => {
     try {
-      const done = readSession(defaultSessionStorage(), id);
-      if (!done || done.messages.length !== 2) return;
-      const userMessage = done.messages.find((m) => m.role === 'user');
-      const assistantMessage = done.messages.find((m) => m.role === 'assistant');
-      if (!userMessage || !assistantMessage) return;
-      if (assistantMessage.status !== 'done') return;
-      if (done.title !== fallbackChatTitle(userMessage.content)) return;
-      requestSessionTitle(id, [userMessage, assistantMessage], activeModelRef.current);
+      const need = sessionNeedsTitle(defaultSessionStorage(), id);
+      if (!need) return;
+      if (inFlightTitleRequests.has(id)) return;
+      inFlightTitleRequests.add(id);
+      void Promise.resolve(
+        requestSessionTitle(id, [need.user, need.assistant], activeModelRef.current),
+      ).finally(() => {
+        inFlightTitleRequests.delete(id);
+      });
     } catch {
       // Title generation is best-effort.
     }
   }, [requestSessionTitle]);
+
+  /** Titles a first exchange whose AI title was lost (e.g. finished in background). */
+  const maybeGenerateMissingTitle = useCallback((id: string) => {
+    requestTitleForSession(id);
+  }, [requestTitleForSession]);
 
   const loadingMessages = [
     "Fetching real-time market data...",
@@ -147,7 +167,7 @@ export function useChatStream({
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (loading && loadingType && (loadingType.startsWith('/intraday') || loadingType.startsWith('/longterm'))) {
+    if (loading && loadingType && loadingType.startsWith('/')) {
       interval = setInterval(() => {
         setLoadingStep((prev) => Math.min(prev + 1, loadingMessages.length - 1));
       }, 2500);
@@ -160,7 +180,24 @@ export function useChatStream({
     setStreamingThoughts([]);
     setToolStatuses([]);
     setError(null);
+    clearStopFallback();
+    stoppingRef.current = false;
+    setStopping(false);
   }, [resetSignal]);
+
+  // Safety net: a settled stream without a terminal snapshot (e.g. stop on
+  // an already-finished session) must never leave "Stopping…" on screen.
+  useEffect(() => {
+    if (!loading && stoppingRef.current) {
+      clearStopFallback();
+      stoppingRef.current = false;
+      setStopping(false);
+    }
+  }, [loading]);
+
+  useEffect(() => () => {
+    if (stopFallbackRef.current) clearTimeout(stopFallbackRef.current);
+  }, []);
 
   useEffect(() => {
     const loadModel = async () => {
@@ -207,10 +244,9 @@ export function useChatStream({
     setLoading(live?.status === 'streaming');
     if (live && live.status !== 'streaming') {
       refreshMessages(targetId);
-      // A background finish without a live needsTitle entry (unmounted when
-      // the first exchange completed) still deserves an AI title.
+      // A background finish while unmounted still deserves an AI title.
+      // Need is storage-derived, so this also retries titles lost earlier.
       if (targetId) {
-        needsTitleRef.current.delete(targetId);
         maybeGenerateMissingTitle(targetId);
       }
     }
@@ -228,19 +264,9 @@ export function useChatStream({
       setLoading(next.status === 'streaming');
       if (next.status === 'streaming') return;
       refreshMessages(observedId);
-      if (needsTitleRef.current.delete(observedId)) {
-        const done = readSession(defaultSessionStorage(), observedId);
-        if (done) {
-          const reversed = [...done.messages].reverse();
-          const userMessage = reversed.find((m) => m.role === 'user');
-          const assistantMessage = reversed.find((m) => m.role === 'assistant');
-          if (userMessage && assistantMessage) {
-            requestSessionTitle(observedId, [userMessage, assistantMessage], activeModelRef.current);
-          }
-        }
-      } else {
-        maybeGenerateMissingTitle(observedId);
-      }
+      // Every finish re-checks: a still-untitled session gets its AI title
+      // requested again until a generated title actually lands.
+      maybeGenerateMissingTitle(observedId);
     });
     return () => {
       window.removeEventListener('pagehide', flushOnHide);
@@ -252,10 +278,37 @@ export function useChatStream({
   // Only the stop button aborts a generation. Unmounting (dashboard
   // navigation, accidental exit) merely drops the UI subscription — the
   // manager-owned stream keeps running and finishes on its own.
-  const stopStreaming = () => {
+  // The button always responds: a live stream is aborted (idempotent —
+  // repeat clicks are ignored), a dead spinner with no live stream is
+  // healed at once, and a fallback releases the UI even if no terminal
+  // snapshot ever arrives.
+  const stopStreaming = useCallback(() => {
     const targetId = chatIdRef.current ?? pendingSessionRef.current;
-    if (targetId) stopStream(targetId);
-  };
+    if (!targetId || !isStreamActive(targetId)) {
+      clearStopFallback();
+      stoppingRef.current = false;
+      setStopping(false);
+      setLoading(false);
+      return false;
+    }
+    if (stoppingRef.current) return true;
+    stoppingRef.current = true;
+    const aborted = stopStream(targetId);
+    if (!aborted) {
+      stoppingRef.current = false;
+      return false;
+    }
+    setStopping(true);
+    clearStopFallback();
+    stopFallbackRef.current = setTimeout(() => {
+      stopFallbackRef.current = null;
+      stoppingRef.current = false;
+      setStopping(false);
+      const current = chatIdRef.current ?? pendingSessionRef.current;
+      if (current && !isStreamActive(current)) setLoading(false);
+    }, 6000);
+    return true;
+  }, []);
 
   const sendMessage = async (override?: string) => {
     // Manager state is the single-flight source of truth, not view-local
@@ -280,6 +333,9 @@ export function useChatStream({
     setMessages(updatedMessages);
     setInput('');
     setLoading(true);
+    clearStopFallback();
+    stoppingRef.current = false;
+    setStopping(false);
     setLoadingStep(0);
     setLoadingType(command.toLowerCase());
     setError(null);
@@ -288,7 +344,6 @@ export function useChatStream({
     // stream manager. From here the reply survives unmount: progress is
     // persisted to the session store and this view reattaches on remount.
     let targetId = chatIdRef.current;
-    const isFirstExchange = thread.length === 0;
     try {
       if (!targetId) {
         targetId = createSessionId();
@@ -298,7 +353,6 @@ export function useChatStream({
       } else {
         persistSession(targetId, updatedMessages);
       }
-      if (isFirstExchange) needsTitleRef.current.add(targetId);
 
       const history = thread.map(({ role, content }) => ({ role, content }));
       const started = startStream({
@@ -319,7 +373,6 @@ export function useChatStream({
     } catch (err) {
       console.error('Failed to start chat generation', err);
       setLoading(false);
-      if (targetId) needsTitleRef.current.delete(targetId);
     } finally {
       focusComposer();
     }
@@ -336,6 +389,9 @@ export function useChatStream({
     const command = thread[lastUserIndex].content;
     const history = thread.slice(0, lastUserIndex).map(({ role, content }) => ({ role, content }));
     setLoading(true);
+    clearStopFallback();
+    stoppingRef.current = false;
+    setStopping(false);
     setLoadingStep(0);
     setLoadingType(command.toLowerCase());
     setError(null);
@@ -370,6 +426,7 @@ export function useChatStream({
 
   return {
     loading,
+    stopping,
     error,
     setError,
     loadingStep,

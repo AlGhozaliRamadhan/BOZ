@@ -6,13 +6,15 @@ interface EmptyStateSuggestion {
   action: string;
 }
 
+// Suggestion chips are skill triggers — each action is a `/command` resolved
+// by `.boz/skills/<name>/SKILL.md`, not a hardcoded handler.
 const SUGGESTIONS: EmptyStateSuggestion[] = [
-  { text: 'Global Market Outlook', action: 'What is the current global market outlook across equities, bonds, and macro regimes?' },
+  { text: 'Global Market Outlook', action: '/global' },
   { text: 'Intraday NVDA', action: '/intraday NVDA' },
-  { text: 'Scan IDX Momentum', action: 'Scan Indonesia stocks for high-probability momentum and breakout candidates' },
+  { text: 'Scan IDX Momentum', action: '/idx' },
   { text: 'Market News Intel', action: '/newsintel' },
   { text: 'Longterm AAPL', action: '/longterm AAPL' },
-  { text: 'Crypto & Bitcoin Status', action: 'What is the current Bitcoin price action and crypto crowd sentiment?' },
+  { text: 'Crowd Sentiment', action: '/sentiment' },
 ];
 
 interface EmptyStateProps {

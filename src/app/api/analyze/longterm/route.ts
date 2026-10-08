@@ -89,11 +89,14 @@ export async function POST(request: NextRequest) {
     });
     const verdict = await aiService.analyze(prompt);
 
-    // Build trade levels
+    // Legacy levels (fixed-percentage math). Canonical math is risk_calc
+    // in shared/risk-math.ts. WATCH/uncertain emits no levels.
     let tradeLevels = null;
     if (verdict.status === 'ok') {
       const action = verdict.prediction === 'UP' ? 'BUY' : verdict.prediction === 'DOWN' ? 'SELL' : 'WATCH';
-      tradeLevels = buildTradeLevels(last.close, action as 'BUY' | 'SELL' | 'WATCH', verdict.confidence, '');
+      if (action === 'BUY' || action === 'SELL') {
+        tradeLevels = buildTradeLevels(last.close, action as 'BUY' | 'SELL', verdict.confidence, '');
+      }
     }
 
     return jsonResponse({
@@ -161,7 +164,7 @@ Fibonacci Position: ${chartPatterns.fibonacci_position}
 Support: $${fmt(chartPatterns.nearest_support)}
 Resistance: $${fmt(chartPatterns.nearest_resistance)}
 
-Focus on: secular trends, institutional accumulation/distribution, macro cycle positioning, and multi-month risk/reward setups. Provide target_price for 3-6 month horizon.`;
+Focus on: secular trends, institutional accumulation/distribution, macro cycle positioning, and multi-month risk/reward setups. Do not invent price targets: state missing inputs as missing, and if there is no clean setup say so with what you would need to see.`;
 }
 
 

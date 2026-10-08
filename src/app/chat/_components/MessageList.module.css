@@ -241,11 +241,15 @@
   margin-top: 0;
 }
 .chat-bubble:global(.assistant) table {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   margin: var(--space-4) 0;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .chat-bubble:global(.assistant) thead th {
   text-align: left;

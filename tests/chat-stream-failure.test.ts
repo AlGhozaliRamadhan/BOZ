@@ -43,4 +43,10 @@ describe('chat stream failures', () => {
       message: 'The model or a data source is temporarily unavailable.',
     })).toContain('temporarily unavailable');
   });
+
+  it('classifies truncated streams as interrupted connections', () => {
+    expect(
+      classifyChatStreamFailure({ message: 'Connection closed before the final response completed' }),
+    ).toBe('connection_interrupted');
+  });
 });

@@ -27,6 +27,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
 
   const {
     loading,
+    stopping,
     error,
     setError,
     streamingContent,
@@ -72,7 +73,15 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
   }, [input]);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    try {
+      const el = messagesEndRef.current;
+      // The anchor only exists while the message list is mounted; during the
+      // EmptyState ↔ list switch it is detached and scrolling must be skipped.
+      if (!el || !el.isConnected) return;
+      el.scrollIntoView({ behavior: 'smooth' });
+    } catch {
+      // Smooth scrolling is best-effort and must never break the chat view.
+    }
   };
 
   useEffect(() => {
@@ -94,6 +103,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
             <MessageList
               messages={messages}
               loading={loading}
+              stopping={stopping}
               streamingContent={streamingContent}
               streamingThoughts={streamingThoughts}
               toolStatuses={toolStatuses}
@@ -109,6 +119,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
           input={input}
           setInput={setInput}
           loading={loading}
+          stopping={stopping}
           onSend={() => sendMessage()}
           onStop={stopStreaming}
           textareaRef={textareaRef}

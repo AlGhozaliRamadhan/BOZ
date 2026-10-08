@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 import { ThoughtAccordion } from '../../components/ui/ThoughtAccordion';
 import { formatContent, formatMessageTime } from '../_lib/chat-format';
 import { formatDuration, formatTokensPerSecond } from '../_lib/chat-message-metrics';
@@ -11,6 +11,7 @@ import styles from './MessageList.module.css';
 interface MessageListProps {
   messages: ChatMessage[];
   loading: boolean;
+  stopping?: boolean;
   streamingContent: string;
   streamingThoughts: string[];
   toolStatuses: ToolResult[];
@@ -23,6 +24,7 @@ interface MessageListProps {
 export default function MessageList({
   messages,
   loading,
+  stopping,
   streamingContent,
   streamingThoughts,
   toolStatuses,
@@ -32,9 +34,31 @@ export default function MessageList({
   onRetry,
 }: MessageListProps) {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [stoppingElapsedSec, setStoppingElapsedSec] = useState(0);
+
+  useEffect(() => {
+    if (!stopping) {
+      setStoppingElapsedSec(0);
+      return;
+    }
+    const started = Date.now();
+    const timer = setInterval(() => {
+      setStoppingElapsedSec(Math.round((Date.now() - started) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [stopping]);
 
   const copyMessage = (text: string, index: number) => {
-    navigator.clipboard.writeText(text);
+    try {
+      const result = navigator.clipboard.writeText(text);
+      if (result && typeof (result as Promise<void>).catch === 'function') {
+        (result as Promise<void>).catch(() => {
+          // Clipboard denied — leave the copy button unchanged.
+        });
+      }
+    } catch {
+      // Clipboard unavailable (permissions, insecure context).
+    }
     setCopiedIndex(index);
     setTimeout(() => setCopiedIndex(null), 2000);
   };
@@ -57,7 +81,10 @@ export default function MessageList({
   return (
     <>
       {displayMessages.map((msg, i) => (
-        <div key={i} className={`${styles['chat-bubble']} ${msg.role}`}>
+        <div
+          key={`${msg.role}-${msg.createdAt ?? 'pending'}-${i}`}
+          className={`${styles['chat-bubble']} ${msg.role}`}
+        >
           {msg.role === 'assistant' ? (
             <div className="flex-row gap-3" style={{ width: '100%' }}>
               <div className={styles['chat-assistant-avatar']} style={{ flexShrink: 0, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -83,7 +110,7 @@ export default function MessageList({
                     <div className={styles['chat-suggestion-cards']}>
                       {msg.suggestions.map((s, si) => (
                         <button
-                          key={si}
+                          key={`${s.symbol ?? s.command ?? si}-${si}`}
                           type="button"
                           className={styles['chat-suggestion-card']}
                           onClick={() => onSendCommand(s.command || `/intraday ${s.symbol}`)}
@@ -187,6 +214,11 @@ export default function MessageList({
                   <span className="page-subtitle animate-fadeIn" style={{ margin: 0, transition: 'all 0.3s ease' }}>
                     Thinking...
                   </span>
+                </div>
+              )}
+              {stopping && (
+                <div className="page-subtitle" role="status" aria-live="polite" style={{ margin: '8px 0 0' }}>
+                  Stopping{stoppingElapsedSec > 0 ? `… ${stoppingElapsedSec}s` : '…'}
                 </div>
               )}
             </div>

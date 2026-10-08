@@ -1,28 +1,57 @@
 'use client';
 
-import { type Dispatch, type KeyboardEvent, type RefObject, type SetStateAction } from 'react';
+import { useEffect, useState, type Dispatch, type KeyboardEvent, type RefObject, type SetStateAction } from 'react';
 import ChatEffortPicker from './ChatEffortPicker';
 import ChatModelPicker from './ChatModelPicker';
 import ChatRiskPicker from './ChatRiskPicker';
 import styles from './Composer.module.css';
 
-const SLASH_COMMANDS = [
+interface SlashMenuItem {
+  cmd: string;
+  title: string;
+  desc: string;
+  icon: string;
+}
+
+/** Fallback when the skills API is unreachable. Mirrors the committed BOZ skill frontmatter. */
+const FALLBACK_SLASH_COMMANDS: SlashMenuItem[] = [
   { cmd: '/intraday ', title: 'Intraday', desc: 'Live intraday analysis & key levels [ticker]', icon: 'fa-chart-line' },
   { cmd: '/longterm ', title: 'Longterm', desc: 'Fundamental analysis & long-term outlook [ticker]', icon: 'fa-scale-balanced' },
-  { cmd: '/newsintel', title: '/newsintel', desc: 'Scan latest market headlines', icon: 'fa-newspaper' },
+  { cmd: '/newsintel ', title: '/newsintel', desc: 'Scan latest market headlines', icon: 'fa-newspaper' },
 ];
 
 interface ComposerProps {
   input: string;
   setInput: Dispatch<SetStateAction<string>>;
   loading: boolean;
+  stopping?: boolean;
   onSend: () => void;
   onStop: () => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
 }
 
-export default function Composer({ input, setInput, loading, onSend, onStop, textareaRef }: ComposerProps) {
+export default function Composer({ input, setInput, loading, stopping, onSend, onStop, textareaRef }: ComposerProps) {
+  // Dynamic menu loaded from the skills API. Each skill folder adds one slash command.
+  const [slashCommands, setSlashCommands] = useState<SlashMenuItem[]>(FALLBACK_SLASH_COMMANDS);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/skills')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && Array.isArray(data?.commands) && data.commands.length) {
+          setSlashCommands(data.commands);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape' && loading) {
+      e.preventDefault();
+      onStop();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (!loading) {
@@ -33,10 +62,10 @@ export default function Composer({ input, setInput, loading, onSend, onStop, tex
 
   return (
     <div className={styles['chat-composer']}>
-      {input.startsWith('/') && !input.includes(' ') && input !== '/newsintel' && (
+      {input.startsWith('/') && !input.includes(' ') && (
         <div className={styles['chat-slash-menu']} role="listbox" aria-label="Commands">
-          {SLASH_COMMANDS
-            .filter(c => c.cmd.startsWith(input) || c.title.startsWith(input))
+          {slashCommands
+            .filter(c => c.cmd.startsWith(input) || c.title.toLowerCase().startsWith(input.slice(1).toLowerCase()))
             .map(item => (
               <button
                 key={item.cmd}
@@ -90,7 +119,7 @@ export default function Composer({ input, setInput, loading, onSend, onStop, tex
           <ChatModelPicker />
           <button
             type="button"
-            className={`${styles['chat-composer-send-btn']} ${loading ? 'active is-stop' : input.trim() ? 'active' : ''}`}
+            className={`${styles['chat-composer-send-btn']} ${loading ? 'active is-stop' : input.trim() ? 'active' : ''}${stopping ? ' is-stopping' : ''}`}
             onClick={() => {
               if (loading) {
                 onStop();
@@ -99,11 +128,12 @@ export default function Composer({ input, setInput, loading, onSend, onStop, tex
               }
             }}
             disabled={!loading && !input.trim()}
-            title={loading ? 'Stop generation' : 'Send message (Enter)'}
-            aria-label={loading ? 'Stop generation' : 'Send message'}
+            title={loading ? (stopping ? 'Stopping…' : 'Stop generation (Esc)') : 'Send message (Enter)'}
+            aria-label={loading ? (stopping ? 'Stopping generation' : 'Stop generation') : 'Send message'}
+            aria-busy={loading}
           >
             {loading ? (
-              <i className="fa-solid fa-stop" style={{ fontSize: '12px' }}></i>
+              <i className={stopping ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-stop'} style={{ fontSize: '12px' }}></i>
             ) : (
               <i className="fa-solid fa-arrow-up" style={{ fontSize: '13px' }}></i>
             )}
