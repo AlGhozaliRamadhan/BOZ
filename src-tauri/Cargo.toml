@@ -5,7 +5,7 @@ description = "BOZ Windows desktop host"
 authors = ["AGR"]
 license = "ISC"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.90"
 
 [lib]
 name = "boz_desktop_lib"
