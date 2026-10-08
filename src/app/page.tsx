@@ -1,25 +1,33 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import styles from './ticker/[ticker]/TickerPage.module.css';
+import { findBigMovers, loadRecentTickers } from '@/shared/discover';
+
+interface Quote {
+  price?: number;
+  change?: number;
+  changePercent?: number;
+}
+
+const MARKET_NOW = [
+  { symbol: 'SPY', label: 'S&P 500' },
+  { symbol: 'QQQ', label: 'Nasdaq 100' },
+  { symbol: 'BTC-USD', label: 'Bitcoin' },
+  { symbol: 'NVDA', label: 'Nvidia' },
+];
 
 export default function HomePage() {
   const router = useRouter();
-  const [tickerInput, setTickerInput] = useState('');
-  
-  // Autocomplete state
-  const [searchResults, setSearchResults] = useState<{symbol: string, name: string, exchange: string}[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
-  
-  // Favorites logic
+
+  // Favorites logic (same storage + two-step remove as before).
   const [favorites, setFavorites] = useState<string[]>([]);
-  const [favoriteQuotes, setFavoriteQuotes] = useState<Record<string, any>>({});
+  const [favoriteQuotes, setFavoriteQuotes] = useState<Record<string, Quote>>({});
+  const [marketQuotes, setMarketQuotes] = useState<Record<string, Quote>>({});
   const [removingFavorite, setRemovingFavorite] = useState<string | null>(null);
-  // Two-step removal: first click arms the star so an accidental
-  // tap on remove can't silently drop the ticker from the watchlist.
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [recentCount, setRecentCount] = useState(0);
 
   const removeFavorite = (ticker: string) => {
     if (removingFavorite) return;
@@ -36,7 +44,6 @@ export default function HomePage() {
       });
       window.dispatchEvent(new Event('boz_favorites_changed'));
     } catch {
-      // Corrupt storage — clear it so the list recovers.
       localStorage.setItem('boz_favorites', '[]');
       setFavorites([]);
     } finally {
@@ -55,7 +62,10 @@ export default function HomePage() {
     try {
       const favs = JSON.parse(localStorage.getItem('boz_favorites') || '[]');
       setFavorites(Array.isArray(favs) ? favs.filter((t: unknown): t is string => typeof t === 'string') : []);
-    } catch(e) {}
+      setRecentCount(loadRecentTickers(window.localStorage).length);
+    } catch {
+      setFavorites([]);
+    }
   };
 
   useEffect(() => {
@@ -65,128 +75,168 @@ export default function HomePage() {
     return () => window.removeEventListener('boz_favorites_changed', handleFavsChange);
   }, []);
 
+  // Market overview quotes (fixed basket, best-effort).
   useEffect(() => {
-    favorites.forEach(t => {
-      if (!favoriteQuotes[t]) {
-        fetch(`/api/market/quote?ticker=${encodeURIComponent(t)}`)
-          .then(res => res.json())
-          .then(data => {
-            setFavoriteQuotes(prev => ({ ...prev, [t]: data }));
-          })
-          .catch(err => console.error(err));
-      }
-    });
-  }, [favorites, favoriteQuotes]);
-
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(async () => {
-      if (tickerInput.trim() && showDropdown) {
-        setIsSearching(true);
-        try {
-          const res = await fetch(`/api/market/search?q=${encodeURIComponent(tickerInput.trim())}`);
-          if (res.ok) {
-            const data = await res.json();
-            setSearchResults(data.slice(0, 6)); // Top 6 results
+    MARKET_NOW.forEach(({ symbol }) => {
+      fetch(`/api/market/quote?ticker=${encodeURIComponent(symbol)}`)
+        .then(res => (res.ok ? res.json() : null))
+        .then(data => {
+          if (data && typeof data.price === 'number') {
+            setMarketQuotes(prev => (prev[symbol] ? prev : { ...prev, [symbol]: data }));
           }
-        } catch (err) {
-          console.error('Search failed', err);
-        } finally {
-          setIsSearching(false);
-        }
-      } else {
-        setSearchResults([]);
-      }
-    }, 300);
+        })
+        .catch(() => {});
+    });
+  }, []);
 
-    return () => clearTimeout(delayDebounceFn);
-  }, [tickerInput, showDropdown]);
+  // Watchlist quotes with a light refresh while visible (in-app alerts only).
+  useEffect(() => {
+    let cancelled = false;
+    const fetchFavs = () => {
+      if (document.visibilityState !== 'visible') return;
+      favorites.forEach(t => {
+        fetch(`/api/market/quote?ticker=${encodeURIComponent(t)}`)
+          .then(res => (res.ok ? res.json() : null))
+          .then(data => {
+            if (!cancelled && data && typeof data.price === 'number') {
+              setFavoriteQuotes(prev => ({ ...prev, [t]: data }));
+            }
+          })
+          .catch(() => {});
+      });
+    };
+    fetchFavs();
+    const id = setInterval(fetchFavs, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [favorites]);
 
-  const handleTickerSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (tickerInput.trim()) {
-      let newTicker = tickerInput.trim().toUpperCase();
-      if (showDropdown && searchResults.length > 0) {
-        newTicker = searchResults[0].symbol.toUpperCase();
-      }
-      setShowDropdown(false);
-      router.push(`/ticker/${encodeURIComponent(newTicker)}`);
-    }
-  };
+  // In-app move alerts: watchlist names moving ±3% today. No browser notify.
+  const movers = useMemo(
+    () =>
+      findBigMovers(
+        favorites.map(t => ({ ticker: t, changePercent: favoriteQuotes[t]?.changePercent })),
+        3,
+      ),
+    [favorites, favoriteQuotes],
+  );
+
+  const topFavorites = favorites.slice(0, 5);
 
   return (
     <div className={styles['bbg-page']} style={{ padding: '0 var(--space-4) var(--space-6)', background: 'var(--bg-primary)' }}>
-      {/* ── HEADER ────────────────────────────────────────────────────────── */}
       <header className={`bbg-header ${styles['ticker-page-header']}`}>
         <div>
-          <h1 style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-violet)', fontSize: '14px', fontWeight: 700, margin: 0, letterSpacing: '0.05em' }}>INTELLIGENCE DASHBOARD</h1>
+          <h1 style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-violet)', fontSize: '14px', fontWeight: 700, margin: 0, letterSpacing: '0.05em' }}>DASHBOARD</h1>
           <p style={{ fontFamily: 'var(--font-mono)', color: '#555', fontSize: '10px', marginTop: '2px', textTransform: 'uppercase' }}>REAL-TIME MARKET OVERVIEW</p>
         </div>
-        <div className={styles['ticker-search']}>
-          <form onSubmit={handleTickerSubmit} className={styles['ticker-search__form']} role="search">
-            <i className="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-            <input
-              type="text"
-              aria-label="Search ticker or asset"
-              placeholder="Search ticker or asset"
-              value={tickerInput}
-              onChange={(e) => {
-                setTickerInput(e.target.value);
-                setShowDropdown(e.target.value.trim() !== '');
-              }}
-              onFocus={() => {
-                if (tickerInput.trim() !== '') setShowDropdown(true);
-              }}
-              onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
-              className={styles['ticker-search__input']}
-            />
-            <button type="submit" className={styles['ticker-search__submit']}>GO <span aria-hidden="true">↗</span></button>
-          </form>
-
-          {showDropdown && (tickerInput.trim() !== '') && (
-            <div className={styles['ticker-search__results']}>
-              {isSearching ? (
-                <div className={styles['ticker-search__message']}>SEARCHING...</div>
-              ) : searchResults.length > 0 ? (
-                searchResults.map((result, i) => (
-                  <button
-                    type="button"
-                    key={result.symbol + i}
-                    className={styles['ticker-search__result']}
-                    onClick={() => {
-                      const newTicker = result.symbol.toUpperCase();
-                      setShowDropdown(false);
-                      router.push(`/ticker/${encodeURIComponent(newTicker)}`);
-                    }}
-                  >
-                    <span className={styles['ticker-search__symbol']}>{result.symbol}</span>
-                    <span className={styles['ticker-search__name']}>{result.name}</span>
-                    <span className={styles['ticker-search__exchange']}>{result.exchange}</span>
-                  </button>
-                ))
-              ) : (
-                <div className={styles['ticker-search__message']}>NO RESULTS</div>
-              )}
-            </div>
-          )}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            type="button"
+            onClick={() => router.push('/discover')}
+            style={{ padding: '0 14px', height: '38px', borderRadius: '7px', border: 0, background: 'var(--accent-violet)', color: '#080808', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
+          >
+            <i className="fa-solid fa-magnifying-glass" aria-hidden="true" style={{ marginRight: '6px' }}></i>
+            SEARCH TICKERS
+          </button>
         </div>
       </header>
 
-      {favorites.length > 0 ? (
-        <section className={styles['home-watchlist']}>
-          <h2>YOUR WATCHLIST</h2>
+      {/* Market now */}
+      <section aria-label="Market now" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+        {MARKET_NOW.map(({ symbol, label }) => {
+          const q = marketQuotes[symbol];
+          const chg = q?.changePercent;
+          const up = (chg ?? 0) >= 0;
+          return (
+            <button
+              key={symbol}
+              type="button"
+              onClick={() => router.push(`/ticker/${encodeURIComponent(symbol)}`)}
+              style={{ textAlign: 'left', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-glass)', background: 'var(--bg-secondary)', cursor: 'pointer' }}
+            >
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', color: '#888' }}>{label}</div>
+              <div style={{ color: '#fff', fontSize: '16px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', margin: '4px 0' }}>
+                {typeof q?.price === 'number' ? (
+                  `$${q.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                ) : (
+                  <span className={styles['skel']} style={{ width: '76px', height: '17px' }}></span>
+                )}
+              </div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700, color: typeof chg === 'number' ? (up ? 'var(--success)' : 'var(--danger)') : '#666' }}>
+                {typeof chg === 'number' ? `${up ? '+' : ''}${chg.toFixed(2)}%` : <span className={styles['skel']} style={{ width: '52px', height: '12px' }}></span>}
+              </div>
+            </button>
+          );
+        })}
+      </section>
+
+      {/* In-app alerts preview */}
+      {movers.length > 0 && (
+        <section
+          aria-label="Watchlist alerts"
+          role="status"
+          style={{ border: '1px solid var(--warning, #e2a63d)', borderRadius: '10px', padding: '12px 14px', marginBottom: '20px', background: 'rgba(226,166,61,0.07)' }}
+        >
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em', color: '#fff', marginBottom: '6px' }}>
+            <i className="fa-solid fa-bell" aria-hidden="true" style={{ marginRight: '8px' }}></i>
+            MOVING TODAY · {movers.length}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {movers.map(t => {
+              const chg = favoriteQuotes[t]?.changePercent;
+              const up = (chg ?? 0) >= 0;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => router.push(`/ticker/${encodeURIComponent(t)}`)}
+                  style={{ padding: '6px 10px', borderRadius: '999px', border: '1px solid var(--border-glass)', background: 'transparent', color: up ? 'var(--success)' : 'var(--danger)', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  {t} {typeof chg === 'number' ? `${up ? '+' : ''}${chg.toFixed(2)}%` : ''} ↗
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Watchlist summary */}
+      <section className={styles['home-watchlist']} style={{ marginTop: 0, maxWidth: 'none' }} aria-label="Watchlist summary">
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px' }}>
+          <h2>YOUR WATCHLIST{favorites.length > 0 ? ` · ${favorites.length}` : ''}</h2>
+          {favorites.length > 5 && (
+            <button
+              type="button"
+              onClick={() => router.push('/discover')}
+              style={{ background: 'transparent', border: 0, color: 'var(--accent-cyan)', fontFamily: 'var(--font-mono)', fontSize: '11px', cursor: 'pointer' }}
+            >
+              View all in Discover →
+            </button>
+          )}
+        </div>
+        {favorites.length > 0 ? (
           <div className={styles['home-watchlist-list']}>
-            {favorites.map(t => {
+            {topFavorites.map(t => {
               const quote = favoriteQuotes[t];
               const price = quote?.price;
               const change = quote?.change;
-              const isUp = change >= 0;
+              const isUp = (change ?? 0) >= 0;
               return (
                 <div key={t} className={styles['home-watchlist-row']}>
                   <button type="button" className={styles['home-watchlist-asset']} onClick={() => router.push(`/ticker/${encodeURIComponent(t)}`)}>
                     <span className={styles['home-watchlist-symbol']}>{t}</span>
-                    <span className={styles['home-watchlist-price']}>{typeof price === 'number' ? `$${price.toFixed(2)}` : 'LOADING...'}</span>
+                    <span className={styles['home-watchlist-price']}>
+                      {typeof price === 'number' ? (
+                        `$${price.toFixed(2)}`
+                      ) : (
+                        <span className={styles['skel']} style={{ width: '64px', height: '14px' }}></span>
+                      )}
+                    </span>
                     <span className={`${styles['home-watchlist-change']}${isUp ? ' is-up' : ' is-down'}`}>
-                      {typeof change === 'number' ? `${isUp ? '+' : ''}${change.toFixed(2)}` : '—'}
+                      {typeof change === 'number' ? `${isUp ? '+' : ''}${change.toFixed(2)}` : <span className={styles['skel']} style={{ width: '48px', height: '12px' }}></span>}
                     </span>
                     <i className="fa-solid fa-chevron-right" aria-hidden="true"></i>
                   </button>
@@ -205,15 +255,42 @@ export default function HomePage() {
               );
             })}
           </div>
-        </section>
-      ) : (
-        <div style={{ padding: '60px 0', textAlign: 'center' }}>
-          <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: '18px', color: '#fff' }}>ENTER A TICKER TO BEGIN</h2>
-          <p style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#888', marginTop: '8px' }}>
-            Search for any stock or crypto symbol in the top right to view intelligence data.
-          </p>
-        </div>
-      )}
+        ) : (
+          <div style={{ padding: '28px 0', textAlign: 'center', border: '1px dashed var(--border-glass)', borderRadius: '10px' }}>
+            <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: '#fff' }}>NO SYMBOLS YET</h2>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#888', marginTop: '8px' }}>
+              Star any ticker to pin it here{recentCount > 0 ? ' — or jump back into one you recently viewed' : ''}.
+            </p>
+            <button
+              type="button"
+              onClick={() => router.push('/discover')}
+              style={{ marginTop: '12px', padding: '10px 16px', borderRadius: '7px', border: 0, background: 'var(--accent-violet)', color: '#080808', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
+            >
+              DISCOVER TICKERS ↗
+            </button>
+          </div>
+        )}
+      </section>
+
+      {/* Shortcuts to the rest of the app */}
+      <section aria-label="Shortcuts" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginTop: '20px' }}>
+        {[
+          { label: 'Discover', desc: 'Search + agent + ideas', href: '/discover' },
+          { label: 'Screeners', desc: 'Find your next setup', href: '/screener' },
+          { label: 'News Intel', desc: 'Headlines + sentiment', href: '/news-intel' },
+          { label: 'Chat Agent', desc: 'Ask anything', href: '/chat' },
+        ].map(s => (
+          <button
+            key={s.href}
+            type="button"
+            onClick={() => router.push(s.href)}
+            style={{ textAlign: 'left', padding: '12px 14px', borderRadius: '10px', border: '1px solid var(--border-glass)', background: 'transparent', cursor: 'pointer' }}
+          >
+            <div style={{ color: '#fff', fontSize: '12px', fontWeight: 700 }}>{s.label} →</div>
+            <div style={{ color: '#888', fontSize: '11px', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>{s.desc}</div>
+          </button>
+        ))}
+      </section>
     </div>
   );
 }

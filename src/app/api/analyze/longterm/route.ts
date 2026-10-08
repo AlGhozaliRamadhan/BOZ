@@ -7,7 +7,7 @@ import { MacroService } from '@/services/market/macro.service';
 import { SentimentService } from '@/services/market/sentiment.service';
 import { ChartAnalyzer } from '@/analyzers/chart.analyzer';
 import { AIService } from '@/services/ai/ai.service';
-import { buildTradeLevels } from '@/shared/trade-levels';
+import { buildPotentialLevels } from '@/shared/trade-levels';
 import { resolveSymbol } from '@/shared/market-constants';
 import { formatCrowdSignalEvidence } from '@/shared/evidence-attribution';
 import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
@@ -90,13 +90,19 @@ export async function POST(request: NextRequest) {
     const verdict = await aiService.analyze(prompt);
 
     // Legacy levels (fixed-percentage math). Canonical math is risk_calc
-    // in shared/risk-math.ts. WATCH/uncertain emits no levels.
-    let tradeLevels = null;
-    if (verdict.status === 'ok') {
-      const action = verdict.prediction === 'UP' ? 'BUY' : verdict.prediction === 'DOWN' ? 'SELL' : 'WATCH';
-      if (action === 'BUY' || action === 'SELL') {
-        tradeLevels = buildTradeLevels(last.close, action as 'BUY' | 'SELL', verdict.confidence, '');
-      }
+    // in shared/risk-math.ts. Always emit a potential envelope — even on
+    // WATCH / uncertain / error — so the UI still shows where price could
+    // go instead of hiding money values. WATCH envelopes are flagged
+    // isPotential so the UI can label them "wait, not a trigger".
+    const verdictLean = verdict as { prediction?: 'UP' | 'DOWN' | 'UNKNOWN'; confidence?: number };
+    const tradeLevels = buildPotentialLevels(
+      last.close ?? null,
+      verdict.status === 'ok' ? verdict.prediction : (verdictLean.prediction ?? 'UNKNOWN'),
+      verdict.status === 'ok' ? verdict.confidence : (verdictLean.confidence ?? 50),
+      '',
+    );
+    if (verdict.status !== 'ok') {
+      tradeLevels.isPotential = true;
     }
 
     return jsonResponse({

@@ -164,34 +164,54 @@ export default function LongtermAnalysisPage() {
               <div style={{ padding: 'var(--space-4)', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-glass)' }}>
                 <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>AI Conviction Score</span>
                 <div style={{ fontSize: 'var(--text-3xl)', fontWeight: 700, color: 'var(--text-primary)', marginTop: 'var(--space-1)' }}>
-                  {isOk ? verdict.confidence : '--'}%
+                  {verdict?.confidence ?? '--'}%
                 </div>
               </div>
-              
+
               <div style={{ gridColumn: 'span 2', padding: 'var(--space-4)', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-glass)' }}>
                 <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Recommended Action</span>
                 <div style={{ fontSize: 'var(--text-lg)', fontWeight: 500, color: 'var(--text-primary)', marginTop: 'var(--space-1)' }}>
-                  {isOk ? (verdict.strategy || 'Maintain current position and monitor macro trends.') : (verdict?.reason || 'Analysis returned an uncertain result due to conflicting signals.')}
+                  {isOk ? (verdict.strategy || 'Maintain current position and monitor macro trends.') : (
+                    <>
+                      {verdict?.reason || 'Analysis returned an uncertain result due to conflicting signals.'}
+                      {verdict?.strategy ? (
+                        <span style={{ display: 'block', marginTop: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+                          Potential trigger: {verdict.strategy}
+                        </span>
+                      ) : null}
+                    </>
+                  )}
                 </div>
               </div>
             </div>
 
-            {tl && isOk && (
+            {tl && (
                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-4)', borderTop: '1px solid var(--border-glass)', paddingTop: 'var(--space-4)' }}>
-                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                   <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 'var(--space-1)' }}>Entry Target</span>
-                   <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--text-primary)' }}>{tl.entryRange}</div>
-                 </div>
-                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                   <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 'var(--space-1)' }}>Price Target</span>
-                   <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--bull)' }}>{tl.targetRange}</div>
-                 </div>
-                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                   <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 'var(--space-1)' }}>Stop Loss</span>
-                   <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--bear)' }}>{tl.stopLoss}</div>
-                 </div>
-               </div>
-            )}
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 'var(--space-1)' }}>
+                      Entry Target{(tl.isPotential || !isOk) ? ' (potential)' : ''}
+                    </span>
+                    <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--text-primary)' }}>{tl.entryRange}</div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 'var(--space-1)' }}>
+                      Price Target{(tl.isPotential || !isOk) ? ' (potential)' : ''}
+                    </span>
+                    <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--bull)' }}>{tl.targetRange}</div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 'var(--space-1)' }}>
+                      Stop Loss{(tl.isPotential || !isOk) ? ' (potential)' : ''}
+                    </span>
+                    <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--bear)' }}>{tl.stopLoss}</div>
+                  </div>
+                  {(tl.isPotential || !isOk) && (
+                    <div style={{ gridColumn: 'span 3', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                      Wait envelope — where price could go if the trigger prints. Not an active trigger.
+                    </div>
+                  )}
+                </div>
+             )}
           </div>
 
           {/* 52-Week Context */}

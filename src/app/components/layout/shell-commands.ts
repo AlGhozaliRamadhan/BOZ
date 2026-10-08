@@ -39,6 +39,15 @@ export const SHELL_COMMANDS: ShellCommand[] = [
     href: '/chat',
   },
   {
+    id: 'go-discover',
+    label: 'Discover',
+    hint: '/discover',
+    icon: 'fa-regular fa-compass',
+    kind: 'route',
+    keywords: ['discover', 'explore', 'ticker', 'search', 'trending', 'ideas', 'watchlist'],
+    href: '/discover',
+  },
+  {
     id: 'go-screener',
     label: 'Screeners',
     hint: '/screener',

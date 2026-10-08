@@ -36,7 +36,21 @@ export type AIResult =
       raw_response?: string;
     }
   | { status: 'error';     reason: string; thought?: string; thoughts?: string[]; raw_response?: string }
-  | { status: 'uncertain'; reason: string; thought?: string; thoughts?: string[]; raw_response?: string };
+  | {
+      status: 'uncertain';
+      reason: string;
+      thought?: string;
+      thoughts?: string[];
+      raw_response?: string;
+      /** Best directional lean even when uncertain — drives potential levels. */
+      prediction?: 'UP' | 'DOWN' | 'UNKNOWN';
+      confidence?: number;
+      strategy?: string;
+      thesis?: string;
+      target_price?: number;
+      stop_loss?: number;
+      reasons?: string[];
+    };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -61,12 +75,19 @@ const JSON_OUTPUT_RULES = [
   '  "reasons": ["string", ...] // 3-4 high-level strategic catalyst bullets (e.g. secular drivers, business moat, liquidity inflection)',
   '  "reason": "string" // required when status != ok',
   '}',
-  'If data is insufficient, set status to "uncertain", prediction to "UNKNOWN", and explain in reason.',
+  'Even when status is "uncertain", ALWAYS include your best lean: prediction (UP/DOWN/UNKNOWN), confidence, strategy (what trigger would confirm it), and potential target_price/stop_loss at the nearest data-native structure so the UI can show where price could go. Explain the conflict in reason, never leave levels empty.',
 ].join('\n');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const uncertain = (reason: string, raw?: string): AIResult => ({ status: 'uncertain', reason, thought: reason, thoughts: [reason], raw_response: raw });
+const uncertain = (reason: string, raw?: string): AIResult => ({
+  status: 'uncertain',
+  reason,
+  thought: reason,
+  thoughts: [reason],
+  raw_response: raw,
+  prediction: 'UNKNOWN',
+});
 const errResult = (reason: string, raw?: string): AIResult => ({ status: 'error',     reason, thought: reason, thoughts: [reason], raw_response: raw });
 
 /** The system-level analysis preamble injected for all providers */
@@ -77,7 +98,7 @@ function buildSystemPrompt(): string {
     `ANALYTICAL DIRECTIVE:\n` +
     `1. STRATEGIC THESIS: Provide a rich, professional thesis explaining what is fundamentally and technically driving this asset. ` +
     `   Cover secular growth trends, business moat, revenue catalysts, institutional order flow, and macro cycle positioning.\n` +
-    `2. CONVICTION & DIRECTIONAL STANCE: Deliver one committed read from technical levels, ATR volatility, and macro regime. Never write symmetric bull/base/bear sections; state which side has the edge, name the single strongest fact against the thesis, and what would change your mind.\n` +
+    `2. CONVICTION & DIRECTIONAL STANCE: Deliver one committed read from technical levels, ATR volatility, and macro regime. Never write symmetric bull/base/bear sections; state which side has the edge, name the single strongest fact against the thesis, and what would change your mind. Vary your phrasing run to run — never open two analyses the same way, never recycle stock sentences; same required content, fresh words every time.\n` +
     `3. CATALYST DRIVERS (reasons): Do NOT merely repeat technical formulas (like "SMA20 is X"). Instead, distill the 3-4 decisive strategic reasons ` +
     `   (e.g., "Secular AI datacenter capital expenditure expansion", "Bullish momentum continuation above multi-month accumulation base", "Contrarian retail sentiment reset with institutional accumulation").\n` +
     `4. RUTHLESS OBJECTIVITY: Both bullish and bearish calls are equally respected. Always specify the primary invalidation risk.\n\n` +
@@ -87,7 +108,7 @@ function buildSystemPrompt(): string {
   `  - ONE full render, ≤350 words ending with a complete sentence, conclusion first. Review passes are internal-only and silent — never streamed, yielded, or labelled. Never emit "Research brief", "Quant recheck", "Number verification", or "Initial Quantitative Synthesis".\n` +
   `  - OWNERSHIP: market evidence is the reason — never cite a contract, tool, or procedural state. A wait is demonstrated through the likely-path table, not asserted: test the dashboard plan via risk_calc; on failure construct the obvious alternative and test it too. The table + first-person take appear either way. Declining a passing plan requires its numbers + a reason; "no passing/validated combination" phrasing is banned. Never emit "no trade" or "no-trade". Macro claims must trace to tool output; thin results are "inconclusive". Never paste API endpoint URLs as sources. Never tell the user to run your tools.\n` +
   `  - The words "illustrative", "derived", "approximate", "estimated", "conditional" and "rough" create NO exemption. A number with a disclaimer is still a number: delete it. Without risk_calc output, show NO computed levels.\n` +
-    `  - risk_calc validates math; likelihood comes from location, participation, and catalysts. Even with no clean setup, give the likely path (drift/pullback/chop), the wait trigger, and what you would do when it prints — first person. Do not force a take-now plan.\n` +
+    `  - risk_calc validates math; likelihood comes from location, participation, and catalysts. Even with no clean setup, give the likely path (drift/pullback/chop) WITH potential target_price/stop_loss at the nearest data-native structure, the wait trigger, and what you would do when it prints — first person. A wait still shows money (potential levels), never empty levels. Do not force a take-now plan.\n` +
     `  - Ensure prediction, confidence, thesis, and trade levels form a unified narrative.\n` +
     `  - When the prompt includes a web source URL, attribute the claim in the thesis/reasons with that exact link. Use “According to [Source](URL), …” for a single report. Say “Multiple independent reports, including [A](URL) and [B](URL), indicate …” only when two distinct named sources support the same point.\n` +
     `  - Treat Fear & Greed, StockTwits, and Reddit data as sourced crowd observations—not forecasts or proof of a trade. State the source and sample when supplied, keep market-wide and ticker-specific signals separate, and require price/volume confirmation.\n` +
@@ -481,14 +502,39 @@ export class AIService {
       thoughtText = thinkingMatch[1].trim();
     }
 
-    if (payload.status !== 'ok') {
+    if (payload.status === 'error') {
       const reason = payload.reason ?? 'Model returned no reason';
       return {
-        status: payload.status,
+        status: 'error' as const,
         reason,
         thought: thoughtText || reason,
         thoughts: thoughtText ? [thoughtText] : [reason],
         raw_response: raw,
+      };
+    }
+
+    if (payload.status === 'uncertain') {
+      const reason = payload.reason ?? 'Model returned no reason';
+      // Preserve the model's best lean even on uncertain so callers can
+      // still show a potential path (where price could go) instead of
+      // hiding money values. Missing lean defaults to UNKNOWN, never null.
+      const leanConfidence =
+        typeof payload.confidence === 'number' && Number.isFinite(payload.confidence)
+          ? Math.max(0, Math.min(100, Math.round(payload.confidence)))
+          : undefined;
+      const leanReasons = payload.reasons?.filter((r) => r.trim().length > 0).slice(0, 5);
+      return {
+        status: 'uncertain' as const,
+        reason,
+        thought: thoughtText || reason,
+        thoughts: thoughtText ? [thoughtText] : [reason],
+        raw_response: raw,
+        prediction: (payload.prediction ?? 'UNKNOWN') as 'UP' | 'DOWN' | 'UNKNOWN',
+        ...(leanConfidence !== undefined ? { confidence: leanConfidence } : {}),
+        ...(payload.strategy?.trim() ? { strategy: payload.strategy.trim() } : {}),
+        ...(typeof payload.target_price === 'number' ? { target_price: payload.target_price } : {}),
+        ...(typeof payload.stop_loss === 'number' ? { stop_loss: payload.stop_loss } : {}),
+        ...(leanReasons && leanReasons.length > 0 ? { reasons: leanReasons } : {}),
       };
     }
 

@@ -47,6 +47,7 @@ describe('shell layout preferences', () => {
     expect(getShellNavigationTarget('newChat')).toBe('/chat');
     expect(getShellNavigationTarget('dashboard')).toBe('/');
     expect(getShellRouteLabel('/chat/example')).toBe('Chat Agent');
+    expect(getShellRouteLabel('/discover')).toBe('Discover');
     expect(getShellRouteLabel('/ticker/BTC-USD')).toBe('Market Dashboard');
     expect(getShellRouteLabel('/dashboard/BTC-USD')).toBe('Market Dashboard');
     expect(getShellRouteLabel('/')).toBe('Dashboard');

@@ -223,7 +223,8 @@ REASONS:
 
 CONTRACTS (legacy prompt path — canonical math lives in risk_calc):
 - TARGET/STOP numbers must trace to deterministic tool output. Missing data is stated as missing, never estimated. The words "illustrative", "derived", "approximate", "estimated", "conditional" and "rough" create NO exemption — without validated tool output, show NO computed levels.
-- Every answer carries a real likely-path table (Base + Alternative; header + '|---|---|' delimiter; columns Scenario | Trigger | Entry | Stop | TP1 | TP2 (runner) | R:R, one number per cell) and a first-person My take — even on wait days. Never emit "no trade", "no-trade", or FLAT as a terminal stance; say WAIT plus the trigger and what you would do when it prints.
+- Every answer carries a real likely-path table (Base + Alternative; header + '|---|---|' delimiter; columns Scenario | Trigger | Entry | Stop | TP1 | TP2 (runner) | R:R, one number per cell) and a first-person My take — even on wait days. A wait day still shows money: Base-row Entry/Stop/TP1/TP2 carry data-native potential levels, never a full row of "—". Never emit "no trade", "no-trade", or FLAT as a terminal stance; say WAIT plus the trigger, the potential path, and what you would do when it prints.
+- Fresh words every run: rotate which fact leads and how the opener is entered; never recycle stock phrases ("dead on contact", "stay light", "pullback-first").
 `;
 }
 

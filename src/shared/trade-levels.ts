@@ -16,6 +16,30 @@ export interface TradeLevel {
   stopLoss:    string;
   lateSignal:  string;
   spotPrice?:  number;
+  /** True when this is a wait/uncertain envelope, not an active trigger. */
+  isPotential?: boolean;
+}
+
+/**
+ * Always returns displayable levels, even on WATCH / uncertain / error.
+ * Directional edge (BUY/SELL) is used when present; otherwise a WATCH
+ * envelope around spot is returned so the UI can still show the potential
+ * path (where price could go) instead of hiding money values.
+ * Deterministic math from spot only — never AI-invented.
+ */
+export function buildPotentialLevels(
+  spot: number | null,
+  prediction: 'UP' | 'DOWN' | 'UNKNOWN' | undefined | null,
+  confidence: number | undefined | null,
+  blob = '',
+): TradeLevel {
+  const action: 'BUY' | 'SELL' | 'WATCH' =
+    prediction === 'UP' ? 'BUY' : prediction === 'DOWN' ? 'SELL' : 'WATCH';
+  const levels = buildTradeLevels(spot, action, confidence ?? 50, blob);
+  if (action === 'WATCH') {
+    levels.isPotential = true;
+  }
+  return levels;
 }
 
 /**
