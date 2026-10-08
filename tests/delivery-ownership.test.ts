@@ -7,7 +7,12 @@ import { RUNTIME_SYSTEM_PROMPT } from '../src/shared/runtime-prompt.js';
 import { getReasoningPassPrompt } from '../src/shared/thought-prompts.js';
 
 function readRepo(relative: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), 'utf8');
+  const raw = readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), 'utf8');
+  // Normalize CRLF: Windows checkouts (core.autocrlf=true) store CRLF in the
+  // worktree while multi-line anchors are authored with LF. Without this,
+  // verbatim toContain assertions fail on Windows only (including the
+  // publish workflow's Windows npm test gate) while passing on Linux CI.
+  return raw.replace(/\r\n/g, '\n');
 }
 
 // Scenario-first anchor: failing dashboard plan tested, obvious alternative
