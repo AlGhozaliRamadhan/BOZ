@@ -1,6 +1,6 @@
 {
   "name": "@agr77/boz",
-  "version": "2.7.4",
+  "version": "2.8.0",
   "description": "Windows desktop AI market intelligence dashboard for technical, macro, news, sentiment, and risk-aware analysis.",
   "private": true,
   "engines": {
