@@ -45,6 +45,7 @@ import type { LLMMessage, RawToolCall } from '@/types/llm.types';
 import { getThoughtPrompt, getReasoningPassPrompt, type ThoughtEffort } from '@/shared/thought-prompts';
 import { buildAiRead, buildTrackLine, SCENARIO_TRACK_STAGES } from '@/app/chat/_lib/tool-thoughts';
 import { answerCheck, type AnswerCheckToolCall } from '@/shared/answer-check';
+import { isPlainQuestion } from '@/shared/chat-question';
 import { buildSkillsVariable, extractSlashCommand, findSkillByTrigger, normalizeSkillKey } from '@/shared/boz-skills.js';
 import { listBozSkills, loadBozSkill } from '@/services/skills/skill-loader.js';
 import { formatLedgerFacts } from '@/shared/ledger-facts';
@@ -189,6 +190,20 @@ export class WebChatEngine {
       ? (effort === 'Low' ? 'low' : effort === 'Medium' ? 'medium' : 'high')
       : undefined;
 
+    // ── Turn intent ──────────────────────────────────────────────────────────
+    // A normal question about the answer BOZ just gave is NOT a new report.
+    // Without this the engine re-runs the whole intraday pipeline and the
+    // drafting pass re-renders the same report, because it never saw the prior
+    // answer. Tools stay available to the model; only the forced chain is
+    // skipped.
+    const plainQuestion = isPlainQuestion(message, history);
+    if (plainQuestion) {
+      console.info('[chat.engine] plain question about a previous answer — no forced research chain', {
+        historyMessages: history?.length ?? 0,
+        chars: message.length,
+      });
+    }
+
     // ── BOZ skills as variable + tools ──────────────────────────────────
     // `.boz/skills/<name>/SKILL.md` holds domain judgment; the engine stays
     // generic. The `<boz_skills>` variable advertises what the model can do,
@@ -216,7 +231,7 @@ export class WebChatEngine {
 
     // ── Build message list ──────────────────────────────────────────────────
     const messages: LLMMessage[] = [
-      { role: 'system', content: this.buildSystemPrompt(effort, thinkingEnabled, skillContext) },
+      { role: 'system', content: this.buildSystemPrompt(effort, thinkingEnabled, skillContext, plainQuestion) },
     ];
 
     if (history?.length) {
@@ -372,7 +387,11 @@ export class WebChatEngine {
       // Tool-choice is not honored consistently by every configured model
       // provider. Make ticker research an engine requirement, not merely a
       // model instruction, so a dashboard can never be the only evidence.
-      for (const symbol of tickerResearchSymbols) {
+      // A question about something already answered is exempt: the requirement
+      // exists to ground a NEW report, and forcing it there is what re-ran the
+      // whole pipeline to answer "how could you be sure about that". If the
+      // question genuinely needs fresh evidence, the model calls what it needs.
+      for (const symbol of plainQuestion ? [] : tickerResearchSymbols) {
         const requiredQueries = requiredTickerResearchQueries(symbol, effort);
         const missingSearches = Math.max(
           0,
@@ -423,14 +442,17 @@ export class WebChatEngine {
       try {
         const requiredWebSearches = effort === 'Low' || effort === 'Medium' ? 1 : 2;
         const completedWebSearches = ledger.filter((entry) => entry.tool === 'web_search').length;
-        const requireWebResearch = tickerDashboardWasFetched && completedWebSearches < requiredWebSearches;
+        // A question about an earlier answer is never force-armed: the model may
+        // still call any tool, but the engine does not drag the message back
+        // into a full report.
+        const requireWebResearch = !plainQuestion && tickerDashboardWasFetched && completedWebSearches < requiredWebSearches;
         // risk_calc must be in-ledger before any plan numbers are shown.
         // Sequence after web research: force risk_calc (model supplies
         // dashboard-sourced entry/stop/targets/atr) before the draft may
         // present numbers. A wait is still demonstrated via the likely-path
         // table + risk_calc output — never refused on procedural grounds.
         const hasRiskCalc = ledger.some((entry) => entry.tool === 'risk_calc');
-        const requireRiskCalc = tickerDashboardWasFetched && !requireWebResearch && !hasRiskCalc;
+        const requireRiskCalc = !plainQuestion && tickerDashboardWasFetched && !requireWebResearch && !hasRiskCalc;
         const forcedTool = requireWebResearch
           ? 'web_search'
           : requireRiskCalc
@@ -472,7 +494,7 @@ export class WebChatEngine {
         // below is the single complete render.
         throwIfAborted();
         if (ledger.length > 0) {
-          const reasoningMessages = this.buildReasoningMessages(messages, ledger, skillContext);
+          const reasoningMessages = this.buildReasoningMessages(messages, ledger, skillContext, plainQuestion);
           // Pass 0 is fatal: no draft exists yet, so a single transient
           // provider failure here would sink the whole run (full timeline,
           // zero final content). collectThinkingPass retries it.
@@ -511,7 +533,7 @@ export class WebChatEngine {
         let bestDraft = draft;
         for (let pass = 1; pass < passes; pass++) {
           throwIfAborted();
-          const review = this.buildSelfReviewMessages(messages, ledger, draft, effort, pass, skillContext);
+          const review = this.buildSelfReviewMessages(messages, ledger, draft, effort, pass, skillContext, '', plainQuestion);
           const passMessages = review.messages;
 
           try {
@@ -585,7 +607,7 @@ export class WebChatEngine {
         // regenerate once with the mechanical findings appended. On a second
         // FAIL, stamp FAILED VALIDATION with the issue list — never silently
         // ship a failing answer.
-        let gate = answerCheck(finalAnswer, this.buildAnswerCheckLog(messages));
+        let gate = answerCheck(finalAnswer, this.buildAnswerCheckLog(messages), { plainQuestion });
         if (!gate.pass) {
           console.warn(
             `[chat.engine] answer gate failed (${gate.issues.length} issues), regenerating once:`,
@@ -604,6 +626,7 @@ export class WebChatEngine {
               1,
               skillContext,
               `${gate.issues.map((issue) => `- ${issue}`).join('\n')}\n"clean" is not an option on this pass — return the full corrected answer.`,
+              plainQuestion,
             );
             const regenDraft = (await this.collectThinkingPass(
               regen.messages,
@@ -618,7 +641,7 @@ export class WebChatEngine {
               const regenAnswer = (regenParsed.answer || this.stripThinkingFull(regenDraft)).trim();
               if (regenAnswer) {
                 finalAnswer = regenAnswer;
-                gate = answerCheck(finalAnswer, this.buildAnswerCheckLog(messages));
+                gate = answerCheck(finalAnswer, this.buildAnswerCheckLog(messages), { plainQuestion });
               }
             }
           } catch (regenErr) {
@@ -651,7 +674,12 @@ export class WebChatEngine {
 
   // ─── System prompt (ported from CLI, adapted for web) ─────────────────────
 
-  private buildSystemPrompt(effort: ThoughtEffort = 'Max', includeThoughtDirective = true, skillContext = ''): string {
+  private buildSystemPrompt(
+    effort: ThoughtEffort = 'Max',
+    includeThoughtDirective = true,
+    skillContext = '',
+    plainQuestion = false,
+  ): string {
     const memory = memoryService.getMemory();
     const prefs = memory.preferences.length
       ? `\n<user_memory_data kind="preferences">\n${memory.preferences.map(p => JSON.stringify(p)).join('\n')}\n</user_memory_data>`
@@ -688,6 +716,10 @@ export class WebChatEngine {
       '  Do not state a numeric probability unless it is supplied by a calibrated source.',
       WEB_EVIDENCE_CITATION_RULES,
       '',
+      // Scoped to this message only. Placed AFTER the delivery contract on purpose:
+      // it relaxes the shape for this message and leaves every other contract
+      // — numbers, ownership, grounding — in force.
+      ...(plainQuestion ? [this.plainQuestionDirective(), ''] : []),
       thoughtDirective,
       ...(skillContext ? ['', skillContext] : []),
     ].join('\n');
@@ -1386,6 +1418,65 @@ export class WebChatEngine {
     }
   }
 
+  /**
+   * Conversation tail handed to the drafting and review passes.
+   *
+   * Self-imitation guard (kept): prior full renders are NOT replayed wholesale —
+   * feeding the whole transcript is what taught the model to restate the report
+   * three times. Summarize, don't replay.
+   *
+   * What the guard broke: with user messages only, "how could you be sure about
+   * that" was indistinguishable from a fresh request, so the pass re-rendered the
+   * whole report in answer to it. The fix is narrow, and only when the user is
+   * asking a question: carry ONLY the immediately preceding answer, in its real
+   * chronological position (before the message being asked about). Otherwise
+   * nothing changes and the anti-restatement guard still holds.
+   */
+  private buildQuestionContext(
+    messages: LLMMessage[],
+    plainQuestion: boolean,
+  ): { context: LLMMessage[]; priorAnswer: string | null } {
+    const users = messages.filter((m) => m.role === 'user').slice(-4);
+    if (!plainQuestion) {
+      return { context: users, priorAnswer: null };
+    }
+    let priorAnswer: string | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (message?.role === 'assistant' && message.content?.trim()) {
+        priorAnswer = message.content.trim();
+        break;
+      }
+    }
+    if (!priorAnswer || users.length === 0) {
+      return { context: users, priorAnswer: null };
+    }
+    const latest = users[users.length - 1];
+    return {
+      // ...earlier prompts, the answer being questioned, then the question.
+      context: [...users.slice(0, -1), { role: 'assistant', content: priorAnswer }, latest],
+      priorAnswer,
+    };
+  }
+
+  /**
+   * Instructions added when the user is asking a normal question about the
+   * answer BOZ just gave. Overrides the "one full brief, table always" delivery
+   * contract for that message only — the numbers, ownership and grounding
+   * contracts are untouched.
+   */
+  private plainQuestionDirective(): string {
+    return [
+      'WHEN THE USER ASKS YOU A QUESTION ABOUT YOUR PREVIOUS ANSWER:',
+      '  That is an ordinary conversation message, not a request for a new report. Answer the question they asked.',
+      '  Do not restate or re-summarize what you already told them. Do not re-emit the likely-path table or My take unless they ask for the plan again.',
+      '  Do not re-run the dashboard/search/calc pipeline to answer a question about numbers you already reported. Call a tool ONLY when the answer genuinely depends on something you have not already established.',
+      '  Numbers you repeat from your previous answer are quotes of your own prior statement, not new claims. Anything NEW still has to trace to a tool result.',
+      '  If they ask about a different subject, or ask for a complete fresh analysis, then give the full brief: stance, driving facts, likely-path table, My take.',
+      '  Short and direct beats comprehensive. A question does not get the whole report pasted back at it.',
+    ].join('\n');
+  }
+
   private buildSelfReviewMessages(
     messages: LLMMessage[],
     ledger: LedgerEntry[],
@@ -1394,14 +1485,12 @@ export class WebChatEngine {
     pass: number,
     skillContext = '',
     extraDirective = '',
+    plainQuestion = false,
   ): { messages: LLMMessage[] } {
-    // Self-imitation guard: review passes see user messages only (plus the
-    // ledger, tool outputs, and the current draft). Prior assistant full
-    // renders are NEVER fed back — feeding them is what taught the model to
-    // restate the brief three times. Summarize, don't replay.
-    const conversationContext = messages.filter(
-      m => m.role === 'user',
-    ).slice(-4);
+    // Self-imitation guard: review passes see user messages plus the
+    // IMMEDIATELY preceding answer when the user is asking a question about it,
+    // never the full transcript of renders.
+    const { context: conversationContext } = this.buildQuestionContext(messages, plainQuestion);
 
     // Render the ledger with disagreement surfacing: rival values for the same
     // quantity keep both numbers AND get an explicit "disagrees with the above"
@@ -1503,6 +1592,13 @@ export class WebChatEngine {
       taskLine = `Recompute every number in the draft against the ledger and raw tool outputs. Delete what cannot be traced; never relabel it. Return the complete revised answer, or "clean".`;
     }
 
+    // Every review role gets the same scope guard, not just the reasoning pass:
+    // "widen the coverage" is exactly how the full report crept back into a
+    // one-line question.
+    if (plainQuestion) {
+      taskLine += ' The draft answers a question about the answer given immediately above. Keep it scoped to that question — do NOT re-render that report, do NOT re-add the likely-path table or My take, and do NOT pad it with coverage nobody asked for. Numbers quoted from it are already settled; do not relabel them. Reply "clean" if the draft already does that.';
+    }
+
     // Review passes are fresh model calls. Re-apply the citation contract so a
     // polished rewrite cannot lose the original source attribution.
     // Re-apply the skills variable too: review passes otherwise reason without
@@ -1580,7 +1676,12 @@ export class WebChatEngine {
     return log;
   }
 
-  private buildReasoningMessages(messages: LLMMessage[], ledger: LedgerEntry[], skillContext = ''): LLMMessage[] {
+  private buildReasoningMessages(
+    messages: LLMMessage[],
+    ledger: LedgerEntry[],
+    skillContext = '',
+    plainQuestion = false,
+  ): LLMMessage[] {
     const confirmedFacts = formatLedgerFacts(ledger);
 
     // Extract all raw tool outputs so reasoning has the full rich dashboard dataset
@@ -1613,6 +1714,7 @@ export class WebChatEngine {
       '  - Fresh words every run: same required content, never the same sentences. Rotate which driving fact leads, rotate the opener entry point (conviction first, invalidation first, location first, participation first), vary My-take phrasing. Never recycle stock phrases ("dead on contact", "stay light", "pullback-first", "I see it drifting linearly here"). Same phrasing every run is failure even if the numbers are right.',
       '  - Open in your own words with direction, conviction, and invalidation woven into sentences; never a label-first stamp like "WAIT, medium conviction …". No filler openers, no closers.',
       '  - At most one em dash per answer; prefer commas and periods.',
+      ...(plainQuestion ? ['', this.plainQuestionDirective()] : []),
       '',
       WEB_EVIDENCE_CITATION_RULES,
       ...(skillContext ? ['', skillContext] : []),
@@ -1621,13 +1723,16 @@ export class WebChatEngine {
     const reasoningUserPrompt = [
       toolOutputs ? `COMPLETE TOOL & MARKET DATA:\n${toolOutputs}\n` : '',
       confirmedFacts ? `CONFIRMED DATA (immutable — you must use and cannot contradict):\n${confirmedFacts}\n` : '',
-      'Synthesize the data into a decision-ready conclusion: stance, driving facts, likely-path table (Base + Alternative), first-person My take with the wait trigger, and what you watch next. Even on wait days the table + take appear.',
+      plainQuestion
+        ? 'The user asked a question about the answer you gave immediately above. Answer THAT question directly, scoped to it. Do not restate what you already told them, do not re-render the report, and do not re-emit the likely-path table or My take unless they asked for the plan again. Only if they are asking about a different subject, or asking for a complete fresh analysis, do you produce the full brief (stance, driving facts, likely-path table, My take, what you watch next).'
+        : 'Synthesize the data into a decision-ready conclusion: stance, driving facts, likely-path table (Base + Alternative), first-person My take with the wait trigger, and what you watch next. Even on wait days the table + take appear.',
     ].filter(Boolean).join('\n');
 
-    // Include user messages to prevent intermediate assistant tool scratchpad pollution
-    const conversationContext = messages.filter(
-      m => m.role === 'user',
-    ).slice(-4);
+    // User messages prevent intermediate assistant tool scratchpad pollution;
+    // when the user is asking a question, the immediately preceding answer rides
+    // along in its real chronological position so the pass can see what it is
+    // being asked about.
+    const { context: conversationContext } = this.buildQuestionContext(messages, plainQuestion);
 
     return [
       { role: 'system', content: reasoningSystemPrompt },

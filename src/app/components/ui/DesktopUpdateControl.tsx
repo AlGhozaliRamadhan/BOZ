@@ -1,153 +1,149 @@
 'use client';
 
+import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '@tauri-apps/api/core';
-import type { DownloadEvent, Update } from '@tauri-apps/plugin-updater';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
+import { useCallback, useEffect, useState } from 'react';
 import styles from './DesktopUpdateControl.module.css';
 
-type UpdateStatus = 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'installing' | 'error' | 'unavailable';
+/**
+ * Phase reported by the desktop host.
+ *
+ * The host owns the update flow, not this component. It used to run its own
+ * independent `check()` from here while Rust ALSO prompted with a native
+ * dialog, so the two UIs could disagree and the user got no download progress
+ * at all (the Rust progress callback was a no-op). Now the host is the single
+ * source of truth: it publishes status, this renders it.
+ */
+export type HostUpdatePhase =
+  | 'idle'
+  | 'available'
+  | 'downloading'
+  | 'installing'
+  | 'error';
 
-interface DownloadProgress {
-  received: number;
-  total: number | null;
+export interface HostUpdateStatus {
+  phase: HostUpdatePhase;
+  version: string | null;
+  percent: number | null;
+  message: string | null;
+  snoozedVersion: string | null;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'The update service could not be reached.';
-}
+const UPDATE_EVENT = 'boz://update-status';
 
-export function progressFromEvent(event: DownloadEvent, previous: DownloadProgress): DownloadProgress {
-  if (event.event === 'Started') {
-    return { received: 0, total: event.data.contentLength ?? null };
-  }
-  if (event.event === 'Progress') {
-    return { ...previous, received: previous.received + event.data.chunkLength };
-  }
-  return previous;
+export const IDLE_UPDATE_STATUS: HostUpdateStatus = {
+  phase: 'idle',
+  version: null,
+  percent: null,
+  message: null,
+  snoozedVersion: null,
+};
+
+/** Drops anything the host has not reported so a stale payload can't render. */
+export function normalizeUpdateStatus(raw: unknown): HostUpdateStatus {
+  if (!raw || typeof raw !== 'object') return IDLE_UPDATE_STATUS;
+  const candidate = raw as Partial<HostUpdateStatus>;
+  const phases: HostUpdatePhase[] = ['idle', 'available', 'downloading', 'installing', 'error'];
+  const phase = phases.includes(candidate.phase as HostUpdatePhase)
+    ? (candidate.phase as HostUpdatePhase)
+    : 'idle';
+  const percent = typeof candidate.percent === 'number' && Number.isFinite(candidate.percent)
+    ? Math.max(0, Math.min(100, Math.round(candidate.percent)))
+    : null;
+  return {
+    phase,
+    version: typeof candidate.version === 'string' && candidate.version ? candidate.version : null,
+    percent,
+    message: typeof candidate.message === 'string' && candidate.message ? candidate.message : null,
+    snoozedVersion:
+      typeof candidate.snoozedVersion === 'string' && candidate.snoozedVersion
+        ? candidate.snoozedVersion
+        : null,
+  };
 }
 
 export default function DesktopUpdateControl({ version }: { version: string }) {
-  const updateRef = useRef<Update | null>(null);
   const [isDesktop, setIsDesktop] = useState(false);
-  const [status, setStatus] = useState<UpdateStatus>('idle');
-  const [availableVersion, setAvailableVersion] = useState<string | null>(null);
-  const [progress, setProgress] = useState<DownloadProgress>({ received: 0, total: null });
-  const [error, setError] = useState<string | null>(null);
-
-  const releaseUpdate = useCallback(async () => {
-    const update = updateRef.current;
-    updateRef.current = null;
-    if (update) await update.close().catch(() => undefined);
-  }, []);
+  const [status, setStatus] = useState<HostUpdateStatus>(IDLE_UPDATE_STATUS);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setIsDesktop(isTauri());
-    return () => { void releaseUpdate(); };
-  }, [releaseUpdate]);
+    const desktop = isTauri();
+    setIsDesktop(desktop);
+    if (!desktop) return undefined;
 
-  const checkForUpdates = useCallback(async () => {
-    if (!isTauri()) {
-      setStatus('unavailable');
-      return;
-    }
+    let cancelled = false;
+    // Read the current state first: the host can finish a check while the app
+    // is still booting, and that offer must survive the UI mounting late.
+    void invoke<unknown>('update_status')
+      .then((raw) => { if (!cancelled) setStatus(normalizeUpdateStatus(raw)); })
+      .catch(() => undefined);
 
-    await releaseUpdate();
-    setError(null);
-    setAvailableVersion(null);
-    setProgress({ received: 0, total: null });
-    setStatus('checking');
+    const unlisten = listen<unknown>(UPDATE_EVENT, (event) => {
+      if (!cancelled) setStatus(normalizeUpdateStatus(event.payload));
+    }).then((off) => () => { cancelled = true; off(); }).catch(() => () => { cancelled = true; });
 
+    return () => { cancelled = true; void unlisten.then((off) => off()); };
+  }, []);
+
+  const install = useCallback(async () => {
+    setBusy(true);
+    setActionError(null);
     try {
-      const { check } = await import('@tauri-apps/plugin-updater');
-      const update = await check({ timeout: 20_000 });
-      if (!update) {
-        setStatus('current');
-        return;
-      }
-      updateRef.current = update;
-      setAvailableVersion(update.version);
-      setStatus('available');
-    } catch (checkError) {
-      setError(errorMessage(checkError));
-      setStatus('error');
+      await invoke('install_available_update');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'The update could not start.');
+    } finally {
+      setBusy(false);
     }
-  }, [releaseUpdate]);
+  }, []);
 
-  const downloadAndRestart = useCallback(async () => {
-    const update = updateRef.current;
-    if (!update) {
-      await checkForUpdates();
-      return;
-    }
-
-    setError(null);
-    setProgress({ received: 0, total: null });
-    setStatus('downloading');
-
+  const remindLater = useCallback(async () => {
+    const target = status.version;
+    if (!target) return;
+    setBusy(true);
+    setActionError(null);
     try {
-      await update.downloadAndInstall((event) => {
-        if (event.event === 'Finished') {
-          setStatus('installing');
-          return;
-        }
-        setProgress(current => progressFromEvent(event, current));
-      }, { restartAfterInstall: true, timeout: 15 * 60_000 });
-      // On Windows Tauri exits the app after the signed NSIS updater launches.
-      // This state is only visible on platforms where the process remains alive.
-      setStatus('installing');
-    } catch (installError) {
-      setError(errorMessage(installError));
-      setStatus('error');
-      await releaseUpdate();
+      await invoke('snooze_update', { version: target });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not save your choice.');
+    } finally {
+      setBusy(false);
     }
-  }, [checkForUpdates, releaseUpdate]);
+  }, [status.version]);
 
-  const percentage = progress.total && progress.total > 0
-    ? Math.min(100, Math.round((progress.received / progress.total) * 100))
-    : null;
-  const busy = status === 'checking' || status === 'downloading' || status === 'installing';
-  const buttonLabel = status === 'checking'
-    ? 'Checking…'
-    : status === 'available'
-      ? 'Download & restart'
-      : status === 'downloading'
-        ? percentage == null ? 'Downloading…' : `Downloading ${percentage}%`
-        : status === 'installing'
-          ? 'Starting updater…'
-          : status === 'error'
-            ? 'Try again'
-            : 'Check for updates';
-  const action = status === 'available' ? downloadAndRestart : checkForUpdates;
+  const percentage = status.percent;
+  const updateRunning = status.phase === 'downloading' || status.phase === 'installing';
 
   const statusPill = !isDesktop
     ? { label: 'Browser preview', tone: 'muted' as const }
-    : status === 'current'
-      ? { label: 'Up to date', tone: 'ok' as const }
-      : status === 'available'
-        ? { label: `v${availableVersion} ready`, tone: 'info' as const }
-        : status === 'downloading' || status === 'installing'
-          ? { label: 'Updating…', tone: 'info' as const }
-          : status === 'error'
-            ? { label: 'Check failed', tone: 'bad' as const }
+    : status.phase === 'available'
+      ? { label: `v${status.version} ready`, tone: 'info' as const }
+      : updateRunning
+        ? { label: 'Updating…', tone: 'info' as const }
+        : status.phase === 'error'
+          ? { label: 'Update failed', tone: 'bad' as const }
+          : status.snoozedVersion
+            ? { label: 'Up to date', tone: 'ok' as const }
             : { label: 'Desktop app', tone: 'muted' as const };
 
   const statusCopy = !isDesktop
-    ? 'You are previewing BOZ in the browser. Updates ship with the installed Windows desktop app — nothing to do here.'
-    : status === 'idle'
-      ? 'Check the signed BOZ release channel from here.'
-      : status === 'checking'
-        ? 'Checking the signed release channel…'
-        : status === 'current'
-          ? 'You are running the latest version.'
-          : status === 'available'
-            ? `BOZ v${availableVersion} is ready to download and will restart automatically.`
-            : status === 'downloading'
-              ? percentage == null ? 'Downloading the signed installer…' : `${percentage}% downloaded. BOZ will restart when ready.`
-              : status === 'installing'
-                ? 'Windows is applying the signed update and restarting BOZ.'
-                : status === 'error'
-                  ? error ?? 'The update service could not be reached.'
-                  : 'Check the signed BOZ release channel from here.';
+    ? 'You are previewing BOZ in the browser. Updates ship with the installed Windows desktop app, so there is nothing to do here.'
+    : status.phase === 'available'
+      ? `BOZ v${status.version} is ready. Installing applies it in place and restarts BOZ, so you keep your workspace and settings.`
+      : status.phase === 'downloading'
+        ? percentage == null
+          ? 'Downloading the signed update.'
+          : `Downloading the signed update, ${percentage}%.`
+        : status.phase === 'installing'
+          ? 'Applying the update. BOZ will restart on its own.'
+          : status.phase === 'error'
+            ? status.message ?? 'The update service could not be reached.'
+            : status.snoozedVersion
+              ? `You are on the latest version. BOZ v${status.snoozedVersion} was set aside. Check for updates any time from here.`
+              : 'BOZ checks for updates once per launch. Nothing to do right now.';
 
   return (
     <section className={styles['desktop-update-control']} aria-live="polite">
@@ -164,21 +160,40 @@ export default function DesktopUpdateControl({ version }: { version: string }) {
 
       <p className={styles['desktop-update-control__copy']}>{statusCopy}</p>
 
-      {status === 'downloading' && (
-        <div className={styles['desktop-update-control__progress']} aria-label={percentage == null ? 'Downloading update' : `${percentage}% downloaded`}>
+      {status.phase === 'downloading' && (
+        <div
+          className={styles['desktop-update-control__progress']}
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percentage ?? undefined}
+          aria-label={percentage == null ? 'Downloading update' : `${percentage}% downloaded`}
+        >
           <span style={{ width: `${percentage ?? 15}%` }} />
         </div>
       )}
 
-      {isDesktop && (
+      {actionError && (
+        <p className={styles['desktop-update-control__copy']} role="alert">{actionError}</p>
+      )}
+
+      {isDesktop && status.phase === 'available' && (
         <div className={styles['desktop-update-control__foot']}>
           <button
             type="button"
             className={styles['desktop-update-control__button']}
-            onClick={() => void action()}
+            onClick={() => void install()}
             disabled={busy}
           >
-            {buttonLabel}
+            Install update
+          </button>
+          <button
+            type="button"
+            className={styles['desktop-update-control__button']}
+            onClick={() => void remindLater()}
+            disabled={busy}
+          >
+            Remind me next launch
           </button>
         </div>
       )}

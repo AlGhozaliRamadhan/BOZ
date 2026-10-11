@@ -20,6 +20,16 @@ export interface AnswerCheckResult {
   issues: string[];
 }
 
+export interface AnswerCheckOptions {
+  /**
+   * The user asked a normal question about an answer already delivered, so the
+   * trading-report shape (likely-path table + first-person take) is not what
+   * was requested. Every other rule — deflection, suppression, raw output, URL
+   * grounding, complete sentence — still runs. Only the shape block is skipped.
+   */
+  plainQuestion?: boolean;
+}
+
 const DEFLECTION_SIGNATURES = [
   'no passing',
   'validate_plan',
@@ -68,7 +78,11 @@ function isEndpointUrl(u: string): boolean {
   return ENDPOINT_URL_PATTERN.test(u);
 }
 
-export function answerCheck(answer: string, toolLog: AnswerCheckToolCall[]): AnswerCheckResult {
+export function answerCheck(
+  answer: string,
+  toolLog: AnswerCheckToolCall[],
+  options: AnswerCheckOptions = {},
+): AnswerCheckResult {
   const issues: string[] = [];
 
   // 1) Suppression: denial language while a zero-warning call exists.
@@ -121,12 +135,14 @@ export function answerCheck(answer: string, toolLog: AnswerCheckToolCall[]): Ans
 
   // 6) Scenario-first shape — trading analyses only (risk_calc or dashboard
   // in the log). General chat (greetings, help, …) is exempt: no table/take
-  // is required there. For trading: never a bare refusal, always the
+  // is required there. So is a normal question about an answer already given —
+  // pasting the whole report onto "how could you be sure about that" is the
+  // defect this block created. For trading: never a bare refusal, always the
   // likely-path table + a first-person take with the wait trigger.
   const isTrading = toolLog.some(
     (c) => c.tool === 'risk_calc' || c.tool === 'fetch_ticker_dashboard',
   );
-  if (isTrading) {
+  if (isTrading && !options.plainQuestion) {
     if (/no[\s-]trade/i.test(answer)) {
       issues.push('bare no-trade refusal; give the likely-path scenario instead');
     }

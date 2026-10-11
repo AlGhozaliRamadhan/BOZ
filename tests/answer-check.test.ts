@@ -189,6 +189,55 @@ describe('Task D2 — NVDA re-run: likely path presented, gate PASSES', () => {
   });
 });
 
+describe('a plain question is exempt from the report-shape block', () => {
+  // The screenshot defect: a question about a delivered report was failed by
+  // the gate for lacking a likely-path table, regenerated with the mechanical
+  // findings appended, and shipped as the full report pasted onto the question.
+  const QUESTION_ANSWER =
+    'You are right to push. The reclaim only counts while price holds the medium average, '
+    + 'and the participation behind it was 0.78x with OBV distribution, so sellers still own the session. '
+    + 'If it closes below 222.08 the base path is dead and I would want to see volume expand before I trust the hold.';
+
+  it('fails a question answer with no table when the block is enforced', async () => {
+    const { log } = await nvdaToolLog();
+    const result = answerCheck(QUESTION_ANSWER, log);
+    expect(result.pass).toBe(false);
+    expect(result.issues.join(' | ')).toContain('missing real likely-path table');
+  });
+
+  it('passes the same answer when the user asked a question', async () => {
+    const { log } = await nvdaToolLog();
+    const result = answerCheck(QUESTION_ANSWER, log, { plainQuestion: true });
+    expect(result.issues, `gate issues: ${result.issues.join('; ')}`).toEqual([]);
+    expect(result.pass).toBe(true);
+  });
+
+  it('plainQuestion does NOT waive deflection, raw output, or URL grounding', async () => {
+    const { log } = await nvdaToolLog();
+    const deflecting =
+      'I cannot recommend a position without such validation, and the R:R was {"rr": 0.16202} '
+      + 'per https://api.marketdata.example.com/v1/quotes?symbol=NVDA.';
+    const result = answerCheck(deflecting, log, { plainQuestion: true });
+    expect(result.pass).toBe(false);
+    const joined = result.issues.join(' | ');
+    expect(joined).toContain(`deflection signature: 'cannot recommend'`);
+    expect(joined).toContain('raw tool output or unrounded float in answer');
+    expect(joined).toContain('API/endpoint URL pasted as source');
+  });
+
+  it('plainQuestion does not waive the complete-sentence rule', () => {
+    const result = answerCheck('and then it just drifts lower from there', [], { plainQuestion: true });
+    expect(result.pass).toBe(false);
+    expect(result.issues.join(' | ')).toContain('complete sentence');
+  });
+
+  it('a new report is unaffected by the option', async () => {
+    const { log } = await nvdaToolLog();
+    const result = answerCheck(QUESTION_ANSWER, log, { plainQuestion: false });
+    expect(result.pass).toBe(false);
+  });
+});
+
 describe('URL hygiene — markdown punctuation + endpoint sources', () => {
   it('does not flag a grounded URL wrapped in a markdown link (trailing paren)', async () => {
     const { log } = await nvdaToolLog();
