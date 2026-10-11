@@ -21,7 +21,9 @@ describe('desktop version contract', () => {
     // different minor releases. CI never builds the desktop shell, so this
     // drift went unnoticed until the v2.8.0 publish failed.
     const packageLock = JSON.parse(readFileSync(resolve('package-lock.json'), 'utf8'));
-    const cargoLock = readFileSync(resolve('src-tauri/Cargo.lock'), 'utf8');
+    // Normalize CRLF: Windows checkouts (core.autocrlf=true) store CRLF in the
+    // worktree, so the `\n`-anchored Cargo.lock regex below never matched there.
+    const cargoLock = readFileSync(resolve('src-tauri/Cargo.lock'), 'utf8').replace(/\r\n/g, '\n');
     const pairs: Array<[string, string]> = [
       ['node_modules/@tauri-apps/api', 'tauri'],
       ['node_modules/@tauri-apps/plugin-updater', 'tauri-plugin-updater'],

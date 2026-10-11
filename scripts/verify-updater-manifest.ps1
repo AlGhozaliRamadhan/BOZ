@@ -7,13 +7,16 @@ param(
 # End-to-end check of the updater manifest that is actually uploaded.
 #
 # Why this exists: the in-app updater downloads whatever latest.json points at
-# and runs it. Pointing it at the standalone `-setup.exe` makes an update run
-# the full first-time NSIS wizard, so the user sees "Installing" and a
-# "Create folder:" progress log — an update that looks like a reinstall. The
-# updater must be handed the `.nsis.zip` updater bundle instead.
+# and runs it. A manifest that points at a missing or unsigned artifact makes
+# every in-app update fail at the signature check, and one built from the wrong
+# file name ships green because nothing compared the manifest against the files
+# on disk.
 #
-# Nothing else in the release pipeline compared latest.json against the files on
-# disk, so a manifest pointing at the wrong artifact shipped green.
+# Note on artifact type: an NSIS bundle is emitted by Tauri as `*-setup.exe`
+# plus `.sig`. There is no separate `*.nsis.zip` for NSIS targets, so the
+# manifest must reference the signed installer. Whether an update shows the
+# setup wizard is governed by `plugins.updater.windows.installMode`, not by
+# the artifact type.
 
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path -LiteralPath $ReleaseDir).Path
@@ -60,9 +63,10 @@ foreach ($platform in $platforms) {
     throw "Platform '$name' url must reference a file directly in the release root: '$($entry.url)'."
   }
 
-  # THE regression guard. A raw installer here is what re-runs the setup wizard.
-  if (-not $fileName.EndsWith('.nsis.zip', [System.StringComparison]::Ordinal)) {
-    throw "Platform '$name' points at '$fileName'. In-app updates must download the NSIS updater bundle (*.nsis.zip); a standalone -setup.exe runs the full install wizard."
+  # THE regression guard: the artifact must be the signed NSIS installer that
+  # Tauri actually produces for this bundle.
+  if (-not $fileName.EndsWith('-setup.exe', [System.StringComparison]::Ordinal)) {
+    throw "Platform '$name' points at '$fileName'. The updater artifact for an NSIS bundle is the signed *-setup.exe; Tauri v2 emits no separate .nsis.zip."
   }
 
   $artifactPath = Join-Path $root $fileName
@@ -80,10 +84,10 @@ foreach ($platform in $platforms) {
     throw "Platform '$name' signature does not match '$fileName.sig'. The updater verifies the manifest signature, so a mismatch breaks every in-app update."
   }
 
-  # A zip that is not really a zip would be extracted into nothing at install time.
+  # A payload that is not a Windows executable cannot be run by the updater.
   $bytes = [System.IO.File]::ReadAllBytes($artifactPath)
-  if ($bytes.Length -lt 4 -or $bytes[0] -ne 0x50 -or $bytes[1] -ne 0x4B) {
-    throw "Platform '$name' artifact '$fileName' is not a ZIP archive."
+  if ($bytes.Length -lt 2 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
+    throw "Platform '$name' artifact '$fileName' is not a Windows executable (missing MZ header)."
   }
 
   Write-Host "Verified $name -> $fileName ($([Math]::Round($bytes.Length / 1MB, 1)) MB, signature matches)"
@@ -94,4 +98,4 @@ if ($verified -ne $requiredPlatforms.Count) {
   throw "Verified $verified platform(s); expected $($requiredPlatforms.Count)."
 }
 
-Write-Host "Updater manifest verified: $verified platform(s) point at signed NSIS updater bundles."
+Write-Host "Updater manifest verified: $verified platform(s) point at signed NSIS installers."

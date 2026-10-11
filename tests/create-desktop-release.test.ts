@@ -17,30 +17,28 @@ describe('desktop release metadata', () => {
     expect(workflow).toContain('RELEASE_PR_URL must be a GitHub pull request URL.');
   });
 
-  it('points latest.json at the NSIS updater bundle, not the standalone installer', () => {
+  it('points latest.json at the signed NSIS installer that Tauri actually emits', () => {
     const workflow = readFileSync('.github/workflows/publish.yml', 'utf8');
 
-    // An in-app update that downloads the raw -setup.exe runs the full
-    // first-time NSIS wizard, so the user sees "Installing" and a
-    // "Create folder:" log instead of an update. This is the regression that
-    // shipped as PR #116.
-    expect(workflow).toContain('$updaterBundles = @($installers | ForEach-Object { "$_.nsis.zip" })');
-    expect(workflow).toContain('signature = $signatures[$updaterBundles[0]]');
-    expect(workflow).toContain('signature = $signatures[$updaterBundles[1]]');
-    expect(workflow).toContain('url = "$downloadRoot/$($updaterBundles[0])"');
-    expect(workflow).toContain('url = "$downloadRoot/$($updaterBundles[1])"');
-    expect(workflow).not.toContain('signature = $signatures[$installers[0]]');
-    expect(workflow).not.toContain('signature = $signatures[$installers[1]]');
+    // An NSIS bundle produces exactly `*-setup.exe` + `.sig`; tauri-bundler
+    // emits no `*.nsis.zip`. A manifest pointing at a .nsis.zip can never
+    // resolve on the Release page, so every in-app update 404s. This shipped
+    // in PR #140 and broke the v2.8.1 publish.
+    expect(workflow).toContain('signature = $signatures[$installers[0]]');
+    expect(workflow).toContain('signature = $signatures[$installers[1]]');
+    expect(workflow).toContain('url = "$downloadRoot/$($installers[0])"');
+    expect(workflow).toContain('url = "$downloadRoot/$($installers[1])"');
+    expect(workflow).not.toContain('nsis.zip');
+    expect(workflow).not.toContain('$updaterBundle');
+    expect(workflow).not.toContain('$updaterBundles');
   });
 
-  it('stages the updater bundle alongside the installer and fails when it is missing', () => {
+  it('stages the signed installer and its signature', () => {
     const workflow = readFileSync('.github/workflows/publish.yml', 'utf8');
 
-    expect(workflow).toContain('Missing NSIS updater bundle:');
-    expect(workflow).toContain('bundle.createUpdaterArtifacts must be true.');
-    expect(workflow).toContain('The NSIS updater bundle signature is empty.');
-    expect(workflow).toContain('Copy-Item -LiteralPath $updaterBundle');
-    expect(workflow).toContain('Copy-Item -LiteralPath $updaterSignature.FullName');
+    expect(workflow).toContain('The updater signature is empty.');
+    expect(workflow).toContain('Copy-Item -LiteralPath $installer.FullName');
+    expect(workflow).toContain('Copy-Item -LiteralPath $signature.FullName');
   });
 
   it('runs an independent manifest verification before publishing the release', () => {
@@ -54,12 +52,11 @@ describe('desktop release metadata', () => {
     expect(writtenAt).toBeGreaterThan(-1);
     expect(verifiedAt).toBeGreaterThan(writtenAt);
 
-    expect(verifier).toContain('.nsis.zip');
-    expect(verifier).toContain('a standalone -setup.exe runs the full install wizard');
+    expect(verifier).toContain("-setup.exe', [System.StringComparison]::Ordinal");
     expect(verifier).toContain("'windows-x86_64'");
     expect(verifier).toContain("'windows-aarch64'");
     expect(verifier).toContain('signature does not match');
-    expect(verifier).toContain('is not a ZIP archive');
+    expect(verifier).toContain('is not a Windows executable');
     expect(verifier).toContain('does not match package.json version');
   });
 
@@ -80,7 +77,7 @@ describe('in-app update must not look like a reinstall', () => {
     // quiet (`/S`) was tried in PR #116 and still showed the wizard.
     expect(config.plugins.updater.windows.installMode).toBe('passive');
     expect(config.plugins.updater.windows.installMode).not.toBe('quiet');
-    // The updater artifact has to exist for the bundle to carry it.
+    // The updater artifact must be signed for the manifest to carry a signature.
     expect(config.bundle.createUpdaterArtifacts).toBe(true);
     expect(config.bundle.targets).toEqual(['nsis']);
   });
