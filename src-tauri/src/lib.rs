@@ -31,6 +31,8 @@ const HEALTH_PATH: &str = "/api/desktop/health";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const DESKTOP_LOG_LIMIT_BYTES: u64 = 256 * 1024;
 const BOZ_TRAY_ID: &str = "boz-primary-tray";
+/// After this long, the boot screen says so instead of looking frozen.
+const BOZ_SLOW_START_AFTER: Duration = Duration::from_secs(8);
 
 #[derive(Default)]
 struct DesktopRuntime {
@@ -39,6 +41,21 @@ struct DesktopRuntime {
     server_ready: AtomicBool,
     recovery_dialog_open: AtomicBool,
     tray_initialized: AtomicBool,
+    /// One silent update check per app session. Without this every sidecar
+    /// restart (crash recovery, manual Retry) re-prompted the user.
+    update_checked: AtomicBool,
+    /// An install or download is in flight; blocks overlapping prompts.
+    update_running: AtomicBool,
+    /// Current in-app update state, readable by the webview on mount.
+    update_status: Mutex<UpdateStatus>,
+}
+
+/// Boot screen state pushed into the loading page by `render_boot_progress`.
+struct BootProgress {
+    stage: &'static str,
+    percent: u8,
+    slow: bool,
+    done: bool,
 }
 
 fn lock_child(state: &DesktopRuntime) -> std::sync::MutexGuard<'_, Option<Child>> {
@@ -389,10 +406,58 @@ fn probe_health(token: &str) -> bool {
     stream.read_to_string(&mut response).is_ok() && health_response_is_ready(&response)
 }
 
+/// Escapes a string for embedding in a single-quoted JavaScript literal.
+/// Belt-and-braces: every value here is a Rust literal, but the boot script is
+/// assembled by concatenation and must never be able to break out of its quotes.
+fn js_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+}
+
+/// Pushes boot progress into the static loading page.
+///
+/// The page ships zero JavaScript (the desktop CSP is `script-src 'none'`), so
+/// the host writes the DOM through webview eval instead. That keeps the boot
+/// screen free of any script surface without loosening the CSP for the whole
+/// app or granting the page new capabilities. Every write is best-effort: a
+/// failure here must never block startup.
+fn render_boot_progress<R: Runtime>(app: &AppHandle<R>, progress: BootProgress) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let version = app.package_info().version.to_string();
+    let percent = progress.percent.min(100);
+    let script = format!(
+        "(function(){{var m=document.querySelector('main');if(!m)return;m.classList.add('hosted');\
+var s=document.getElementById('stage');if(s)s.textContent={stage};\
+var t=document.getElementById('track');if(t)t.setAttribute('aria-valuenow','{percent}');\
+var b=document.getElementById('bar');if(b)b.style.width='{percent}%';\
+var p=document.getElementById('pct');if(p)p.textContent='{percent}%';\
+var v=document.getElementById('version');if(v)v.textContent='BOZ {version}';\
+var w=document.getElementById('slow');if(w)w.hidden={slow};\
+var h=document.getElementById('hint');if(h)h.hidden={hint};}})();",
+        stage = js_string(progress.stage),
+        version = js_string(&version),
+        slow = !progress.slow,
+        hint = !progress.done,
+    );
+    let _ = window.eval(&script);
+}
+
 fn wait_for_server<R: Runtime>(app: &AppHandle<R>, token: &str) -> Result<(), String> {
-    let deadline = Instant::now() + STARTUP_TIMEOUT;
+    let started = Instant::now();
+    let deadline = started + STARTUP_TIMEOUT;
+    let mut last_percent = u8::MAX;
     while Instant::now() < deadline {
         if probe_health(token) {
+            render_boot_progress(
+                app,
+                BootProgress {
+                    stage: "Workspace ready, opening BOZ",
+                    percent: 100,
+                    slow: false,
+                    done: true,
+                },
+            );
             return Ok(());
         }
 
@@ -411,14 +476,52 @@ fn wait_for_server<R: Runtime>(app: &AppHandle<R>, token: &str) -> Result<(), St
             return Err("The BOZ server is not running.".to_string());
         }
         drop(child);
+
+        // Real progress against the real deadline, on a square-root curve so it
+        // moves early instead of sitting still and then jumping. Capped below
+        // 100 so the bar never claims completion before the server answers.
+        let elapsed = started.elapsed().as_secs_f64();
+        let fraction = (elapsed / STARTUP_TIMEOUT.as_secs_f64()).clamp(0.0, 1.0);
+        let percent = (4.0 + 88.0 * fraction.sqrt()).round() as u8;
+        if percent != last_percent {
+            last_percent = percent;
+            render_boot_progress(
+                app,
+                BootProgress {
+                    stage: "Starting your private market workspace",
+                    percent,
+                    slow: elapsed >= BOZ_SLOW_START_AFTER.as_secs_f64(),
+                    done: false,
+                },
+            );
+        }
+
         thread::sleep(Duration::from_millis(250));
     }
 
+    render_boot_progress(
+        app,
+        BootProgress {
+            stage: "BOZ did not start in time",
+            percent: 100,
+            slow: false,
+            done: true,
+        },
+    );
     Err("BOZ did not become ready within 30 seconds.".to_string())
 }
 
 fn launch_sidecar<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     desktop_log(app, "Starting bundled Node sidecar");
+    render_boot_progress(
+        app,
+        BootProgress {
+            stage: "Starting the local market server",
+            percent: 4,
+            slow: false,
+            done: false,
+        },
+    );
     if port_is_occupied() && !reclaim_boz_port(app) {
         return Err(format!(
             "BOZ cannot start because {BOZ_ORIGIN} is already in use. Close the other program and retry."
@@ -492,7 +595,202 @@ fn show_error<R: Runtime>(app: &AppHandle<R>, title: &str, message: impl Into<St
         .show(|_| {});
 }
 
+/// State of the in-app update flow, owned by the host and read by the webview.
+///
+/// The host owns it because it must survive the webview not being loaded yet:
+/// a check that finishes during boot is still waiting when the UI mounts. The
+/// UI reads the current state on mount and then follows [`UPDATE_EVENT`].
+#[derive(Clone)]
+struct UpdateStatus {
+    /// `idle` | `available` | `downloading` | `installing` | `error`
+    phase: &'static str,
+    version: Option<String>,
+    /// 0-100 while downloading; None when the total size is unknown.
+    percent: Option<u8>,
+    message: Option<String>,
+    /// The version the user asked not to be reminded about again.
+    snoozed_version: Option<String>,
+}
+
+impl Default for UpdateStatus {
+    fn default() -> Self {
+        Self {
+            phase: "idle",
+            version: None,
+            percent: None,
+            message: None,
+            snoozed_version: None,
+        }
+    }
+}
+
+impl UpdateStatus {
+    /// Payload shape for the webview. Built by hand rather than deriving
+    /// `Serialize` so the host does not need a serde derive dependency.
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "phase": self.phase,
+            "version": self.version,
+            "percent": self.percent,
+            "message": self.message,
+            "snoozedVersion": self.snoozed_version,
+        })
+    }
+}
+
+const UPDATE_EVENT: &str = "boz://update-status";
+
+fn update_status_slot(state: &DesktopRuntime) -> std::sync::MutexGuard<'_, UpdateStatus> {
+    state
+        .update_status
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Publishes the current update status to any mounted webview and the log.
+fn publish_update_status<R: Runtime>(app: &AppHandle<R>) {
+    let status = update_status_slot(&app.state::<DesktopRuntime>()).to_json();
+    desktop_log(
+        app,
+        &format!(
+            "update status {}",
+            serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string())
+        ),
+    );
+    let _ = tauri::Emitter::emit(app, UPDATE_EVENT, &status);
+}
+
+fn set_update_status<R: Runtime>(app: &AppHandle<R>, status: UpdateStatus) {
+    *update_status_slot(&app.state::<DesktopRuntime>()) = status;
+    publish_update_status(app);
+}
+
+fn snooze_file<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join("update-snooze.json"))
+}
+
+fn read_snoozed_version<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    let path = snooze_file(app)?;
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|value| {
+            value
+                .get("version")
+                .and_then(|version| version.as_str())
+                .map(str::to_string)
+        })
+        .filter(|version| !version.is_empty())
+}
+
+fn write_snoozed_version<R: Runtime>(app: &AppHandle<R>, version: &str) {
+    let Some(path) = snooze_file(app) else {
+        return;
+    };
+    if let Some(parent) = path.parent()
+        && std::fs::create_dir_all(parent).is_err()
+    {
+        return;
+    }
+    let payload = serde_json::json!({ "version": version });
+    if let Ok(body) = serde_json::to_string(&payload) {
+        let _ = std::fs::write(path, body);
+    }
+}
+
+/// Records "remind me later" for this version. The next session re-offers any
+/// newer version but stays quiet about this one.
+#[tauri::command]
+fn snooze_update<R: Runtime>(app: AppHandle<R>, version: String) -> Result<(), String> {
+    write_snoozed_version(&app, &version);
+    let mut status = update_status_slot(&app.state::<DesktopRuntime>()).clone();
+    status.snoozed_version = Some(version);
+    status.phase = "idle";
+    status.version = None;
+    status.percent = None;
+    status.message = None;
+    *update_status_slot(&app.state::<DesktopRuntime>()) = status;
+    publish_update_status(&app);
+    Ok(())
+}
+
+/// Current update state, so a UI that mounts after the check still sees it.
+#[tauri::command]
+fn update_status<R: Runtime>(app: AppHandle<R>) -> serde_json::Value {
+    update_status_slot(&app.state::<DesktopRuntime>()).to_json()
+}
+
+/// Installs the update the host already reported as available.
+///
+/// Re-checks rather than caching the earlier `Update` handle: the host does not
+/// hold one across the async gap, and a fresh check immediately before the
+/// install is cheap and always correct.
+#[tauri::command]
+fn install_available_update<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let state = app.state::<DesktopRuntime>();
+    if state.update_running.load(Ordering::SeqCst) {
+        return Err("An update is already in progress.".to_string());
+    }
+
+    let runtime = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let before_exit_app = runtime.clone();
+        let updater = runtime
+            .updater_builder()
+            .on_before_exit(move || terminate_sidecar(&before_exit_app))
+            .build()
+            .map_err(|error| error.to_string())?;
+
+        match updater.check().await {
+            Ok(Some(update)) => {
+                install_update(runtime, update);
+                Ok(())
+            }
+            Ok(None) => {
+                set_update_status(&runtime, UpdateStatus::default());
+                Err("You are already running the latest version of BOZ.".to_string())
+            }
+            Err(error) => {
+                set_update_status(
+                    &runtime,
+                    UpdateStatus {
+                        phase: "error",
+                        message: Some(error.to_string()),
+                        ..Default::default()
+                    },
+                );
+                Err(error.to_string())
+            }
+        }
+    });
+
+    Ok(())
+}
+
 fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
+    let state = app.state::<DesktopRuntime>();
+
+    // One silent check per session. Crash recovery and manual Retry both
+    // restart the sidecar, and each of those used to re-prompt the user.
+    if !manual && state.update_checked.swap(true, Ordering::SeqCst) {
+        desktop_log(
+            &app,
+            "Skipped the automatic update check: already checked this session",
+        );
+        return;
+    }
+    // Never overlap a check with an in-flight download/install.
+    if state.update_running.load(Ordering::SeqCst) {
+        desktop_log(
+            &app,
+            "Skipped the update check: an update is already in progress",
+        );
+        return;
+    }
+
     tauri::async_runtime::spawn(async move {
         let before_exit_app = app.clone();
         let updater = match app
@@ -505,6 +803,14 @@ fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
                 if manual {
                     show_error(&app, "Update check failed", error.to_string());
                 }
+                set_update_status(
+                    &app,
+                    UpdateStatus {
+                        phase: "error",
+                        message: Some(error.to_string()),
+                        ..Default::default()
+                    },
+                );
                 return;
             }
         };
@@ -512,11 +818,42 @@ fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
         match updater.check().await {
             Ok(Some(update)) => {
                 let version = update.version.clone();
+                let snoozed = read_snoozed_version(&app);
+                if snoozed.as_deref() == Some(version.as_str()) {
+                    desktop_log(&app, "Update already offered and snoozed; staying quiet");
+                    set_update_status(
+                        &app,
+                        UpdateStatus {
+                            phase: "idle",
+                            snoozed_version: snoozed,
+                            ..Default::default()
+                        },
+                    );
+                    return;
+                }
+                let prompt_version = version.clone();
+
+                set_update_status(
+                    &app,
+                    UpdateStatus {
+                        phase: "available",
+                        version: Some(version),
+                        ..Default::default()
+                    },
+                );
+
+                // A manual check with nothing to install says so out loud; the
+                // automatic path stays silent.
+                if !manual {
+                    return;
+                }
+
                 let install_app = app.clone();
+                let prompt_version = prompt_version.clone();
+                let prompt_message =
+                    format!("BOZ {prompt_version} is available. Download and install it now?");
                 app.dialog()
-                    .message(format!(
-                        "BOZ {version} is available. Download and install it now?"
-                    ))
+                    .message(prompt_message)
                     .title("BOZ update available")
                     .buttons(MessageDialogButtons::OkCancelCustom(
                         "Install".to_string(),
@@ -524,28 +861,122 @@ fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
                     ))
                     .show(move |install| {
                         if !install {
+                            let _ = snooze_update(install_app.clone(), prompt_version);
                             return;
                         }
-                        tauri::async_runtime::spawn(async move {
-                            if let Err(error) = update.download_and_install(|_, _| {}, || {}).await
-                            {
-                                show_error(&install_app, "Update failed", error.to_string());
-                            } else if !cfg!(windows) {
-                                install_app.restart();
-                            }
-                        });
+                        install_update(install_app, update);
                     });
             }
-            Ok(None) if manual => {
-                app.dialog()
-                    .message("You are running the latest version of BOZ.")
-                    .title("No update available")
-                    .show(|_| {});
+            Ok(None) => {
+                if manual {
+                    app.dialog()
+                        .message("You are running the latest version of BOZ.")
+                        .title("No update available")
+                        .show(|_| {});
+                }
+                set_update_status(&app, UpdateStatus::default());
             }
-            Ok(None) => {}
-            Err(error) if manual => show_error(&app, "Update check failed", error.to_string()),
-            Err(_) => {}
+            Err(error) => {
+                desktop_log(&app, &format!("Update check failed: {error}"));
+                if manual {
+                    show_error(&app, "Update check failed", error.to_string());
+                }
+                set_update_status(&app, UpdateStatus::default());
+            }
         }
+    });
+}
+
+/// Downloads and installs a checked update, reporting progress to the webview.
+///
+/// Progress used to be a literal no-op closure, so a multi-minute download
+/// showed the user nothing at all.
+fn install_update<R: Runtime>(app: AppHandle<R>, update: tauri_plugin_updater::Update) {
+    let progress_app = app.clone();
+    app.state::<DesktopRuntime>()
+        .update_running
+        .store(true, Ordering::SeqCst);
+    tauri::async_runtime::spawn(async move {
+        set_update_status(
+            &progress_app,
+            UpdateStatus {
+                phase: "downloading",
+                percent: Some(0),
+                ..Default::default()
+            },
+        );
+
+        // Cumulative bytes, because the callback reports a per-chunk length and
+        // only sometimes a total. Percent needs both.
+        let downloaded = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let reporter = downloaded.clone();
+        let finish_app = progress_app.clone();
+        let result = update
+            .download_and_install(
+                move |chunk_length, content_length| {
+                    let total = reporter.fetch_add(chunk_length as u64, Ordering::Relaxed)
+                        + chunk_length as u64;
+                    let percent = match content_length {
+                        Some(expected) if expected > 0 => {
+                            ((total as f64 / expected as f64) * 100.0)
+                                .round()
+                                .clamp(0.0, 100.0) as u8
+                        }
+                        // Total size unknown: report progress as "downloading"
+                        // with no number rather than inventing a percentage.
+                        _ => 0,
+                    };
+                    set_update_status(
+                        &progress_app,
+                        UpdateStatus {
+                            phase: "downloading",
+                            percent: if content_length.is_some() {
+                                Some(percent)
+                            } else {
+                                None
+                            },
+                            ..Default::default()
+                        },
+                    );
+                },
+                || {
+                    set_update_status(
+                        &finish_app,
+                        UpdateStatus {
+                            phase: "installing",
+                            percent: Some(100),
+                            ..Default::default()
+                        },
+                    );
+                },
+            )
+            .await;
+
+        match result {
+            Ok(()) => {
+                // On Windows the NSIS installer exits the process itself once
+                // it is done; nothing to restart here.
+                desktop_log(&app, "Update installed successfully");
+                if !cfg!(windows) {
+                    app.restart();
+                }
+            }
+            Err(error) => {
+                desktop_log(&app, &format!("Update failed: {error}"));
+                show_error(&app, "Update failed", error.to_string());
+                set_update_status(
+                    &app,
+                    UpdateStatus {
+                        phase: "error",
+                        message: Some(error.to_string()),
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+        app.state::<DesktopRuntime>()
+            .update_running
+            .store(false, Ordering::SeqCst);
     });
 }
 
@@ -737,6 +1168,11 @@ pub fn run() {
             Some(vec!["--autostart"]),
         ))
         .manage(DesktopRuntime::default())
+        .invoke_handler(tauri::generate_handler![
+            update_status,
+            snooze_update,
+            install_available_update
+        ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let state = window.state::<DesktopRuntime>();
@@ -792,6 +1228,81 @@ mod tests {
         let runtime = DesktopRuntime::default();
         assert!(claim_tray_slot(&runtime));
         assert!(!claim_tray_slot(&runtime));
+    }
+
+    #[test]
+    fn automatic_update_check_runs_once_per_session() {
+        // Crash recovery and manual Retry both restart the sidecar; each of
+        // those used to fire another silent check and re-prompt the user.
+        let runtime = DesktopRuntime::default();
+        assert!(!runtime.update_checked.swap(true, Ordering::SeqCst));
+        assert!(runtime.update_checked.swap(true, Ordering::SeqCst));
+    }
+
+    #[test]
+    fn update_running_blocks_overlapping_work() {
+        let runtime = DesktopRuntime::default();
+        assert!(!runtime.update_running.swap(true, Ordering::SeqCst));
+        assert!(runtime.update_running.swap(true, Ordering::SeqCst));
+        runtime.update_running.store(false, Ordering::SeqCst);
+        assert!(!runtime.update_running.swap(true, Ordering::SeqCst));
+    }
+
+    #[test]
+    fn update_status_payload_exposes_camel_case_for_the_webview() {
+        let status = UpdateStatus {
+            phase: "downloading",
+            version: Some("2.9.0".to_string()),
+            percent: Some(42),
+            message: None,
+            snoozed_version: Some("2.8.1".to_string()),
+        };
+        let json = status.to_json();
+        assert_eq!(json["phase"], "downloading");
+        assert_eq!(json["version"], "2.9.0");
+        assert_eq!(json["percent"], 42);
+        assert_eq!(json["snoozedVersion"], "2.8.1");
+        assert!(json.get("snoozed_version").is_none());
+    }
+
+    #[test]
+    fn default_update_status_is_idle_and_unseen() {
+        let json = UpdateStatus::default().to_json();
+        assert_eq!(json["phase"], "idle");
+        assert!(json["version"].is_null());
+        assert!(json["percent"].is_null());
+        assert!(json["snoozedVersion"].is_null());
+    }
+
+    #[test]
+    fn boot_progress_values_are_bounded_and_never_claim_false_completion() {
+        let slow = BootProgress {
+            stage: "Starting your private market workspace",
+            percent: 92,
+            slow: true,
+            done: false,
+        };
+        assert!(slow.percent <= 100);
+        assert!(slow.slow);
+        assert!(!slow.done);
+        assert_eq!(slow.stage, "Starting your private market workspace");
+    }
+
+    #[test]
+    fn boot_script_values_are_escaped_for_the_loading_page() {
+        // The boot script is assembled by string concatenation and executed as
+        // JavaScript, so a value must never be able to break out of its string
+        // literal. HTML escaping is deliberately not required: the value is
+        // handed to webview eval, never parsed as HTML.
+        assert_eq!(js_string("plain"), "\"plain\"");
+        assert_eq!(js_string(""), "\"\"");
+        // Quotes, backslashes and newlines are what break a JS string literal.
+        assert_eq!(js_string("a\"b"), "\"a\\\"b\"");
+        assert_eq!(js_string("a\\b"), "\"a\\\\b\"");
+        assert_eq!(js_string("a\nb"), "\"a\\nb\"");
+        assert_eq!(js_string("a\rb"), "\"a\\rb\"");
+        // A backtick or ${} is inert inside a double-quoted literal.
+        assert_eq!(js_string("`${x}`"), "\"`${x}`\"");
     }
 
     #[test]

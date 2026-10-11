@@ -69,17 +69,32 @@ jobs:
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           if ('${{ inputs.tag }}' -ne "v$version") { throw 'Release tag must exactly match package.json.' }
           $bundle = Resolve-Path 'src-tauri/target/release/bundle/nsis'
-          $installers = @(Get-ChildItem -LiteralPath $bundle -Filter '*-setup.exe')
+          $installers = @(Get-ChildItem -LiteralPath $bundle -Filter '*-setup.exe' -File)
           if ($installers.Count -ne 1) { throw "Expected exactly one NSIS installer, found $($installers.Count)." }
           $installer = $installers[0]
           $signature = Get-Item -LiteralPath ($installer.FullName + '.sig')
           if ([string]::IsNullOrWhiteSpace((Get-Content -Raw -LiteralPath $signature.FullName))) {
             throw 'The updater signature is empty.'
           }
+          # The in-app updater must download the NSIS *updater bundle*, not the
+          # standalone installer. Pointing latest.json at the raw -setup.exe is
+          # what makes an in-app update run the full first-time install wizard
+          # (NSIS "Create folder:" UI), i.e. an update that looks like a
+          # reinstall. createUpdaterArtifacts emits the zip next to the exe.
+          $updaterBundle = "$($installer.FullName).nsis.zip"
+          if (-not (Test-Path -LiteralPath $updaterBundle -PathType Leaf)) {
+            throw "Missing NSIS updater bundle: $updaterBundle. bundle.createUpdaterArtifacts must be true."
+          }
+          $updaterSignature = Get-Item -LiteralPath "$updaterBundle.sig"
+          if ([string]::IsNullOrWhiteSpace((Get-Content -Raw -LiteralPath $updaterSignature.FullName))) {
+            throw 'The NSIS updater bundle signature is empty.'
+          }
           New-Item -ItemType Directory -Force -Path 'artifacts/staged' | Out-Null
           $asset = "boz-v$version-windows-${{ matrix.asset_arch }}-setup.exe"
           Copy-Item -LiteralPath $installer.FullName -Destination "artifacts/staged/$asset"
           Copy-Item -LiteralPath $signature.FullName -Destination "artifacts/staged/$asset.sig"
+          Copy-Item -LiteralPath $updaterBundle -Destination "artifacts/staged/$asset.nsis.zip"
+          Copy-Item -LiteralPath $updaterSignature.FullName -Destination "artifacts/staged/$asset.nsis.zip.sig"
           ./scripts/verify-pe-architecture.ps1 -Path 'src-tauri/resources/node.exe' -Expected '${{ matrix.updater_arch }}'
           # NSIS uses its own 32-bit bootstrap executable on every target. Verify
           # the application payload instead of misclassifying that installer stub.
@@ -133,7 +148,11 @@ jobs:
             "boz-v$version-windows-x64-setup.exe",
             "boz-v$version-windows-arm64-setup.exe"
           )
-          $inputs = @($installers + ($installers | ForEach-Object { "$_.sig" }))
+          # latest.json must reference the NSIS updater bundles. The standalone
+          # installers stay on the Release page for people downloading by hand.
+          $updaterBundles = @($installers | ForEach-Object { "$_.nsis.zip" })
+          $signable = @($installers + $updaterBundles)
+          $inputs = @($signable + ($signable | ForEach-Object { "$_.sig" }))
           $allowed = @($inputs + 'latest.json', 'SHA256SUMS.txt')
           $unexpected = @(Get-ChildItem -LiteralPath $output -Force | Where-Object {
             $_.PSIsContainer -or $allowed -notcontains $_.Name
@@ -144,10 +163,10 @@ jobs:
           if ($missing.Count) { throw "Missing release artifact(s): $($missing -join ', ')" }
 
           $signatures = @{}
-          foreach ($installer in $installers) {
-            $signature = (Get-Content -Raw -LiteralPath (Join-Path $output "$installer.sig")).Trim()
-            if ([string]::IsNullOrWhiteSpace($signature)) { throw "Empty updater signature for $installer." }
-            $signatures[$installer] = $signature
+          foreach ($artifact in $signable) {
+            $signature = (Get-Content -Raw -LiteralPath (Join-Path $output "$artifact.sig")).Trim()
+            if ([string]::IsNullOrWhiteSpace($signature)) { throw "Empty updater signature for $artifact." }
+            $signatures[$artifact] = $signature
           }
 
           $downloadRoot = "https://github.com/$($env:GITHUB_REPOSITORY_NAME)/releases/download/$($env:RELEASE_TAG)"
@@ -156,16 +175,22 @@ jobs:
             notes = $env:RELEASE_PR_URL
             platforms = [ordered]@{
               'windows-x86_64' = [ordered]@{
-                signature = $signatures[$installers[0]]
-                url = "$downloadRoot/$($installers[0])"
+                signature = $signatures[$updaterBundles[0]]
+                url = "$downloadRoot/$($updaterBundles[0])"
               }
               'windows-aarch64' = [ordered]@{
-                signature = $signatures[$installers[1]]
-                url = "$downloadRoot/$($installers[1])"
+                signature = $signatures[$updaterBundles[1]]
+                url = "$downloadRoot/$($updaterBundles[1])"
               }
             }
           }
           $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $output 'latest.json') -Encoding utf8NoBOM
+
+          # Independent end-to-end check of the manifest that is actually
+          # uploaded: every platform must resolve to a real, signed NSIS updater
+          # bundle. This is the check whose absence let an in-app update ship as
+          # a full install wizard.
+          ./scripts/verify-updater-manifest.ps1 -ReleaseDir $output -Version $version -DownloadRoot $downloadRoot
 
           $checksums = @($inputs + 'latest.json' | Sort-Object | ForEach-Object {
             $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $output $_)).Hash.ToLowerInvariant()

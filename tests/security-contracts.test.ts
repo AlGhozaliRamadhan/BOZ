@@ -31,6 +31,11 @@ describe('security-sensitive repository contracts', () => {
     expect(workflow).toContain('artifacts/releases/${{ inputs.tag }}');
     expect(workflow).toContain('release_pr_url');
     expect(workflow).not.toContain('npm publish');
+    // Every release artifact must be signed, including the NSIS updater
+    // bundle the in-app updater actually downloads.
+    expect(workflow).toContain('$signable = @($installers + $updaterBundles)');
+    expect(workflow).toContain('Missing NSIS updater bundle:');
+    expect(workflow).toContain('verify-updater-manifest.ps1');
   });
 
   it('grants the localhost dashboard only scoped window, link, and signed-updater access', () => {
@@ -48,6 +53,9 @@ describe('security-sensitive repository contracts', () => {
       'core:window:allow-is-maximized',
       'core:window:allow-start-dragging',
       'core:window:allow-close',
+      // Needed to follow the host-owned update status stream.
+      'core:event:allow-listen',
+      'core:event:allow-unlisten',
       'updater:default',
     ]);
     expect(JSON.stringify(capability)).not.toMatch(/filesystem|shell|process|autostart/);
@@ -55,7 +63,9 @@ describe('security-sensitive repository contracts', () => {
     expect(config.bundle.copyright).toBe('© 2026 BOZ');
     expect(config.bundle.windows.nsis.uninstallerIcon).toBe('icons/icon.ico');
     expect(config.plugins.updater.pubkey).toBeTruthy();
-    expect(config.plugins.updater.windows.installMode).toBe('quiet');
+    // Passive keeps the update a progress bar instead of the NSIS setup
+    // wizard, which is what made an in-app update look like a reinstall.
+    expect(config.plugins.updater.windows.installMode).toBe('passive');
     expect(config.plugins.updater.endpoints).toEqual([
       'https://github.com/AlGhozaliRamadhan/BOZ/releases/latest/download/latest.json',
     ]);

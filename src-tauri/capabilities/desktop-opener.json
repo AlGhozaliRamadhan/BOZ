@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop-opener",
-  "description": "Allow the fixed BOZ dashboard origin to open ordinary web links, operate frameless window chrome, and use BOZ's configured signed updater.",
+  "description": "Allow the fixed BOZ dashboard origin to open ordinary web links, operate frameless window chrome, follow in-app update status events, and use BOZ's configured signed updater.",
   "windows": ["main"],
   "remote": {
     "urls": ["http://127.0.0.1:21526/*"]
@@ -14,6 +14,8 @@
     "core:window:allow-is-maximized",
     "core:window:allow-start-dragging",
     "core:window:allow-close",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
     "updater:default"
   ]
 }
