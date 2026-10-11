@@ -31,10 +31,10 @@ describe('security-sensitive repository contracts', () => {
     expect(workflow).toContain('artifacts/releases/${{ inputs.tag }}');
     expect(workflow).toContain('release_pr_url');
     expect(workflow).not.toContain('npm publish');
-    // Every release artifact must be signed, including the NSIS updater
-    // bundle the in-app updater actually downloads.
-    expect(workflow).toContain('$signable = @($installers + $updaterBundles)');
-    expect(workflow).toContain('Missing NSIS updater bundle:');
+    // Every release artifact the updater can download must be signed, and the
+    // manifest that names them must be verified before the Release is created.
+    expect(workflow).toContain('The updater signature is empty.');
+    expect(workflow).toContain('$signable = @($installers)');
     expect(workflow).toContain('verify-updater-manifest.ps1');
   });
 

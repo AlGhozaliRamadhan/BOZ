@@ -76,25 +76,10 @@ jobs:
           if ([string]::IsNullOrWhiteSpace((Get-Content -Raw -LiteralPath $signature.FullName))) {
             throw 'The updater signature is empty.'
           }
-          # The in-app updater must download the NSIS *updater bundle*, not the
-          # standalone installer. Pointing latest.json at the raw -setup.exe is
-          # what makes an in-app update run the full first-time install wizard
-          # (NSIS "Create folder:" UI), i.e. an update that looks like a
-          # reinstall. createUpdaterArtifacts emits the zip next to the exe.
-          $updaterBundle = "$($installer.FullName).nsis.zip"
-          if (-not (Test-Path -LiteralPath $updaterBundle -PathType Leaf)) {
-            throw "Missing NSIS updater bundle: $updaterBundle. bundle.createUpdaterArtifacts must be true."
-          }
-          $updaterSignature = Get-Item -LiteralPath "$updaterBundle.sig"
-          if ([string]::IsNullOrWhiteSpace((Get-Content -Raw -LiteralPath $updaterSignature.FullName))) {
-            throw 'The NSIS updater bundle signature is empty.'
-          }
           New-Item -ItemType Directory -Force -Path 'artifacts/staged' | Out-Null
           $asset = "boz-v$version-windows-${{ matrix.asset_arch }}-setup.exe"
           Copy-Item -LiteralPath $installer.FullName -Destination "artifacts/staged/$asset"
           Copy-Item -LiteralPath $signature.FullName -Destination "artifacts/staged/$asset.sig"
-          Copy-Item -LiteralPath $updaterBundle -Destination "artifacts/staged/$asset.nsis.zip"
-          Copy-Item -LiteralPath $updaterSignature.FullName -Destination "artifacts/staged/$asset.nsis.zip.sig"
           ./scripts/verify-pe-architecture.ps1 -Path 'src-tauri/resources/node.exe' -Expected '${{ matrix.updater_arch }}'
           # NSIS uses its own 32-bit bootstrap executable on every target. Verify
           # the application payload instead of misclassifying that installer stub.
@@ -148,10 +133,13 @@ jobs:
             "boz-v$version-windows-x64-setup.exe",
             "boz-v$version-windows-arm64-setup.exe"
           )
-          # latest.json must reference the NSIS updater bundles. The standalone
-          # installers stay on the Release page for people downloading by hand.
-          $updaterBundles = @($installers | ForEach-Object { "$_.nsis.zip" })
-          $signable = @($installers + $updaterBundles)
+          # The signed NSIS installer is the updater artifact. Tauri v2 emits
+          # only `*-setup.exe` + `.sig` for an NSIS bundle; it produces no
+          # separate updater zip. The updater runs whatever latest.json names,
+          # appending /UPDATE plus the install mode's NSIS args, so the
+          # wizard-free update comes from `plugins.updater.windows.installMode`
+          # being `passive` -- not from the artifact type.
+          $signable = @($installers)
           $inputs = @($signable + ($signable | ForEach-Object { "$_.sig" }))
           $allowed = @($inputs + 'latest.json', 'SHA256SUMS.txt')
           $unexpected = @(Get-ChildItem -LiteralPath $output -Force | Where-Object {
@@ -175,21 +163,21 @@ jobs:
             notes = $env:RELEASE_PR_URL
             platforms = [ordered]@{
               'windows-x86_64' = [ordered]@{
-                signature = $signatures[$updaterBundles[0]]
-                url = "$downloadRoot/$($updaterBundles[0])"
+                signature = $signatures[$installers[0]]
+                url = "$downloadRoot/$($installers[0])"
               }
               'windows-aarch64' = [ordered]@{
-                signature = $signatures[$updaterBundles[1]]
-                url = "$downloadRoot/$($updaterBundles[1])"
+                signature = $signatures[$installers[1]]
+                url = "$downloadRoot/$($installers[1])"
               }
             }
           }
           $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $output 'latest.json') -Encoding utf8NoBOM
 
           # Independent end-to-end check of the manifest that is actually
-          # uploaded: every platform must resolve to a real, signed NSIS updater
-          # bundle. This is the check whose absence let an in-app update ship as
-          # a full install wizard.
+          # uploaded: every platform must resolve to a real, signed NSIS
+          # installer. This is the check whose absence let a manifest point at
+          # an artifact that does not exist on the Release page.
           ./scripts/verify-updater-manifest.ps1 -ReleaseDir $output -Version $version -DownloadRoot $downloadRoot
 
           $checksums = @($inputs + 'latest.json' | Sort-Object | ForEach-Object {
