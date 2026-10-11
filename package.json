@@ -59,7 +59,7 @@
     "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^26.6.4",
     "@types/react": "19.3.0",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^5.0.3",
     "next": "16.3.8",
     "postcss": "^8.5.23",
     "react": "^19.3.0",
