@@ -305,7 +305,7 @@ dependencies = [
 
 [[package]]
 name = "boz-desktop"
-version = "2.8.1"
+version = "2.8.2"
 dependencies = [
  "serde_json",
  "tauri",
