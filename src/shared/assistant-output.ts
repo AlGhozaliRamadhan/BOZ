@@ -32,16 +32,31 @@ function findPartialTagStart(text: string, tags: string[]): number {
 }
 
 /**
- * Keeps only stable, public text from a streamed model response. Provider
- * reasoning blocks can arrive over several chunks, so filtering only after a
- * chunk has been shown is too late. This filter deliberately fails closed:
- * anything inside a private block, including an incomplete one, is discarded.
+ * Splits a streamed model response into public text and reasoning.
+ *
+ * Reasoning blocks can arrive over several chunks, so this cannot work by
+ * filtering after a chunk has been shown. It fails closed on the boundary
+ * instead: text inside a block — including an unterminated one — is never
+ * classified as public, because leaking a scratchpad tail into the answer is
+ * far worse than dropping reasoning.
+ *
+ * The split matters because BOZ now SHOWS reasoning. It used to be discarded,
+ * which is why this class only ever needed to return the public half.
  */
 export class PrivateReasoningStreamFilter {
   private buffer = '';
   private insidePrivateBlock = false;
+  private privateText = '';
+  private sawPartialOpen = false;
 
-  push(chunk: string): string {
+  /**
+   * Feed one streamed chunk.
+   *
+   * @returns public text safe to stream as the answer, and the reasoning seen
+   *   so far. Reasoning accumulates across calls and is cleared on each read,
+   *   so a caller that ignores the second half behaves exactly as before.
+   */
+  push(chunk: string): { publicText: string; reasoning: string } {
     this.buffer += chunk;
     let publicText = '';
 
@@ -49,12 +64,16 @@ export class PrivateReasoningStreamFilter {
       if (this.insidePrivateBlock) {
         const end = findFirstTag(this.buffer, PRIVATE_END_TAGS);
         if (end) {
+          // Everything up to the closing tag is reasoning.
+          this.privateText += this.buffer.slice(0, end.index);
           this.buffer = this.buffer.slice(end.index + end.tag.length);
           this.insidePrivateBlock = false;
           continue;
         }
 
         const partialEnd = findPartialTagStart(this.buffer, PRIVATE_END_TAGS);
+        // Whatever cannot be part of a tag is settled reasoning and can go.
+        this.privateText += partialEnd === -1 ? this.buffer : this.buffer.slice(0, partialEnd);
         this.buffer = partialEnd === -1 ? '' : this.buffer.slice(partialEnd);
         break;
       }
@@ -65,8 +84,9 @@ export class PrivateReasoningStreamFilter {
 
       if (nextTag) {
         if (nextTag === end) {
-          // A provider prefill can start inside private text and stream the
-          // closing tag later. Discard the prefix rather than guessing.
+          // A provider prefill can start inside reasoning and stream the
+          // closing tag later. Treat the prefix as reasoning, not answer.
+          this.privateText += this.buffer.slice(0, nextTag.index);
           this.buffer = this.buffer.slice(nextTag.index + nextTag.tag.length);
         } else {
           publicText += this.buffer.slice(0, nextTag.index);
@@ -79,13 +99,17 @@ export class PrivateReasoningStreamFilter {
       const partialStart = findPartialTagStart(this.buffer, PRIVATE_START_TAGS);
       const partialEnd = findPartialTagStart(this.buffer, PRIVATE_END_TAGS);
       if (partialEnd !== -1 && (partialStart === -1 || partialEnd < partialStart)) {
-        // Treat text before a possible orphaned closing tag as private.
+        // Text before a possible orphaned closing tag is reasoning.
+        this.privateText += this.buffer.slice(0, partialEnd);
         this.buffer = this.buffer.slice(partialEnd);
         break;
       }
       if (partialStart !== -1) {
         publicText += this.buffer.slice(0, partialStart);
         this.buffer = this.buffer.slice(partialStart);
+        // Remembered so `finish()` can route the withheld suffix to reasoning
+        // rather than dropping it: the block may still be perfectly good text.
+        this.sawPartialOpen = true;
         break;
       }
 
@@ -93,16 +117,49 @@ export class PrivateReasoningStreamFilter {
       this.buffer = '';
     }
 
-    return publicText;
+    const reasoning = this.privateText;
+    this.privateText = '';
+    return { publicText, reasoning };
   }
 
-  finish(): string {
-    // A buffered suffix is necessarily an incomplete private tag or private
-    // content. Dropping it is safer than trying to recover partial output.
+  /**
+   * Settles the stream.
+   *
+   * A buffered suffix is either an incomplete private tag or reasoning still in
+   * flight. Both go to the reasoning channel — never to the answer — so a
+   * truncated block still shows the user what the model was working through.
+   */
+  finish(): { publicText: string; reasoning: string } {
+    // A buffered suffix after a partial OPEN tag is reasoning the stream never
+    // closed. It goes to the thought panel rather than being dropped, because
+    // dropping it is what left the panel empty before this was made visible.
+    const pendingIsReasoning = this.insidePrivateBlock || this.sawPartialOpen;
+    const reasoning = this.privateText + (pendingIsReasoning ? this.buffer : '');
     this.buffer = '';
     this.insidePrivateBlock = false;
-    return '';
+    this.privateText = '';
+    this.sawPartialOpen = false;
+    return { publicText: '', reasoning };
   }
+}
+
+/**
+ * The model's own working, pulled out of one COMPLETE response.
+ *
+ * `PrivateReasoningStreamFilter` is built for a stream, so a one-shot message
+ * needs this: feed the whole text, then settle, so an unterminated block is
+ * treated as reasoning rather than dropped or mistaken for the answer.
+ *
+ * Used on tool-calling turns, where the adapter nulls `content` and the inline
+ * block would otherwise disappear with it — which is why the panel used to open
+ * on the tool call with nothing explaining what the model was trying to settle.
+ */
+export function extractPrivateReasoning(text: string): string {
+  if (!text) return '';
+  const filter = new PrivateReasoningStreamFilter();
+  const first = filter.push(text);
+  const rest = filter.finish();
+  return `${first.reasoning}${rest.reasoning}`.trim();
 }
 
 /**

@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { validateCustomProviderEndpoint, validateOutboundHttpUrl } from '../security/outbound-url-policy.js';
+import { llmHttpFailure } from '../../shared/llm-retry.js';
 
 const MAX_MODELS_RESPONSE_BYTES = 1_000_000;
 
@@ -66,6 +67,8 @@ export async function fetchCustomProviderModels(options: {
     headers,
     signal: AbortSignal.timeout(options.timeoutMs ?? 4_000),
   });
-  if (!response.ok) throw new Error(`Custom provider returned HTTP ${response.status}`);
+  if (!response.ok) {
+    throw llmHttpFailure(`Custom provider returned HTTP ${response.status}`, response.status, response.headers);
+  }
   return readBoundedJson(response);
 }

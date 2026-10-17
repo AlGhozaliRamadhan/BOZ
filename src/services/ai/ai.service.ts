@@ -31,14 +31,24 @@ export type AIResult =
       target_price?: number;
       stop_loss?:    number;
       reasons?:      string[];
+      /**
+       * The model's own deliberation, captured from a `<think>` block.
+       *
+       * Display-only and deliberately separate from `thoughts`: on the chat
+       * page `thoughts` means BOZ's grounded tool timeline, and feeding raw
+       * scratchpad into the same accordion made one label mean two very
+       * different things. Never contributes to a verdict.
+       */
+      reasoning?:    string;
       thought?:      string;
       thoughts?:     string[];
       raw_response?: string;
     }
-  | { status: 'error';     reason: string; thought?: string; thoughts?: string[]; raw_response?: string }
+  | { status: 'error';     reason: string; reasoning?: string; thought?: string; thoughts?: string[]; raw_response?: string }
   | {
       status: 'uncertain';
       reason: string;
+      reasoning?: string;
       thought?: string;
       thoughts?: string[];
       raw_response?: string;
@@ -495,20 +505,22 @@ export class AIService {
   }
 
   private normalizeResult(payload: AIPredictionPayload, raw: string): AIResult {
-    // Extract raw thinking tag if present
-    let thoughtText = '';
-    const thinkingMatch = raw.match(/<think(?:ing)?>(.*?)<\/think(?:ing)?>/s);
-    if (thinkingMatch) {
-      thoughtText = thinkingMatch[1].trim();
-    }
+    // Provider deliberation, captured for display on its own channel. It is
+    // never allowed to stand in for the reason a verdict failed, which is the
+    // one thing a user in front of a red verdict actually needs to read.
+    const thinkingMatch = raw.match(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/);
+    const reasoning = thinkingMatch?.[1]?.trim() || undefined;
 
     if (payload.status === 'error') {
       const reason = payload.reason ?? 'Model returned no reason';
       return {
         status: 'error' as const,
         reason,
-        thought: thoughtText || reason,
-        thoughts: thoughtText ? [thoughtText] : [reason],
+        // The reason leads. A scratchpad is supporting material, never the
+        // headline — the previous order showed musings instead of the failure.
+        thought: reason,
+        thoughts: [reason],
+        ...reasoning === undefined ? {} : { reasoning },
         raw_response: raw,
       };
     }
@@ -526,8 +538,11 @@ export class AIService {
       return {
         status: 'uncertain' as const,
         reason,
-        thought: thoughtText || reason,
-        thoughts: thoughtText ? [thoughtText] : [reason],
+        // Same rule as the error path: the stated reason leads the accordion,
+        // and the model's scratchpad rides its own channel.
+        thought: reason,
+        thoughts: [reason],
+        ...reasoning === undefined ? {} : { reasoning },
         raw_response: raw,
         prediction: (payload.prediction ?? 'UNKNOWN') as 'UP' | 'DOWN' | 'UNKNOWN',
         ...(leanConfidence !== undefined ? { confidence: leanConfidence } : {}),
@@ -541,17 +556,13 @@ export class AIService {
     const confidence = Math.max(0, Math.min(100, Math.round(payload.confidence ?? 50)));
     const reasons = payload.reasons?.filter(r => r.trim().length > 0).slice(0, 5);
 
-    if (!thoughtText) {
-      if (reasons && reasons.length > 0) {
-        thoughtText = reasons.join('\n');
-      } else if (payload.strategy) {
-        thoughtText = payload.strategy;
-      }
-    }
-
+    // `thoughts` carries GROUNDED content only: the model's own stated reasons,
+    // which are the answer's own supporting evidence. A raw `<think>` block is
+    // narration about the answer, so it goes to `reasoning` instead and can
+    // never be mistaken for one of the reasons.
     const thoughtsList = reasons && reasons.length > 0
       ? reasons
-      : thoughtText ? [thoughtText] : undefined;
+      : payload.strategy?.trim() ? [payload.strategy.trim()] : undefined;
 
     return {
       status: 'ok',
@@ -561,7 +572,8 @@ export class AIService {
       target_price: payload.target_price ?? undefined,
       stop_loss: payload.stop_loss ?? undefined,
       reasons: reasons && reasons.length > 0 ? reasons : undefined,
-      thought: thoughtText || undefined,
+      ...reasoning === undefined ? {} : { reasoning },
+      thought: thoughtsList?.[0],
       thoughts: thoughtsList,
       raw_response: raw,
     };

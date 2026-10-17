@@ -9,9 +9,12 @@ import {
   startStream,
   stopStream,
   subscribeToStream,
+  type StreamRetryState,
+  type ThoughtStep,
   type StreamSnapshot,
 } from '../_lib/chat-stream-manager';
 import { createSessionId, sessionNeedsTitle } from '../_lib/chat-ids';
+import { findInterruptedRun } from '@/shared/chat-interrupted';
 import {
   announceSessionsChanged,
   defaultSessionStorage,
@@ -59,8 +62,10 @@ export function useChatStream({
   const [loadingStep, setLoadingStep] = useState(0);
   const [loadingType, setLoadingType] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState('');
-  const [streamingThoughts, setStreamingThoughts] = useState<string[]>([]);
+  const [streamSteps, setStreamSteps] = useState<ThoughtStep[]>([]);
   const [toolStatuses, setToolStatuses] = useState<ToolResult[]>([]);
+  const [streamRetry, setStreamRetry] = useState<StreamRetryState | null>(null);
+  const [reasoningActive, setReasoningActive] = useState(false);
   const [activeModel, setActiveModel] = useState('');
 
   const chatIdRef = useRef<string | undefined>(chatId);
@@ -96,8 +101,10 @@ export function useChatStream({
       // retriggers the attach effect -> "Maximum update depth exceeded" on /chat.
       setMessages((prev) => (prev.length === 0 ? prev : []));
       setStreamingContent((prev) => (prev === '' ? prev : ''));
-      setStreamingThoughts((prev) => (prev.length === 0 ? prev : []));
+      setStreamSteps((prev) => (prev.length === 0 ? prev : []));
       setToolStatuses((prev) => (prev.length === 0 ? prev : []));
+      setStreamRetry((prev) => (prev === null ? prev : null));
+      setReasoningActive((prev) => (prev === false ? prev : false));
       return;
     }
     try {
@@ -110,24 +117,37 @@ export function useChatStream({
     }
   }, [setMessages]);
 
+  /**
+   * Drops the previous attempt's live-bubble state. A retry (or a new turn)
+   * must open an empty bubble at the bottom of the thread — never the last
+   * run's text and thought accordion carried over.
+   */
+  const resetStreamingState = useCallback(() => {
+    setStreamingContent((prev) => (prev === '' ? prev : ''));
+    setStreamSteps((prev) => (prev.length === 0 ? prev : []));
+    setToolStatuses((prev) => (prev.length === 0 ? prev : []));
+    setStreamRetry((prev) => (prev === null ? prev : null));
+    setReasoningActive((prev) => (prev === false ? prev : false));
+  }, []);
+
   /** Mirrors a manager snapshot into local render state. */
   const applySnapshot = useCallback((snapshot: StreamSnapshot | null) => {
     if (!snapshot) {
-      setStreamingContent((prev) => (prev === '' ? prev : ''));
-      setStreamingThoughts((prev) => (prev.length === 0 ? prev : []));
-      setToolStatuses((prev) => (prev.length === 0 ? prev : []));
+      resetStreamingState();
       return;
     }
     setStreamingContent(snapshot.content);
-    setStreamingThoughts(snapshot.thoughts);
+    setStreamSteps(snapshot.steps);
     setToolStatuses(snapshot.tools);
+    setStreamRetry(snapshot.retry ?? null);
+    setReasoningActive(snapshot.reasoningActive ?? false);
     setError(snapshot.status === 'error' ? snapshot.error : null);
     if (snapshot.status !== 'streaming') {
       clearStopFallback();
       stoppingRef.current = false;
       setStopping(false);
     }
-  }, []);
+  }, [resetStreamingState]);
 
   /**
    * Requests an AI title when the session still carries its placeholder
@@ -176,14 +196,12 @@ export function useChatStream({
   }, [loading, loadingType]);
 
   useEffect(() => {
-    setStreamingContent('');
-    setStreamingThoughts([]);
-    setToolStatuses([]);
+    resetStreamingState();
     setError(null);
     clearStopFallback();
     stoppingRef.current = false;
     setStopping(false);
-  }, [resetSignal]);
+  }, [resetSignal, resetStreamingState]);
 
   // Safety net: a settled stream without a terminal snapshot (e.g. stop on
   // an already-finished session) must never leave "Stopping…" on screen.
@@ -339,6 +357,9 @@ export function useChatStream({
     setLoadingStep(0);
     setLoadingType(command.toLowerCase());
     setError(null);
+    // The new generation owns the live bubble: clear the previous attempt's
+    // text and thoughts before the manager publishes its empty snapshot.
+    resetStreamingState();
 
     // Persist the user message, then hand the generation to the module-level
     // stream manager. From here the reply survives unmount: progress is
@@ -363,6 +384,9 @@ export function useChatStream({
         thinking: getThinkingEnabled(),
         model: activeModelRef.current || undefined,
         startedAt: sentAt,
+        // A run that died mid-answer already paid for its research. Hand it to
+        // the engine so this turn continues instead of re-deriving it.
+        interrupted: findInterruptedRun(thread) ?? undefined,
       });
       if (!started) {
         // A generation is already running for this session — just attach to it.
@@ -388,6 +412,18 @@ export function useChatStream({
     if (lastUserIndex < 0) return;
     const command = thread[lastUserIndex].content;
     const history = thread.slice(0, lastUserIndex).map(({ role, content }) => ({ role, content }));
+    // The paused answer is stripped from history (so the model never reads
+    // BOZ's own "Response paused" notice), but its research and partial text
+    // travel separately: a retry continues that work instead of repeating it.
+    const interrupted = findInterruptedRun(thread);
+    // Retry re-answers the SAME turn, so it belongs in the same bubble. Passing
+    // the failed message's index makes the manager drop it before appending,
+    // exactly like Continue does: a second failure lands on the same bubble
+    // instead of stacking another "Response paused." card under the last one.
+    const failedIndex = thread.length - 1;
+    const retryInPlace = thread[failedIndex]?.role === 'assistant'
+      ? { index: failedIndex, content: '' }
+      : undefined;
     setLoading(true);
     clearStopFallback();
     stoppingRef.current = false;
@@ -395,6 +431,7 @@ export function useChatStream({
     setLoadingStep(0);
     setLoadingType(command.toLowerCase());
     setError(null);
+    resetStreamingState();
     try {
       const started = startStream({
         sessionId: targetId,
@@ -404,25 +441,91 @@ export function useChatStream({
         thinking: getThinkingEnabled(),
         model: activeModelRef.current || undefined,
         startedAt: Date.now(),
+        continueFrom: retryInPlace,
+        interrupted: interrupted ?? undefined,
       });
       if (!started) {
         const snapshot = getStreamSnapshot(targetId);
         applySnapshot(snapshot);
         setLoading(snapshot?.status === 'streaming');
+      } else {
+        // The manager dropped the paused bubble and seeded the live one in its
+        // place. Re-read the thread now, or the view keeps rendering the old
+        // notice above the retry — the stacking this removes.
+        refreshMessages(targetId);
       }
     } catch (err) {
       console.error('Failed to retry chat generation', err);
       setLoading(false);
     }
-  }, [applySnapshot]);
+  }, [applySnapshot, refreshMessages, resetStreamingState]);
 
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-  const showRetry =
+  const terminalAssistantReply =
     !loading &&
     !!lastMessage &&
     lastMessage.role === 'assistant' &&
-    (lastMessage.status === 'error' || lastMessage.status === 'interrupted') &&
+    (lastMessage.status === 'error' ||
+      lastMessage.status === 'interrupted' ||
+      lastMessage.status === 'cancelled') &&
     !(chatIdRef.current && isStreamActive(chatIdRef.current));
+
+  /**
+   * Resumes a truncated answer where it stopped, healing its bubble instead of
+   * adding another one. Only meaningful when the run produced real text: a
+   * pause with no output has nothing to continue and Retry is the right move.
+   */
+  const continueLastGeneration = useCallback(() => {
+    const targetId = chatIdRef.current ?? pendingSessionRef.current;
+    if (!targetId || isStreamActive(targetId)) return;
+    const session = readSession(defaultSessionStorage(), targetId);
+    const thread = session?.messages ?? messagesRef.current;
+    const partial = thread[thread.length - 1]?.partial?.trim();
+    if (!partial) return;
+
+    const assistantIndex = thread.length - 1;
+    // Everything before the truncated answer — the paused bubble itself is
+    // never replayed as context, or the model would read its own notice.
+    const history = thread.slice(0, assistantIndex).map(({ role, content }) => ({ role, content }));
+    const command = [...thread.slice(0, assistantIndex)].reverse().find((m) => m.role === 'user')?.content ?? '';
+
+    setLoading(true);
+    clearStopFallback();
+    stoppingRef.current = false;
+    setStopping(false);
+    setLoadingStep(0);
+    setLoadingType(command.toLowerCase());
+    setError(null);
+    resetStreamingState();
+    try {
+      const started = startStream({
+        sessionId: targetId,
+        command,
+        history,
+        effort: getEffort(),
+        thinking: getThinkingEnabled(),
+        model: activeModelRef.current || undefined,
+        startedAt: Date.now(),
+        continueFrom: { index: assistantIndex, content: partial },
+      });
+      if (!started) {
+        const snapshot = getStreamSnapshot(targetId);
+        applySnapshot(snapshot);
+        setLoading(snapshot?.status === 'streaming');
+      } else {
+        // The manager dropped the truncated bubble and seeded the healed one
+        // with the partial text. Re-read the thread now, or the view keeps
+        // rendering the old paused bubble above a duplicate of the same text.
+        refreshMessages(targetId);
+      }
+    } catch (err) {
+      console.error('Failed to continue chat generation', err);
+      setLoading(false);
+    }
+  }, [applySnapshot, refreshMessages, resetStreamingState]);
+
+  const showRetry = terminalAssistantReply;
+  const showContinue = terminalAssistantReply && !!lastMessage?.partial?.trim();
 
   return {
     loading,
@@ -432,12 +535,16 @@ export function useChatStream({
     loadingStep,
     loadingType,
     streamingContent,
-    streamingThoughts,
+    streamSteps,
     toolStatuses,
+    streamRetry,
+    reasoningActive,
     activeModel,
     sendMessage,
     stopStreaming,
     retryLastGeneration,
+    continueLastGeneration,
     showRetry,
+    showContinue,
   };
 }

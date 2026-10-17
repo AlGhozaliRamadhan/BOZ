@@ -5,9 +5,12 @@ import {
   EFFORT_OPTIONS,
   type Effort,
   getEffort,
+  getThinkingEnabled,
   setEffort,
+  setThinkingEnabled,
   CHAT_OPTIONS_EVENT,
 } from '@/shared/chat-options';
+import type { ReasoningSupport } from '@/shared/reasoning-support';
 import styles from '../_styles/pickers-shared.module.css';
 
 const EFFORT_DESCRIPTIONS: Record<Effort, string> = {
@@ -21,15 +24,42 @@ const EFFORT_DESCRIPTIONS: Record<Effort, string> = {
 export default function ChatEffortPicker() {
   const [open, setOpen] = useState(false);
   const [effort, setEffortState] = useState<Effort>('Medium');
+  const [thinking, setThinkingState] = useState(true);
+  const [support, setSupport] = useState<ReasoningSupport | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setEffortState(getEffort());
+    setThinkingState(getThinkingEnabled());
     const sync = () => {
       setEffortState(getEffort());
+      setThinkingState(getThinkingEnabled());
     };
     window.addEventListener(CHAT_OPTIONS_EVENT, sync);
     return () => window.removeEventListener(CHAT_OPTIONS_EVENT, sync);
+  }, []);
+
+  // What the selected provider can do about effort. Read from settings rather
+  // than hardcoded, because the answer changes when the user switches provider
+  // and a stale label would be worse than none.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch('/api/settings');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data?.reasoningSupport) setSupport(data.reasoningSupport as ReasoningSupport);
+      } catch {
+        // Settings unavailable: keep the descriptions, omit the note.
+      }
+    };
+    void load();
+    window.addEventListener('boz_settings_updated', load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('boz_settings_updated', load);
+    };
   }, []);
 
   useEffect(() => {
@@ -49,6 +79,12 @@ export default function ChatEffortPicker() {
     setOpen(false);
   };
 
+  const toggleThinking = () => {
+    const next = !thinking;
+    setThinkingEnabled(next);
+    setThinkingState(next);
+  };
+
   return (
     <div className={styles['chat-effort-picker']} ref={rootRef}>
       <button
@@ -56,13 +92,15 @@ export default function ChatEffortPicker() {
         className={`${styles['chat-effort-trigger']} ${open ? 'active' : ''}`}
         onClick={() => setOpen(!open)}
         title="Thinking effort level"
-        aria-label={`Thinking effort: ${effort}`}
+        aria-label={`Thinking effort: ${effort}${thinking ? '' : ' (deep think off)'}`}
         aria-expanded={open}
       >
         {effort === 'Max' && (
           <i className="fa-solid fa-fire" style={{ fontSize: '11px', color: '#ff793f' }}></i>
         )}
-        <span className={styles['chat-effort-label']}>{effort}</span>
+        <span className={styles['chat-effort-label']}>
+          {thinking ? effort : 'Off'}
+        </span>
         <i className="fa-solid fa-chevron-up" style={{ fontSize: '8px', opacity: 0.4 }}></i>
       </button>
 
@@ -71,6 +109,26 @@ export default function ChatEffortPicker() {
           <div className={styles['chat-effort-menu-header']}>
             <span>Thinking Effort</span>
           </div>
+          <button
+            type="button"
+            className={`${styles['chat-effort-option']} ${thinking ? 'selected' : ''}`}
+            onClick={toggleThinking}
+            role="switch"
+            aria-checked={thinking}
+            title="Turn every verification pass off for a fast, single-shot answer"
+          >
+            <div className={styles['chat-effort-option-info']}>
+              <div className={styles['chat-effort-option-name']}>
+                <span>Deep Think</span>
+                <span className={styles['chat-effort-option-desc']} style={{ marginLeft: 'auto' }}>
+                  {thinking ? 'On' : 'Off'}
+                </span>
+              </div>
+              <div className={styles['chat-effort-option-desc']}>
+                Multiple verification passes over the same evidence.
+              </div>
+            </div>
+          </button>
           {EFFORT_OPTIONS.map((opt) => {
             const desc = EFFORT_DESCRIPTIONS[opt];
             const isSelected = opt === effort;
@@ -96,6 +154,13 @@ export default function ChatEffortPicker() {
               </button>
             );
           })}
+          {/* Says plainly what the tier can and cannot do on this provider,
+              instead of implying a reasoning control that does not exist. */}
+          {support && !support.honorsEffort && (
+            <div className={styles['chat-effort-option-desc']} style={{ padding: '6px 12px 2px' }}>
+              {support.note}
+            </div>
+          )}
         </div>
       )}
     </div>

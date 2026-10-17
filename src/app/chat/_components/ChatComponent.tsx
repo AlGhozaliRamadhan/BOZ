@@ -32,12 +32,16 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     error,
     setError,
     streamingContent,
-    streamingThoughts,
+    streamSteps,
     toolStatuses,
+    streamRetry,
+    reasoningActive,
     sendMessage,
     stopStreaming,
     retryLastGeneration,
+    continueLastGeneration,
     showRetry,
+    showContinue,
   } = useChatStream({
     chatId,
     messages,
@@ -116,12 +120,16 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
               loading={loading}
               stopping={stopping}
               streamingContent={streamingContent}
-              streamingThoughts={streamingThoughts}
+              streamingSteps={streamSteps}
               toolStatuses={toolStatuses}
               onSendCommand={sendMessage}
               endRef={messagesEndRef}
               showRetry={showRetry}
               onRetry={retryLastGeneration}
+              showContinue={showContinue}
+              onContinue={continueLastGeneration}
+              streamRetry={streamRetry}
+              reasoningActive={reasoningActive}
             />
           )}
         </div>

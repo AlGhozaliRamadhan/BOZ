@@ -1,77 +1,193 @@
-// Private-analysis directives for chat models. Effort buys more verification
-// and more independent checks. Reasoning passes reason silently (native
-// thinking mode, else a discarded plain-prose scratchpad) and return only the
-// standalone user-facing answer; raw chain-of-thought is never requested and
-// no fixed skeleton of sections or headers is ever mandated.
+// Analysis directives for chat models. Effort buys more verification and more
+// independent checks, and BOZ SHOWS the working rather than describing it.
+//
+// Why this asks for visible reasoning: the thought panel used to be filled with
+// BOZ's own canned sentences — `buildAiRead` picked between hardcoded phrasings
+// per tool and spliced the result's numbers into them. That rendered as the
+// model thinking while being a template. Two ways to get the real thing, and
+// both are used: providers with a native reasoning channel (DeepSeek-R1, QwQ,
+// Anthropic extended thinking) stream it directly, and providers without one
+// are asked for it in `<thinking>` tags, which the engine routes to the same
+// panel instead of discarding.
+//
+// The line that matters: reasoning is the model's, not ours. BOZ never authors
+// a sentence that purports to be the model's thinking, and no fixed skeleton of
+// sections or headers is mandated for the answer.
+//
+// The directives below are written as GUIDANCE, not as a rulebook, and that is a
+// deliberate reversal. They used to be a wall: uppercase section headers,
+// `(1)…(5) ALWAYS present`, ban lists, an em-dash quota, a hard word cap. A
+// model reasoning under that spends its visible thinking negotiating it — the
+// user was reading "the contract says …", "word count ≤350", "the rule bans a
+// full row of dashes" instead of an analysis. Two changes fixed it:
+//
+//   1. State each rule once. The number rule, the delivery shape and ownership
+//      were each restated three or four times across the prompt stack; every
+//      copy was another rule to hold in mind, and the thinking panel is where
+//      holding them showed.
+//   2. Say the destination, not the procedure. Where a shape can be checked in
+//      code it is not negotiated in prose: `answerCheck` already rejects a
+//      missing table, missing Entry/Stop/TP columns, a missing first-person
+//      take, a label-stamp opener, a no-trade refusal and a truncated final
+//      sentence, then regenerates with the findings attached. Duplicating those
+//      rules in the prompt bought nothing and cost the reasoning budget.
+//
+// What no code can check stays, because it is integrity rather than formatting:
+// numbers traceable to tool output, missing data stated as missing, no invented
+// probabilities, market evidence as the reason, and never handing the model's
+// own work back to the user.
 
 export type ThoughtEffort = 'Low' | 'Medium' | 'High' | 'Extra' | 'Max';
 
+/**
+ * Which relaxation, if any, applies to the message being answered.
+ *
+ * `'social'` is a greeting, `'question'` is a follow-up on the previous
+ * answer. Both mean the answer is a reply rather than a brief, and the visible
+ * thinking has to match the message instead of running the analysis ladder at it.
+ */
+export type ConversationalKind = 'social' | 'question' | null;
+
+/**
+ * The shared contract every tier carries.
+ *
+ * Stated once so a tier block cannot drift into contradicting it. The first
+ * clause is why the tags exist at all; the second is what keeps the block about
+ * the problem instead of about the prompt.
+ */
+const THINK_VISIBLE_CONTRACT = [
+  'HOW TO THINK:',
+  '  Put your working in a single <thinking>...</thinking> block, before the answer.',
+  '  If the platform gives you a native thinking or reasoning mode, use it instead — do not duplicate it in tags.',
+  '  Write it the way you would think out loud: what the user is actually asking for, what you already know,',
+  '  which of your tools would settle it, what each tool result changed, and what you will do next.',
+  '  Move forward as you go. A block that opens by re-describing the question, re-listing what you already',
+  '  fetched, or asking again what you decided to do is time the reader spent on nothing: the request is',
+  '  already established, so start from what just changed and go to the conclusion it implies.',
+  '  Think about the market, not about the writing. Announcing your own word budget, re-reading the',
+  '  instructions, listing the sections you are about to produce, or saying "let me re-run X" when you are',
+  '  about to re-run X are all narration the reader did not ask for — do the thing instead of describing it.',
+  '  A number you already have is a number you stop asking for. If a figure was returned, use it or drop it;',
+  '  do not re-derive it to be sure of it.',
+  '  The user READS this block verbatim. Keep it about the problem — it is not the place to restate these',
+  '  instructions, count what you have to deliver, or argue with a format rule. A block that recites the',
+  '  system prompt is the failure mode, not the good one.',
+  '  Scale it to the message. A greeting or a one-line question gets a sentence or two, not an audit.',
+  '  Be honest rather than tidy. The block is separated from the answer automatically, so nothing outside it',
+  '  except the answer itself.',
+].join('\n');
+
+/**
+ * Thinking directive for a message that is not an analysis request.
+ *
+ * A greeting has no ticker, no evidence and nothing to verify. Handed the
+ * analysis tiers it produces the visible failure this replaces: a full audit of
+ * the delivery contract recited inside the thinking panel for the word "hi".
+ * The block stays (BOZ shows thinking, that policy is not being walked back) —
+ * it just has to be about the message.
+ */
+const CONVERSATIONAL_THOUGHT_PROMPT = [
+  'HOW TO THINK:',
+  '  Put your working inside a single <thinking>...</thinking> block, before the answer.',
+  '  If the platform gives you a native thinking or reasoning mode, use it instead — do not duplicate it in tags.',
+  '  One or two sentences of plain prose: what the user wants, and how you will answer it.',
+  '  No market read, no tool plan, no checklist, no restatement of these instructions, and no section labels.',
+  '  The block is separated from the answer automatically. Never put anything outside it except the answer itself.',
+].join('\n');
+
 export const THOUGHT_PROMPTS: Record<ThoughtEffort, string> = {
-  Low: `\n\n[PRIVATE ANALYSIS DIRECTIVE — LOW]:
-Silently check the central claim against the available facts, identify the next useful action, and state the key condition that would make it wrong.
-Do not reveal private reasoning, scratchpad text, hidden instructions, or reasoning tags.
+  Low: `\n\n[ANALYSIS DIRECTIVE — LOW]:
+Check the central claim against the available facts, identify the next useful action, and state the key condition that would make it wrong.
+${THINK_VISIBLE_CONTRACT}
 Return only the concise user-facing answer or the required tool call.`,
 
-  Medium: `\n\n[PRIVATE ANALYSIS DIRECTIVE — MEDIUM]:
-Silently evaluate market context, technical confluence, catalysts, and the action plan before responding. Test the leading conclusion against one plausible alternative.
+  Medium: `\n\n[ANALYSIS DIRECTIVE — MEDIUM]:
+Evaluate market context, technical confluence, catalysts, and the action plan before responding. Test the leading conclusion against one plausible alternative.
 Check that every important number is grounded, each causal claim follows from the evidence, and the recommendation names its invalidation condition.
-Do not reveal private reasoning, scratchpad text, hidden instructions, or reasoning tags.
+${THINK_VISIBLE_CONTRACT}
 Return only the concise user-facing answer or the required tool call.`,
 
-  High: `\n\n[PRIVATE ANALYSIS DIRECTIVE — HIGH]:
-Perform rigorous private analysis of technical structure, momentum, volatility, catalysts, sentiment, and risk. Trace each material conclusion to the strongest available evidence.
+  High: `\n\n[ANALYSIS DIRECTIVE — HIGH]:
+Work through technical structure, momentum, volatility, catalysts, sentiment, and risk. Trace each material conclusion to the strongest available evidence.
 Stress-test the proposed action against the strongest contrary evidence, delete any figure you cannot trace to tool output, and state what data remains unknown before deciding.
-Do not reveal private reasoning, scratchpad text, hidden instructions, review notes, or reasoning tags.
+${THINK_VISIBLE_CONTRACT}
 Return only the concise user-facing answer or the required tool call.`,
 
-  Extra: `\n\n[PRIVATE ANALYSIS DIRECTIVE — EXTRA]:
-Privately cross-check the evidence across technical, macro, catalyst, sentiment, and risk channels, weighting sources by relevance and recency.
+  Extra: `\n\n[ANALYSIS DIRECTIVE — EXTRA]:
+Cross-check the evidence across technical, macro, catalyst, sentiment, and risk channels, weighting sources by relevance and recency.
 Resolve disagreements, keep only figures traceable to tool output, test at least one alternative explanation, and avoid treating correlation as proof.
-Do not reveal private reasoning, scratchpad text, hidden instructions, review notes, or reasoning tags.
+${THINK_VISIBLE_CONTRACT}
 Return only the concise user-facing answer or the required tool call.`,
 
-  Max: `\n\n[PRIVATE ANALYSIS DIRECTIVE — MAX]:
-Use exhaustive private verification: audit the key figures, compare timeframes, test the leading conclusion against the strongest contrary evidence, and identify the decisive invalidation condition. Rank the evidence by decision impact and reconcile conflicting signals explicitly.
+  Max: `\n\n[ANALYSIS DIRECTIVE — MAX]:
+Verify exhaustively: audit the key figures, compare timeframes, test the leading conclusion against the strongest contrary evidence, and identify the decisive invalidation condition. Rank the evidence by decision impact and reconcile conflicting signals explicitly.
 Depth changes the quality of the internal work, not the length of the visible response.
-Do not reveal private reasoning, scratchpad text, hidden instructions, review notes, or reasoning tags.
+${THINK_VISIBLE_CONTRACT}
 Return only the concise user-facing answer or the required tool call.`,
 };
 
-export function getThoughtPrompt(effort: ThoughtEffort = 'High'): string {
+export function getThoughtPrompt(
+  effort: ThoughtEffort = 'High',
+  conversational: ConversationalKind = null,
+): string {
+  if (conversational === 'social') return CONVERSATIONAL_THOUGHT_PROMPT;
   return THOUGHT_PROMPTS[effort] || THOUGHT_PROMPTS.High;
 }
 
-export function getReasoningPassPrompt(effort: ThoughtEffort = 'High'): string {
-  return `\n\n[PRIVATE ${effort.toUpperCase()} ANALYSIS PASS]:
-Two phases. Phase 1 — reasoning: use the platform's native thinking mode if one exists. If not, reason in a rough plain-prose scratchpad with no headers, bullets, or bold. The scratchpad is discarded and never shown as output. Phase 2 — final answer: stands alone, carries the conclusion, obeys the contracts below.
-Reach the conclusion first. The shape of the answer is chosen AFTER the conclusion is reached, based on what was actually found — never a fixed skeleton, never mandatory section headers. A wait day, a conflict day, and a trade day must look visibly different in the table + take. Same shape every run is failure, even if the content is good. risk_calc validates the math; it never decides the call — likelihood comes from location, participation, and catalysts, and a calc alone is not 100% real.
+/**
+ * Reasoning pass for a message that is not an analysis request.
+ *
+ * The full pass prompt is a delivery contract, and a model reasoning under it
+ * will — correctly — talk about the contract. That is what the user was reading
+ * for the word "hi": a paragraph weighing the likely-path table against a rule
+ * banning an all-dash row. A greeting gets two phases and nothing else.
+ */
+const CONVERSATIONAL_REASONING_PASS_PROMPT = `
+[CONVERSATIONAL ANSWER PASS]:
+Two phases. Phase 1 — reasoning: use the platform's native thinking mode if one exists; if it does not, put your working in a <thinking>...</thinking> block. One or two sentences of plain prose about what the user actually wants and how you will reply. Keep it about them: naming a rule, a limit or a format is the one thing that makes it read like paperwork. Phase 2 — final answer: stands alone, in a sentence or two, the way a person answers a greeting.
+There is no instrument in this message, so there is nothing to research and no decision to hand back. That is the whole shape of the work here, and a short warm reply is a complete answer.`;
 
-THE ANSWER (complete output spec):
-Produce ONE answer containing, in whatever order the logic wants: (1) a natural opener in your own words carrying direction (long / short / waiting), conviction, and the single invalidation that flips it (missing all three = failed answer; never a label-first stamp like "WAIT, medium conviction …"; FLAT as a stance is banned — say what you are waiting for); (2) the 2–4 facts that drove the call, each number appearing exactly once; (3) a likely-path table, ALWAYS present: a REAL markdown table — header row plus a '|---|---|...' delimiter row — with exactly these columns: Scenario | Trigger | Entry | Stop | TP1 | TP2 (runner) | R:R, max 2 data rows (Base = most likely, Alternative = if wrong), one plan number per cell, never the whole plan crammed into one cell; actionable Entry/Stop/TP numbers verbatim from a PASSING risk_calc call with R:R, otherwise Trigger carries data-native levels AND Entry/Stop/TP1/TP2 carry the nearest data-native potential levels (support, resistance, SMA, day high/low) as the potential path with R:R "—", with "levels not validated" once); (4) My take, ALWAYS present, first person in one line — what you think happens and what you would do ("I would wait for price X and…" / "I see it drifting linearly here, so I'd stay light and watch Y"); (5) what you are watching next. Never emit "no trade" or "no-trade" in any casing.
+/**
+ * The analysis pass.
+ *
+ * Rewritten from a ~1,400-word output spec down to a few hundred words of
+ * guidance. What was cut and why:
+ *
+ *   - The enumerated `(1)…(5) ALWAYS present` skeleton. A model handed a
+ *     template produces the template on a wait day and on a breakout day alike,
+ *     which is the sameness the old prompt complained about while mandating it.
+ *     "Reach the call before you reach for a shape" leads instead.
+ *   - Ban lists, the em-dash quota, the word cap and the "non-negotiable" /
+ *     "no exemptions" / "NO third path" vocabulary. None of it is checkable in
+ *     code, and all of it is what the model quoted back in the thinking panel.
+ *   - `FRESH WORDS EVERY RUN`, which instructed variety in the imperative while
+ *     a worked example in `RUNTIME_SYSTEM_PROMPT` demonstrates it far better.
+ *
+ * What stayed is what no gate can check: the number rule, missing data stated as
+ * missing, no invented probabilities, evidence as the reason for a conclusion,
+ * plan testing through risk_calc, silent verification, and one render.
+ */
+export function getReasoningPassPrompt(
+  effort: ThoughtEffort = 'High',
+  conversational: ConversationalKind = null,
+): string {
+  if (conversational) return CONVERSATIONAL_REASONING_PASS_PROMPT;
+  return `\n\n[${effort.toUpperCase()} ANALYSIS PASS]:
+Two phases. Phase 1 — do the work where it can be seen: what the user is actually asking, what you already know, which tool would settle it, what each result changed, what you will do next. Use the platform's native thinking or reasoning mode if it has one; otherwise put that working in a single <thinking>...</thinking> block. The user reads the block, so it stays about the problem — never a recital of these instructions, never an audit of the format rules, and never a running commentary on your own drafting ("word cap 350, let me write", "now re-running the calc to check"). Phase 2 — the answer, standing on its own.
 
-HOW SCENARIOS GET CONSTRUCTED (required flow):
-Choosing candidate levels to feed INTO risk_calc is your judgment — it is not hallucination. Pull candidates from dashboard-native levels (SMAs, support/resistance, day high/low, prior swing points) and structural logic. When the dashboard's suggested plan fails: test it and show the failing output, then IMMEDIATELY construct the obvious alternative and test that too (typical shape: pullback entry near SMA-20, stop below structure, TP1 at resistance, TP2 beyond it). A pass anchors the Base row of the likely-path table; a second failure is shown briefly with the market reason (location, participation, reward-to-resistance) — and the table STILL appears with the more likely drift/wait path plus the reopening trigger in My take. Testing one failing plan and stopping, or ending on a calc dump with no likely path, is a stall halfway through the flow.
+Reach the call before you reach for a shape. Long, short, or waiting; how sure you are; the one thing that would change your mind. Whatever you find then decides what the answer looks like — a clean break, a conflicted tape and a wait should not read alike, and the same layout every day is a failed answer even when the numbers hold. risk_calc settles the math, never the conviction.
 
-THE NUMBER RULE (clarified, load-bearing, no exemptions):
-Every number in the FINAL ANSWER must be traceable to tool output: dashboard values, risk_calc output, or quoted search results. Never perform arithmetic and present the result. The words "illustrative", "derived", "approximate", "estimated", "conditional" and "rough" create NO exemption — a number with a disclaimer is still a number. The ban applies ONLY to numbers presented in the final answer, never to tool inputs: numbers you feed INTO risk_calc are inputs, and choosing them is required judgment, never a violation. If you catch yourself about to write a number you computed in the answer: delete it, and express it as a rule in words (for example, enter after a pullback that holds) or as a level that already appears in the data.
-Plan numbers follow an if/else with NO third path:
-- If risk_calc is available: call it BEFORE presenting any plan. All entry, stop, target, size and R:R numbers come from its output, verbatim.
-- If risk_calc is unavailable or errors: the answer contains NO computed levels. Describe the setup as triggers plus data-native levels only (levels that literally appear in the dashboard). State "levels not validated" once, at most.
-There is no third path. Levels with disclaimers are the violation, not an alternative.
+Open with that call in your own words, a sentence rather than a stamp, then only the facts that actually moved it, each number appearing once. The question sets the depth: work out what would actually resolve what was asked before deciding how much of it to say, because more structure than someone asked for reads as evasion of their question rather than thoroughness. When you are putting a setup in front of the user — including the dashboard's own suggested plan — run it through risk_calc and show what came back, and when it fails say why in market terms and stop; inventing a second plan to test after rejecting the first is not thoroughness, it is padding. Handing the reader a rejection instead of a path is the one way to get this genuinely wrong.
 
-VERIFICATION IS SILENT, NEVER A SECTION:
-After drafting, silently recompute every cited number against its tool source, check every figure appears with one consistent value everywhere, and hunt contradictions between your own claims. If a problem is found, fix it and repeat. If clean, output at most one line ("verified") or nothing. Never restate facts with implication labels. No verification section appears unless it found something.
+A plan gets its table: the trigger that opens it, the levels price could reach from what the dashboard printed, and what you would do when it prints. Name the levels unvalidated once and let that carry the whole caveat. Close with your own read in one line, first person, then what you are watching next.
 
-DELIVERY — ONE RENDER (non-negotiable):
-The complete analysis appears exactly once, as the final answer. One render, no empty sections, no section without content. The entire response is ≤350 words — if it does not fit, cut evidence, never the conclusion, the likely-path table, or My take. The response ends with a complete sentence and is invalid without the conclusion, the table, and My take: open in your own words with direction, conviction, and invalidation (never a label-first stamp), then justify. Sources named inline ("per CNBC"); full URLs at most once, in one list at the end, only if the platform requires links. At most one em dash (—) per answer; prefer commas and periods. Never emit the phrases "Research brief", "Quant recheck", "Number verification", or "Initial Quantitative Synthesis" as headers or labels. Never emit "no trade" or "no-trade". Do not create new headers, templates, or mandatory sections to replace them.
+Numbers come from a tool or they do not go in — "roughly", "approximately" and "estimated" are not a way around it, and a number you worked out yourself is a number you cannot source. If a figure matters and no tool returned it, fetch it or leave it out. Choosing the candidate levels you hand TO risk_calc is your judgment, and is never the violation.
 
-OWNERSHIP — NO DEFLECTION (non-negotiable):
-The market evidence is the reason for every conclusion — never cite a contract, tool, or validation state as the reason. An action you did not take is your choice, not a fact about the world: write "I did not run X because Y", never passive voice about your own unfired action. A wait is demonstrated through the likely-path table, not asserted: if any plan is on the table — including the dashboard's own suggested plan — run it through risk_calc before concluding and show the failing output; otherwise give setup-quality reasons (volume, location, participation, R:R). Never tell the user to run your tools — if running a tool would change the answer, run it now. Declining a passing plan requires citing its numbers and a market reason; "no passing / validated / alternative combination" phrasing is banned outright. Every macro or fundamental claim must trace to a tool output — thin results mean "inconclusive", never manufactured filler. Never paste API endpoint URLs as sources; name sources inline.
+Write for a person reading this on a phone, not for a report template. Short sentences. Break where the thought actually turns, so a reader can come up for air between the call, the evidence and what happens next. Hang each number off the claim it supports rather than stacking a run of them in one breath, and name what a level means before you print it. Dense and complete beats long: a wall of figures with no shape to it is not thoroughness, it is a wall.
 
-NO REPETITION, COMPLETE OUTPUT:
-Every paragraph must add new information. Restating an already-stated fact in new words or with a label is deletion-worthy. One number, one meaning, one appearance. Budget length so the answer ends with a complete sentence. A wait-day answer fits in roughly 150-250 words and never exceeds 350 words total.
-FRESH WORDS EVERY RUN: the worked example shows what must be IN the answer, never how to phrase it — never copy its sentences. Never open two answers the same way, never reuse a My-take sentence, never recycle stock phrases ("dead on contact", "stay light", "pullback-first", "I see it drifting linearly here"). Rotate the lead fact, rotate the opener's entry point, let the day's evidence pick the rhythm.
+State missing data as missing instead of filling it, and never invent a probability. Name the strongest fact against your own thesis; that is the one that tells you whether to keep the call.
 
-JUDGMENT (unchanged):
-The dashboard's bias score is a claim to test, not a conclusion — agree or push back explicitly. Name the single strongest fact against your thesis and what would change your mind. State missing or stale data as missing, never fill it. Never invent probabilities. No filler openers, no closers, no emojis. Even on wait days the likely-path table + My take appear: name the wait trigger, what you would do when it prints, and the tell that reopens it — never a bare refusal.`;
+Verify inside the thinking block, where the reader can watch: every number against its source, one consistent value per figure, contradictions between your own claims hunted down. Fix what you find and leave no trace of the fixing in the answer — no "verified", no fact restated wearing a label, no section about the checking. Each stretch of writing adds what the one before it did not; a paragraph that could be deleted without losing anything was already filler, and the same goes for re-opening a question the reader already watched you answer.
+
+Name sources inline ("per CNBC"). The shape is checked after you answer rather than by you: if the table, the take or a number fails, it comes back to you with the specific problem. Spend your words on the market.`;
 }

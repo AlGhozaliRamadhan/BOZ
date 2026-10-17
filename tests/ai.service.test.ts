@@ -3,6 +3,50 @@ import { AIService } from '../src/services/ai/ai.service.js';
 
 const parse = (content: string) => (new AIService() as any).parseResponse(content);
 
+describe('AIService reasoning separation', () => {
+  // `<think>` narration used to be extracted into `thoughts` and rendered in
+  // the same accordion as the verdict's own grounded reasons, so one label came
+  // to mean two unrelated things. It now rides its own `reasoning` channel.
+
+  it('captures a tagged scratchpad on its own channel', () => {
+    const result = parse(
+      '{"status":"ok","prediction":"UP","confidence":70,"strategy":"Breakout","reasons":["momentum"]}'
+    );
+    expect(result.reasoning).toBeUndefined();
+
+    const withThoughts = (new AIService() as any).normalizeResult(
+      { status: 'ok', prediction: 'UP', confidence: 70, reasons: ['momentum'] },
+      '<think>weighed the levels carefully</think>{"status":"ok"}',
+    );
+    expect(withThoughts.reasoning).toBe('weighed the levels carefully');
+    // Never mixed into the grounded reason list.
+    expect(withThoughts.thoughts).toEqual(['momentum']);
+  });
+
+  it('never lets a scratchpad stand in for the reason a verdict failed', () => {
+    // The user in front of a red verdict needs to read WHY it failed, not the
+    // model's musings about it.
+    const result = (new AIService() as any).normalizeResult(
+      { status: 'error', reason: 'Market data provider was unreachable' },
+      '<think>maybe I should have checked the feed first</think>{"status":"error"}',
+    );
+    expect(result.reason).toBe('Market data provider was unreachable');
+    expect(result.thoughts).toEqual(['Market data provider was unreachable']);
+    expect(result.thought).toBe('Market data provider was unreachable');
+    // Still available, just not as the headline.
+    expect(result.reasoning).toBe('maybe I should have checked the feed first');
+  });
+
+  it('applies the same precedence on an uncertain verdict', () => {
+    const result = (new AIService() as any).normalizeResult(
+      { status: 'uncertain', reason: 'Confirmation candle never printed' },
+      '<think>waiting on the retest</think>{"status":"uncertain"}',
+    );
+    expect(result.thoughts).toEqual(['Confirmation candle never printed']);
+    expect(result.reasoning).toBe('waiting on the retest');
+  });
+});
+
 describe('AIService.parseResponse', () => {
   it('parses a perfectly structured response', () => {
     const result = parse(

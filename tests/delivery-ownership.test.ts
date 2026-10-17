@@ -63,16 +63,25 @@ describe('Task C1 — NVDA regression: dashboard plan fails, alternative passes'
     expect(parsed.warnings.join(' ')).not.toContain('RR below 1.5');
   });
 
-  it('skill + system prompt require testing the dashboard plan AND constructing an alternative', () => {
+  it('skill + system prompt require testing a plan but not manufacturing a second one', () => {
+    // The mandate to build an alternative setup after the first one failed is
+    // what produced a 150-word rally-short construction attached to "what you
+    // think about those idx that keep going down". Testing is required;
+    // inventing a second plan to test is not.
     const skill = readRepo('.boz/skills/intraday/SKILL.md');
     expect(skill).toContain('including the dashboard\'s own suggested plan');
     expect(skill).toContain('show the failing output');
-    expect(skill).toContain('IMMEDIATELY construct the obvious alternative');
-    expect(skill).toContain('Stopping after step 1 is a stall');
+    expect(skill).not.toContain('IMMEDIATELY construct the obvious alternative');
+    expect(skill).not.toContain('Stopping after step 1 is a stall');
     expect(RUNTIME_SYSTEM_PROMPT).toContain('including the dashboard\'s own suggested plan');
-    expect(RUNTIME_SYSTEM_PROMPT).toContain('IMMEDIATELY construct the obvious alternative');
+    expect(RUNTIME_SYSTEM_PROMPT).not.toContain('IMMEDIATELY construct the obvious alternative');
+    // The pass prompt states the same requirement as guidance rather than as
+    // the imperative it used to quote — the behaviour is what's pinned, not
+    // the shouting.
     const prompt = getReasoningPassPrompt('Max');
-    expect(prompt).toContain('IMMEDIATELY construct the obvious alternative');
+    expect(prompt).toContain('including the dashboard\'s own suggested plan');
+    expect(prompt).not.toMatch(/build the obvious alternative/);
+    expect(prompt).toMatch(/inventing a second plan to test after rejecting the first is not thoroughness/);
   });
 
   it('worked example anchor is verbatim in the skill', () => {
@@ -165,13 +174,44 @@ describe('Task C2 — one render: no delta rule, no delta vocabulary, internal-o
     expect(engine).not.toContain("thought = 'Quant recheck'");
   });
 
-  it('reasoning pass installs the consolidated spec, not the delta rule', () => {
+  it('the engine authors nothing that pretends to be the model thinking', () => {
+    // The panel was previously filled by `buildAiRead`, which picked between
+    // hardcoded sentences per tool and spliced the result's numbers into them.
+    // It read as the model reasoning while being BOZ's own template — the one
+    // failure mode worse than showing nothing. Nothing may CALL it again.
+    const engine = readRepo('src/app/api/chat/chat.engine.ts');
+    // Matched with a call paren so an explanatory comment naming the old
+    // helper does not trip the pin, while any use of it still fails.
+    expect(engine).not.toMatch(/buildAiRead\s*\(/);
+    expect(engine).not.toMatch(/buildTrackLine\s*\(/);
+    expect(engine).not.toContain("type: 'thought_new'");
+
+    // The module that held them is gone, not merely unreferenced.
+    let cannedExists = true;
+    try {
+      readRepo('src/app/chat/_lib/tool-thoughts.ts');
+    } catch {
+      cannedExists = false;
+    }
+    expect(cannedExists, 'the canned-narration module still exists').toBe(false);
+  });
+
+  it('reasoning pass keeps verification out of the answer, and no delta rule', () => {
     const prompt = getReasoningPassPrompt('Max');
     expect(prompt).not.toContain('deltas ONLY');
     expect(prompt).not.toContain('delta');
-    expect(prompt).toContain('ONE answer');
-    expect(prompt).toContain('required flow');
-    expect(prompt).toContain('clean');
+    // Reversed with the policy: verification used to be "if clean, output at
+    // most one line ('verified')", which put a verification report in the
+    // answer. It belongs in the thinking block, and the answer must carry no
+    // trace of the checking having happened.
+    expect(prompt).toContain('Verify inside the thinking block');
+    expect(prompt).toMatch(/leave no trace of the fixing/i);
+    expect(prompt).not.toContain('If clean, output at most one line');
+    // The consolidated output spec is gone: shape follows the finding now, and
+    // the answer envelope is enforced by `answerCheck` on regen.
+    expect(prompt).not.toContain('ONE answer');
+    expect(prompt).not.toContain('required flow');
+    expect(prompt).toContain('Reach the call before you reach for a shape');
   });
 });
 
@@ -182,8 +222,11 @@ describe('Task C3 — delivery: cap, conclusion, sources', () => {
     expect(skill).toContain('never cut the conclusion');
     expect(skill).toContain('invalid if it does not contain the conclusion');
     expect(RUNTIME_SYSTEM_PROMPT).toContain('350 words');
-    const prompt = getReasoningPassPrompt('Max');
-    expect(prompt).toContain('350 words');
+    // Deliberately NOT in the pass prompt: the cap there was one of the rules
+    // the model quoted back at the user in its visible thinking ("word count
+    // ≤350"). The cap still lives where the analyst reads it, and the worked
+    // example demonstrates the length rather than demanding it.
+    expect(getReasoningPassPrompt('Max')).not.toContain('350 words');
   });
 
   it('sources are inline with URLs at most once at the end', () => {

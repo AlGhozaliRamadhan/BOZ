@@ -131,4 +131,82 @@ describe('collectThinkingPass', () => {
       expect(calls()).toBe(3);
     },
   );
+
+  it('honors a provider Retry-After instead of its own backoff', async () => {
+    // The provider knows its own quota; the old fixed 1500ms floor ignored it.
+    const controller = new AbortController();
+    const engine = new WebChatEngine();
+    let calls = 0;
+    (engine as any).llm = {
+      callTextStream: async function* () {
+        calls++;
+        if (calls === 1) {
+          const headers = new Headers({ 'retry-after': '1' });
+          throw Object.assign(new Error('slow down'), { status: 429, headers });
+        }
+        yield 'recovered';
+      },
+    };
+    const started = Date.now();
+    const text = await (engine as any).collectThinkingPass(MSGS, undefined, 'directive', undefined, controller.signal, 1);
+    expect(text).toBe('recovered');
+    // ~1000ms from the header, not the ~500ms local first attempt.
+    expect(Date.now() - started).toBeGreaterThanOrEqual(900);
+  }, 20000);
+
+  it('interrupts its backoff when the user stops the generation', async () => {
+    // The old `setTimeout(1500 * attempt)` was not cancellable, so Stop
+    // during a backoff still waited out the full sleep.
+    const controller = new AbortController();
+    const { engine, calls } = engineWithScriptedLlm([{ error: transient503() }]);
+    const pending = (engine as any).collectThinkingPass(
+      MSGS, undefined, 'directive', undefined, controller.signal, 3,
+    );
+    setTimeout(() => controller.abort(), 20);
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(calls()).toBe(1);
+  }, 20000);
+});
+
+describe('generation retry budget', () => {
+  it('stops retrying once the whole generation runs out of budget', async () => {
+    // MAX_LLM_CALLS is 18 and several sites may retry; without one shared
+    // ceiling their budgets compose and a flapping provider bills far more
+    // than any single site budget implies.
+    const engine = new WebChatEngine();
+    (engine as any).retryBudget = { limit: 2, remaining: () => 0, spend: () => false };
+    const { engine: scripted, calls } = engineWithScriptedLlm([
+      { error: transient503() },
+      { error: transient503() },
+      { error: transient503() },
+      { text: 'never reached' },
+    ]);
+    (scripted as any).retryBudget = (engine as any).retryBudget;
+
+    await expect(
+      (scripted as any).collectThinkingPass(MSGS, undefined, 'directive', undefined, undefined, 5),
+    ).rejects.toMatchObject({ message: 'Service Unavailable' });
+    expect(calls()).toBe(1);
+  });
+
+  it('resets for each generation', () => {
+    const engine = new WebChatEngine();
+    expect((engine as any).retryBudget.remaining()).toBeGreaterThan(0);
+  });
+});
+
+describe('retry notices', () => {
+  it('emits a notice before the wait, carrying the code but no message', async () => {
+    const notices: any[] = [];
+    const { engine } = engineWithScriptedLlm([{ error: transient503() }, { text: 'ok' }]);
+    (engine as any).onRetryNotice = (data: any) => notices.push(data);
+
+    await (engine as any).collectThinkingPass(MSGS, undefined, 'directive', undefined, undefined, 1);
+
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ attempt: 1, code: 'SERVER' });
+    expect(notices[0].delayMs).toBeGreaterThan(0);
+    // A provider message can carry a key or an internal URL.
+    expect(JSON.stringify(notices[0])).not.toContain('Service Unavailable');
+  }, 20000);
 });

@@ -16,6 +16,7 @@ import { ANTHROPIC_MODELS } from '@/config/anthropic.config';
 import { GROQ_MODELS } from '@/config/groq.config';
 import { OPENROUTER_MODELS } from '@/config/openrouter.config';
 import { parseCustomModels } from '@/config/custom.config';
+import { describeReasoningSupport } from '@/shared/reasoning-support';
 import {
   settingsRepository,
   SettingsValidationError,
@@ -200,6 +201,11 @@ function settingsPayload() {
     offlineUrl: config.offline.endpoint,
     customUrl: config.custom.endpoint,
     availableModels: providerModels[config.aiProvider],
+    // What the effort tier can actually do on this provider. The chat picker
+    // reads this instead of implying a reasoning control the provider cannot
+    // honour — the tier always changes BOZ's own verification passes, but the
+    // model's own thinking budget only moves on some routes.
+    reasoningSupport: describeReasoningSupport(config.aiProvider),
     allModels: (Object.entries(providerModels) as [AIProvider, { id: string; label: string }[]][])
       .flatMap(([provider, models]) => models.map((model) => ({ ...model, provider }))),
   };
