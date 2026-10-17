@@ -4,6 +4,9 @@ export const MAX_REQUEST_BODY_BYTES = 256 * 1024;
 export const MAX_CHAT_MESSAGE_CHARS = 16_000;
 export const MAX_CHAT_HISTORY_MESSAGES = 20;
 export const MAX_CHAT_MODEL_CHARS = 256;
+export const MAX_CHAT_CONTINUE_CHARS = 24_000;
+export const MAX_CHAT_INTERRUPTED_THOUGHTS = 20;
+export const MAX_CHAT_INTERRUPTED_TEXT_CHARS = 4_000;
 export const MAX_CHAT_TITLE_MESSAGES = 2;
 export const MAX_CHAT_TITLE_MESSAGE_CHARS = 4_000;
 
@@ -85,10 +88,21 @@ export async function parseBody<T>(request: Request): Promise<T> {
   }
 }
 
+export interface ChatInterruptedContext {
+  status: 'error' | 'interrupted' | 'cancelled';
+  question: string;
+  thoughts: string[];
+  partial: string;
+}
+
 export interface ChatRequestBody {
   message: string;
   history?: Array<{ role: 'user' | 'assistant'; content: string }>;
   model?: string;
+  /** Unfinished answer text a Continue resumes instead of re-answering. */
+  continueFrom?: string;
+  /** Work a cut-off generation left behind, so this one continues it. */
+  interrupted?: ChatInterruptedContext;
 }
 
 export interface ChatTitleRequestBody {
@@ -138,7 +152,55 @@ export function validateChatRequestBody(body: unknown): ChatRequestBody {
     model = candidate.model.trim() || undefined;
   }
 
-  return { message: candidate.message.trim(), history, model };
+  let continueFrom: string | undefined;
+  if (candidate.continueFrom !== undefined) {
+    if (
+      typeof candidate.continueFrom !== 'string' ||
+      candidate.continueFrom.length > MAX_CHAT_CONTINUE_CHARS ||
+      candidate.continueFrom.trim().length === 0
+    ) {
+      throw new InvalidRequestBodyError(`Continue text must be a non-empty string of at most ${MAX_CHAT_CONTINUE_CHARS} characters`);
+    }
+    continueFrom = candidate.continueFrom;
+  }
+
+  let interrupted: ChatRequestBody['interrupted'];
+  if (candidate.interrupted !== undefined) {
+    const raw = candidate.interrupted;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new InvalidRequestBodyError('Interrupted context must be an object');
+    }
+    const entry = raw as Record<string, unknown>;
+    const status = entry.status;
+    if (status !== 'error' && status !== 'interrupted' && status !== 'cancelled') {
+      throw new InvalidRequestBodyError('Interrupted context requires a valid status');
+    }
+    const readText = (value: unknown, label: string): string => {
+      if (value === undefined) return '';
+      if (typeof value !== 'string' || value.length > MAX_CHAT_INTERRUPTED_TEXT_CHARS) {
+        throw new InvalidRequestBodyError(`Interrupted ${label} exceeds ${MAX_CHAT_INTERRUPTED_TEXT_CHARS} characters`);
+      }
+      return value;
+    };
+    const thoughtsRaw = entry.thoughts ?? [];
+    if (!Array.isArray(thoughtsRaw) || thoughtsRaw.length > MAX_CHAT_INTERRUPTED_THOUGHTS) {
+      throw new InvalidRequestBodyError(`Interrupted thoughts must contain at most ${MAX_CHAT_INTERRUPTED_THOUGHTS} entries`);
+    }
+    const thoughts = thoughtsRaw.map((t) => {
+      if (typeof t !== 'string' || t.length > MAX_CHAT_INTERRUPTED_TEXT_CHARS) {
+        throw new InvalidRequestBodyError(`Interrupted thought exceeds ${MAX_CHAT_INTERRUPTED_TEXT_CHARS} characters`);
+      }
+      return t.trim();
+    }).filter(Boolean);
+
+    const question = readText(entry.question, 'question');
+    const partial = readText(entry.partial, 'partial');
+    if (question || thoughts.length || partial) {
+      interrupted = { status, question, thoughts, partial };
+    }
+  }
+
+  return { message: candidate.message.trim(), history, model, continueFrom, interrupted };
 }
 
 export function validateChatTitleRequestBody(body: unknown): ChatTitleRequestBody {

@@ -18,6 +18,7 @@ import {
 import type { AssistantMessageMetrics } from './chat-message-metrics';
 import type { ToolResult } from '@/shared/chat-tool-results';
 import type { ChatMessage, ChatSession } from './chat-types';
+import type { ThoughtStep } from './chat-stream-manager';
 
 export const CHAT_SESSIONS_KEY = 'boz_chat_sessions';
 export const CHAT_UPDATED_EVENT = 'boz_chat_updated';
@@ -70,11 +71,56 @@ function sanitizeMessage(raw: unknown): ChatMessage | null {
   ) {
     message.type = candidate.type;
   }
-  if (Array.isArray(candidate.thoughts)) message.thoughts = candidate.thoughts.filter((t): t is string => typeof t === 'string');
+  if (Array.isArray(candidate.steps)) message.steps = sanitizeThoughtSteps(candidate.steps);
+  else if (Array.isArray(candidate.thoughts)) {
+    // Legacy sessions stored a flat list of strings. Migrated on read so an
+    // old thread keeps its timeline instead of rendering an empty panel.
+    message.steps = candidate.thoughts
+      .filter((t): t is string => typeof t === 'string' && t.length > 0)
+      .map((text, index) => ({ kind: 'reasoning' as const, id: `legacy-${index}`, text }));
+  }
   if (Array.isArray(candidate.tools)) message.tools = candidate.tools as ToolResult[];
   if (Array.isArray(candidate.suggestions)) message.suggestions = candidate.suggestions as ChatMessage['suggestions'];
+  if (typeof candidate.partial === 'string') message.partial = candidate.partial;
   if (isChatGenerationStatus(candidate.status)) message.status = candidate.status;
   return message;
+}
+
+/**
+ * Validate a persisted thinking stream.
+ *
+ * Dropped rather than repaired: a step whose kind or text is wrong would render
+ * as a half-entry, and a timeline with a hole in it misleads more than one with
+ * a missing entry.
+ */
+function sanitizeThoughtSteps(raw: unknown[]): ThoughtStep[] {
+  const steps: ThoughtStep[] = [];
+  raw.forEach((entry, index) => {
+    if (!entry || typeof entry !== 'object') return;
+    const candidate = entry as Record<string, unknown>;
+    const id = typeof candidate.id === 'string' && candidate.id ? candidate.id : `step-${index}`;
+    if (candidate.kind === 'reasoning') {
+      if (typeof candidate.text !== 'string' || !candidate.text) return;
+      steps.push({ kind: 'reasoning', id, text: candidate.text });
+      return;
+    }
+    if (candidate.kind === 'tool') {
+      if (typeof candidate.tool !== 'string' || !candidate.tool) return;
+      steps.push({
+        kind: 'tool',
+        id,
+        tool: candidate.tool,
+        status: candidate.status === 'done' ? 'done' : 'running',
+        ...(candidate.args && typeof candidate.args === 'object' ? { args: candidate.args as Record<string, unknown> } : {}),
+        ...(typeof candidate.fact === 'string' ? { fact: candidate.fact } : {}),
+        ...(typeof candidate.quality === 'string' ? { quality: candidate.quality } : {}),
+        ...(typeof candidate.success === 'boolean' ? { success: candidate.success } : {}),
+        ...(typeof candidate.preview === 'string' ? { preview: candidate.preview } : {}),
+        ...(typeof candidate.detail === 'string' ? { detail: candidate.detail } : {}),
+      });
+    }
+  });
+  return steps;
 }
 
 function sanitizeSession(raw: unknown): ChatSession | null {
@@ -189,10 +235,15 @@ export function appendAssistantMessage(
 
 export interface AssistantMessagePatch {
   content?: string;
-  thoughts?: string[];
+  /**
+   * The thinking stream. Persisted beside the answer rather than inside it so
+   * a reloaded session can restore the timeline; never folded into `content`.
+   */
+  steps?: ThoughtStep[];
   tools?: ToolResult[];
   metrics?: AssistantMessageMetrics;
   status?: ChatGenerationStatus;
+  partial?: string;
 }
 
 /**
@@ -218,11 +269,38 @@ export function patchAssistantMessage(
   }
   const next: ChatMessage = { ...message };
   if (patch.content !== undefined) next.content = patch.content;
-  if (patch.thoughts !== undefined) next.thoughts = [...patch.thoughts];
+  if (patch.steps !== undefined) next.steps = patch.steps.map((step) => ({ ...step }));
   if (patch.tools !== undefined) next.tools = [...patch.tools];
   if (patch.metrics !== undefined) next.metrics = patch.metrics;
+  if (patch.partial !== undefined) next.partial = patch.partial;
   if (patch.status !== undefined) next.status = patch.status;
   session.messages[messageIndex] = next;
+  sessions[index] = withRolledUpStatus({ ...session, updatedAt: Date.now() });
+  writeSessions(storage, sessions);
+  if (announce) announceSessionsChanged();
+  return true;
+}
+
+/**
+ * Drops the assistant message at `messageIndex`. Used by Continue: the healed
+ * generation replaces the truncated bubble it resumed from, so the thread keeps
+ * exactly one copy of the text. Returns false when the session or message is
+ * missing, or the target is not an assistant message (a user turn is never
+ * removable this way).
+ */
+export function removeAssistantMessage(
+  storage: ChatSessionStorage = defaultSessionStorage(),
+  sessionId: string,
+  messageIndex: number,
+  announce = true,
+): boolean {
+  const sessions = readSessions(storage);
+  const index = sessions.findIndex((s) => s.id === sessionId);
+  if (index < 0) return false;
+  const session = cloneSession(sessions[index]);
+  const message = session.messages[messageIndex];
+  if (!message || message.role !== 'assistant') return false;
+  session.messages.splice(messageIndex, 1);
   sessions[index] = withRolledUpStatus({ ...session, updatedAt: Date.now() });
   writeSessions(storage, sessions);
   if (announce) announceSessionsChanged();
@@ -285,7 +363,12 @@ export function reconcileInterruptedSessions(
         status: 'interrupted',
       });
     } else if (canTransitionChatStatus(last.status, 'interrupted')) {
-      session.messages[session.messages.length - 1] = { ...last, status: 'interrupted' };
+      // Keep the streamed text as the resume point so Continue works after a
+      // reload killed the run mid-answer.
+      const interrupted: ChatMessage = last.content
+        ? { ...last, partial: last.partial ?? last.content, status: 'interrupted' }
+        : { ...last, status: 'interrupted' };
+      session.messages[session.messages.length - 1] = interrupted;
     }
     session.updatedAt = now;
     return withRolledUpStatus(session);

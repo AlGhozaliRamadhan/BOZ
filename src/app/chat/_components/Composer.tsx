@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, type Dispatch, type KeyboardEvent, type RefObject, type SetStateAction } from 'react';
+import { useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type RefObject, type SetStateAction } from 'react';
 import ChatEffortPicker from './ChatEffortPicker';
 import ChatModelPicker from './ChatModelPicker';
 import ChatRiskPicker from './ChatRiskPicker';
+import { parseTickerArgPrompt } from '@/shared/boz-skills';
 import styles from './Composer.module.css';
 
 interface SlashMenuItem {
@@ -11,14 +12,25 @@ interface SlashMenuItem {
   title: string;
   desc: string;
   icon: string;
+  needsTicker?: boolean;
+}
+
+interface TickerResult {
+  symbol: string;
+  name: string;
+  exchange?: string;
+  type?: string;
 }
 
 /** Fallback when the skills API is unreachable. Mirrors the committed BOZ skill frontmatter. */
 const FALLBACK_SLASH_COMMANDS: SlashMenuItem[] = [
-  { cmd: '/intraday ', title: 'Intraday', desc: 'Live intraday analysis & key levels [ticker]', icon: 'fa-chart-line' },
-  { cmd: '/longterm ', title: 'Longterm', desc: 'Fundamental analysis & long-term outlook [ticker]', icon: 'fa-scale-balanced' },
-  { cmd: '/newsintel ', title: '/newsintel', desc: 'Scan latest market headlines', icon: 'fa-newspaper' },
+  { cmd: '/intraday ', title: 'Intraday', desc: 'Live intraday analysis & key levels [ticker]', icon: 'fa-chart-line', needsTicker: true },
+  { cmd: '/longterm ', title: 'Longterm', desc: 'Fundamental analysis & long-term outlook [ticker]', icon: 'fa-scale-balanced', needsTicker: true },
+  { cmd: '/price ', title: 'Price', desc: 'Quick live price check for any asset [ticker]', icon: 'fa-tag', needsTicker: true },
+  { cmd: '/newsintel ', title: '/newsintel', desc: 'Scan latest market headlines', icon: 'fa-newspaper', needsTicker: false },
 ];
+
+const MAX_TICKER_RESULTS = 6;
 
 interface ComposerProps {
   input: string;
@@ -46,7 +58,113 @@ export default function Composer({ input, setInput, loading, stopping, onSend, o
     return () => { cancelled = true; };
   }, []);
 
+  // ── Ticker picker ────────────────────────────────────────────────────────
+  // `/intraday nvx` offers the tickers that match, the same Yahoo-backed
+  // similar-name search the ticker page and Discover use, so the symbol never
+  // has to be guessed.
+  const [tickerResults, setTickerResults] = useState<TickerResult[]>([]);
+  const [tickerSearching, setTickerSearching] = useState(false);
+  const [tickerHighlight, setTickerHighlight] = useState(0);
+  // Escape dismisses the picker; typing the next character brings it back.
+  const [tickerDismissed, setTickerDismissed] = useState(false);
+  const searchAbortRef = useRef<AbortController | null>(null);
+
+  const tickerPrompt = useMemo(
+    () => parseTickerArgPrompt(input, slashCommands),
+    [input, slashCommands],
+  );
+  const tickerQuery = tickerPrompt?.query ?? '';
+  const pickerOpen =
+    !!tickerPrompt &&
+    !tickerDismissed &&
+    (tickerResults.length > 0 || tickerSearching || tickerQuery.length === 0);
+
+  useEffect(() => {
+    if (!tickerPrompt) {
+      setTickerResults([]);
+      setTickerSearching(false);
+      setTickerHighlight(0);
+      return;
+    }
+    setTickerHighlight(0);
+    setTickerDismissed(false);
+    if (!tickerQuery) {
+      setTickerResults([]);
+      setTickerSearching(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      searchAbortRef.current?.abort();
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
+      setTickerSearching(true);
+      try {
+        const res = await fetch(`/api/market/search?q=${encodeURIComponent(tickerQuery)}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const data: unknown = await res.json();
+        if (controller.signal.aborted) return;
+        // Yahoo mixes indices (`^GSPC`) into its results; a ticker command
+        // wants tradable symbols only.
+        const quotes = (Array.isArray(data) ? data : [])
+          .filter((r): r is TickerResult => !!r && typeof r.symbol === 'string' && !r.symbol.includes('^'))
+          .slice(0, MAX_TICKER_RESULTS);
+        setTickerResults(quotes);
+      } catch {
+        if (!controller.signal.aborted) setTickerResults([]);
+      } finally {
+        if (!controller.signal.aborted) setTickerSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [tickerPrompt?.cmd, tickerQuery]);
+
+  useEffect(() => () => searchAbortRef.current?.abort(), []);
+
+  const selectTicker = (symbol: string) => {
+    if (!tickerPrompt) return;
+    setInput(tickerPrompt.apply(symbol));
+    setTickerResults([]);
+    setTickerSearching(false);
+    setTickerDismissed(true);
+    // Put the caret after the symbol so the user can keep typing immediately.
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      const end = el.value.length;
+      el.setSelectionRange(end, end);
+    });
+  };
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape' && pickerOpen) {
+      // Close the picker first; only an open composer with no picker means stop.
+      e.preventDefault();
+      setTickerResults([]);
+      setTickerSearching(false);
+      setTickerDismissed(true);
+      return;
+    }
+    if (pickerOpen && tickerResults.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setTickerHighlight((prev) => Math.min(prev + 1, tickerResults.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setTickerHighlight((prev) => Math.max(prev - 1, 0));
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        const picked = tickerResults[tickerHighlight];
+        if (picked) selectTicker(picked.symbol);
+        return;
+      }
+    }
     if (e.key === 'Escape' && loading) {
       e.preventDefault();
       onStop();
@@ -87,10 +205,47 @@ export default function Composer({ input, setInput, loading, stopping, onSend, o
         </div>
       )}
 
+      {pickerOpen && (
+        <div className={styles['chat-slash-menu']} role="listbox" aria-label="Tickers">
+          {!tickerQuery ? (
+            <div className={styles['chat-slash-hint']}>
+              {tickerSearching ? 'Searching…' : `Type a ticker or company name — ↑ ↓ to browse, Enter to pick.`}
+            </div>
+          ) : tickerResults.length === 0 ? (
+            <div className={styles['chat-slash-hint']}>
+              {tickerSearching ? 'Searching…' : `No ticker matches “${tickerQuery}”.`}
+            </div>
+          ) : (
+            tickerResults.map((result, idx) => (
+              <button
+                key={`${result.symbol}-${result.exchange ?? ''}`}
+                type="button"
+                role="option"
+                aria-selected={idx === tickerHighlight}
+                onMouseEnter={() => setTickerHighlight(idx)}
+                onClick={() => selectTicker(result.symbol)}
+                className={`${styles['chat-slash-item']}${idx === tickerHighlight ? ` ${styles['chat-slash-item-active']}` : ''}`}
+              >
+                <span className={styles['chat-slash-item-icon']}>
+                  <i className="fa-solid fa-tag"></i>
+                </span>
+                <span className={styles['chat-slash-item-text']}>
+                  <span className={styles['chat-slash-item-title']}>{result.symbol}</span>
+                  <span className={styles['chat-slash-item-desc']}>
+                    {result.name}
+                    {result.exchange ? ` · ${result.exchange}` : ''}
+                  </span>
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+
       <textarea
         ref={textareaRef}
         className={styles['chat-composer-textarea']}
-        placeholder="Write a message or type '/' for commands..."
+        placeholder={tickerPrompt ? `Ticker for /${tickerPrompt.cmd} — symbol or company name` : "Write a message or type '/' for commands..."}
         value={input}
         rows={1}
         onChange={(e) => setInput(e.target.value)}

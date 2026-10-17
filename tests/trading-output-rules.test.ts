@@ -101,8 +101,11 @@ describe('hardened number rule installed (Task B)', () => {
     expect(skill).toContain('never to tool inputs');
     expect(skill).toContain('choosing them is required judgment');
     expect(RUNTIME_SYSTEM_PROMPT).toContain('never to tool inputs');
+    // Same exemption, stated once in the pass prompt: the number rule governs
+    // what reaches the ANSWER, so picking the levels you hand to risk_calc is
+    // the judgment the tool exists to check, not a violation of anything.
     const prompt = getReasoningPassPrompt('High');
-    expect(prompt).toContain('never to tool inputs');
+    expect(prompt).toContain('Choosing the candidate levels you hand TO risk_calc is your judgment');
   });
 
   it('system prompt carries the hardened contracts', () => {
@@ -117,8 +120,24 @@ describe('hardened number rule installed (Task B)', () => {
     expect(prompt).toContain('Phase 1');
     expect(prompt).toContain('Phase 2');
     expect(prompt).toContain('risk_calc');
-    expect(prompt).toContain('levels not validated');
-    expect(prompt).toContain('NO third path');
+    // Two phases, a plan tested through risk_calc, and the wait path described
+    // rather than forbidden. The levels-not-validated caveat is stated once in
+    // the runtime contract and demonstrated by the worked example; repeating it
+    // here is what the model quoted back at the user while thinking.
+    expect(prompt).toContain('A plan gets its table');
+    expect(prompt).toContain('Name the levels unvalidated once');
+    expect(prompt).toMatch(/leave no trace of the fixing/i);
+  });
+
+  it('reasoning pass prompt makes the question set the depth, not a template', () => {
+    // The reported failure: "what you think about those idx that keep going
+    // down" came back as a 554-word brief with a scan inventory and a
+    // manufactured short plan. A prompt that maps question shapes onto
+    // structures would only relocate that; this pins the principle instead.
+    const prompt = getReasoningPassPrompt('High');
+    expect(prompt).toContain('The question sets the depth');
+    expect(prompt).toMatch(/work out what would actually resolve what was asked/i);
+    expect(prompt).toContain('rather than thoroughness');
   });
 });
 
@@ -157,12 +176,19 @@ describe('disclaimer loophole closed (Task B)', () => {
     expect(RUNTIME_SYSTEM_PROMPT).toContain('My take');
     expect(RUNTIME_SYSTEM_PROMPT).not.toContain('conditional trigger table');
     const prompt = getReasoningPassPrompt('High');
-    expect(prompt).toContain('likely-path table');
-    expect(prompt).toContain('My take');
-    expect(prompt).toContain('Never emit "no trade"');
+    // The pass prompt no longer re-teaches the table: that shape is stated in the
+    // runtime contract, demonstrated by the worked example, and enforced by
+    // `answerCheck` on regen. What it owes the answer is the reasoning that
+    // produces it — a path for each scenario, and the reader's own read.
+    expect(prompt).toContain('A plan gets its table');
+    expect(prompt).toContain('Close with your own read in one line, first person');
+    expect(prompt).toContain('then what you are watching next');
+    // A bare refusal is a market failure whatever the phrasing, so the reason
+    // still has to be named — as the one way to get it wrong.
+    expect(prompt).toContain('Handing the reader a rejection instead of a path is the one way');
     // Real-table shape with separated plan columns (Entry/Stop/TP1/TP2 never
-    // crammed into one cell), taught identically everywhere the table is specified.
-    for (const [name, body] of [['skill', skill], ['system', RUNTIME_SYSTEM_PROMPT], ['reasoning-pass', prompt]] as const) {
+    // crammed into one cell), taught where the analyst reads it.
+    for (const [name, body] of [['skill', skill], ['system', RUNTIME_SYSTEM_PROMPT]] as const) {
       expect(body, `${name} requires separated TP2 (runner) column`).toContain('TP2 (runner)');
       expect(body, `${name} requires a delimiter row`).toContain('|---|---|');
     }
@@ -170,7 +196,11 @@ describe('disclaimer loophole closed (Task B)', () => {
     const engine = readRepo('src/app/api/chat/chat.engine.ts');
     for (const [name, body] of [['skill', skill], ['system', RUNTIME_SYSTEM_PROMPT], ['reasoning-pass', prompt], ['engine', engine]] as const) {
       expect(body, `${name} requires a natural opener`).toContain('in your own words');
+    }
+    // The label-first stamp is banned in the surfaces that state the shape.
+    for (const [name, body] of [['skill', skill], ['system', RUNTIME_SYSTEM_PROMPT], ['engine', engine]] as const) {
       expect(body, `${name} bans the label-first stamp`).toContain('label-first stamp');
     }
+    expect(prompt).toContain('a sentence rather than a stamp');
   });
 });

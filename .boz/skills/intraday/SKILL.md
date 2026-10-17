@@ -3,6 +3,7 @@ name: intraday
 description: Intraday technical analysis & trade plan [ticker]
 title: Intraday
 icon: fa-chart-line
+arg: ticker
 triggers: ["/intraday"]
 ---
 
@@ -35,12 +36,12 @@ Banned terminal phrases: "no trade", "no-trade", "no trade day", "FLAT" as a sta
 
 Choosing candidate levels is your judgment — it is not hallucination. The number ban applies only to the final answer, never to tool inputs. Pull candidates from dashboard-native levels (SMAs, support/resistance, day high/low, prior swing points) and structural logic.
 
-When the dashboard's suggested plan fails:
+When a plan fails, say why in market terms and move on:
 1. Test it → show the failing output.
-2. IMMEDIATELY construct the obvious alternative and test that too. Typical shape: pullback entry near SMA-20, stop below structure, TP1 at resistance, TP2 beyond it. Run risk_calc on it.
-3. Passes → its numbers anchor the Base row of the likely-path table. Fails → show both failures briefly, then still fill the table with the more likely drift/wait path (triggers + data-native levels, "levels not validated") and give the reopening trigger in My take.
+2. Name what makes it fail — location, participation, reward-to-resistance — and stop. You are not required to manufacture an alternative setup to test in its place. Someone who asked whether a trade was worth taking did not ask for a second invented trade to justify rejecting the first, and padding the answer with one reads as evasion of what they asked.
+3. What still follows is the market read: the trigger that would change the answer, the levels price could reach from what the dashboard printed, and what you would do when it prints.
 
-Stopping after step 1 is a stall halfway through the flow. Ending on a calc dump with no likely path is a stall too: the calc checks the math, the scenario says what happens.
+Ending on a calc dump with no read is a stall: the calc checks the math, the scenario says what happens.
 
 ## The number rule (clarified — no exemptions)
 

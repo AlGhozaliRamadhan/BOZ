@@ -5,7 +5,17 @@ import type { LLMMessage, RawToolCall } from '../../types/llm.types.js';
 import type { ValidateFunction } from 'ajv';
 import { formatSchemaErrors } from './llm.schemas.js';
 import { createCustomProviderClient } from './custom-provider.client.js';
-import { sanitizeAssistantOutput } from '../../shared/assistant-output.js';
+import { extractPrivateReasoning, sanitizeAssistantOutput } from '../../shared/assistant-output.js';
+import { LlmFailureError, llmHttpFailure } from '../../shared/llm-retry.js';
+import {
+  readAnthropicReasoning,
+  readReasoningDelta,
+  readReasoningMessage,
+  reasoningChunk,
+  textChunk,
+  type LLMStreamChunk,
+} from './reasoning-channel.js';
+import { providerHonorsReasoningEffort } from '../../shared/reasoning-support.js';
 
 export type JsonCallResult<T> =
   | { type: 'ok'; value: T; raw: string; warnings: string[] }
@@ -29,6 +39,39 @@ const REASONING_BUDGETS: Record<ReasoningEffort, number> = {
   medium: 8192,
   high: 16384,
 };
+
+/**
+ * Which routes accept `reasoning_effort` on the wire.
+ *
+ * Declared once in `shared/reasoning-support.ts` so the adapter that sends the
+ * key and the picker that describes the control cannot disagree about which
+ * providers honour it.
+ */
+function providerSupportsReasoningEffort(provider: string): boolean {
+  return providerHonorsReasoningEffort(provider);
+}
+
+/**
+ * Read an OpenAI-compatible SSE stream into typed text/reasoning chunks.
+ *
+ * Every route funnels through here instead of open-coding `delta.content`, so
+ * a provider that sends reasoning in-band is captured the same way whether it
+ * is reached through the shared cloud client, the custom client, or the
+ * NVIDIA/GitHub fallbacks.
+ */
+async function* readOpenAiCompatibleStream(
+  stream: AsyncIterable<{ choices?: { delta?: Record<string, unknown> | null }[] }>,
+): AsyncGenerator<LLMStreamChunk, void, unknown> {
+  for await (const chunk of stream) {
+    const delta = chunk?.choices?.[0]?.delta;
+    if (!delta) continue;
+    // Reasoning first: a provider may open with a reasoning delta and no text.
+    const reasoning = readReasoningDelta(delta);
+    if (reasoning) yield reasoningChunk(reasoning);
+    const content = delta.content;
+    if (typeof content === 'string' && content.length > 0) yield textChunk(content);
+  }
+}
 
 const DEFAULT_TIMEOUT_MS = 90_000;
 
@@ -140,8 +183,9 @@ export class LLMAdapter {
       maxTokens: number;
       model?: string;
       responseFormat?: 'json';
+      reasoningEffort?: ReasoningEffort;
     },
-  ): AsyncGenerator<string, void, unknown> {
+  ): AsyncGenerator<LLMStreamChunk, void, unknown> {
     const { client, model } = this.cloudClient(provider);
     const params: Record<string, unknown> = {
       model: options.model ?? model,
@@ -151,31 +195,36 @@ export class LLMAdapter {
       stream: true,
     };
     if (options.responseFormat === 'json') params.response_format = { type: 'json_object' };
-    const stream: AsyncIterable<{ choices?: { delta?: { content?: string | null } }[] }> =
-      await client.chat.completions.create(params as any) as any;
-    for await (const chunk of stream) {
-      const content = chunk.choices?.[0]?.delta?.content;
-      if (content) yield content;
+    // These routes were silently dropping the effort the user picked. Sending
+    // it costs nothing on a provider that understands the key and is ignored by
+    // one that does not; the alternative was a control that did nothing.
+    if (options.reasoningEffort && providerSupportsReasoningEffort(provider)) {
+      params.reasoning_effort = options.reasoningEffort;
     }
+    const stream: AsyncIterable<{ choices?: { delta?: Record<string, unknown> | null }[] }> =
+      await client.chat.completions.create(params as any) as any;
+    yield* readOpenAiCompatibleStream(stream);
   }
 
   private async callCloudWithTools(
     provider: OpenAiCompatibleCloudProvider,
     options: {
       messages: LLMMessage[];
-      tools: object[];
+      /** Omitted for a toolless turn: an empty array is rejected by OpenAI. */
+      tools?: object[];
       temperature: number;
       maxTokens: number;
       model?: string;
-      toolChoice: { type: 'function'; function: { name: string } } | 'auto';
+      toolChoice?: { type: 'function'; function: { name: string } } | 'auto';
     },
   ): Promise<LLMMessage> {
     const { client, model } = this.cloudClient(provider);
     const response: any = await client.chat.completions.create({
       model: options.model ?? model,
       messages: options.messages as never,
-      tools: options.tools as never,
-      tool_choice: options.toolChoice as never,
+      ...(options.tools?.length
+        ? { tools: options.tools as never, tool_choice: options.toolChoice as never }
+        : {}),
       temperature: options.temperature,
       max_tokens: options.maxTokens,
     } as any);
@@ -302,7 +351,7 @@ export class LLMAdapter {
     responseFormat?: 'json';
     nvidiaMode?: NvidiaMode;
     reasoningEffort?: ReasoningEffort;
-  }): AsyncGenerator<string, void, unknown> {
+  }): AsyncGenerator<LLMStreamChunk, void, unknown> {
     const provider = config.aiProvider;
     const temperature = options.temperature ?? 0.4;
     const maxTokens = options.maxTokens ?? 1500;
@@ -324,12 +373,7 @@ export class LLMAdapter {
       }
       const client = await this.customClient();
       const stream = await client.chat.completions.create(params as any);
-      for await (const chunk of stream as any) {
-        const delta = chunk.choices?.[0]?.delta;
-        if (delta?.content) {
-          yield delta.content;
-        }
-      }
+      yield* readOpenAiCompatibleStream(stream as any);
       return;
     }
 
@@ -357,12 +401,7 @@ export class LLMAdapter {
         }
       }
       const stream = await client.chat.completions.create(params as any);
-      for await (const chunk of stream as any) {
-        const delta = chunk.choices?.[0]?.delta;
-        if (delta?.content) {
-          yield delta.content;
-        }
-      }
+      yield* readOpenAiCompatibleStream(stream as any);
       return;
     }
 
@@ -373,6 +412,7 @@ export class LLMAdapter {
         maxTokens,
         model,
         responseFormat: options.responseFormat,
+        reasoningEffort: options.reasoningEffort,
       });
       return;
     }
@@ -380,14 +420,14 @@ export class LLMAdapter {
     if (provider === 'anthropic') {
       // The Anthropic Messages path remains functional without a streaming-only
       // dependency; the chat engine emits this single normalized chunk.
-      yield await this.callAnthropicText({ messages, temperature, maxTokens, model });
+      yield textChunk(await this.callAnthropicText({ messages, temperature, maxTokens, model }));
       return;
     }
 
     if (provider === 'offline') {
       // Offline fallback to non-streaming if actual streaming is complex
       const fullResponse = await this.callText(options);
-      yield fullResponse;
+      yield textChunk(fullResponse);
       return;
     }
 
@@ -409,12 +449,7 @@ export class LLMAdapter {
       params.reasoning_effort = options.reasoningEffort;
     }
     const stream = await client.chat.completions.create(params as any);
-    for await (const chunk of stream as any) {
-      const delta = chunk.choices?.[0]?.delta;
-      if (delta?.content) {
-        yield delta.content;
-      }
-    }
+    yield* readOpenAiCompatibleStream(stream as any);
   }
 
   async callWithTools(options: {
@@ -432,6 +467,15 @@ export class LLMAdapter {
     const model = options.model ? sanitizeOpenRouterModelId(options.model) : undefined;
     const messages = options.messages;
     const toolChoice = options.toolChoice ?? 'auto';
+    // A turn that needs no tool sends no tools AT ALL rather than an empty list:
+    // OpenAI rejects `tools: []` (minimum length 1) and Anthropic rejects a
+    // `tool_choice` with no `tools` beside it. Omitting both makes it a plain
+    // chat turn — which is what a greeting is. It also stops the panel opening
+    // on a tool call the model had no reason to make, like listing the toolbox
+    // back at someone who only said hi.
+    const toolless = !options.tools?.length;
+    const tools = toolless ? undefined : options.tools;
+    const resolvedToolChoice = toolless ? undefined : toolChoice;
 
     if (provider === 'custom') {
       const modelName = model ?? config.custom.model;
@@ -439,11 +483,13 @@ export class LLMAdapter {
       const params: Record<string, any> = {
         model: modelName,
         messages: messages as any,
-        tools: options.tools as any,
-        tool_choice: toolChoice,
         temperature,
         max_tokens: maxTokens,
       };
+      if (tools) {
+        params.tools = tools;
+        params.tool_choice = resolvedToolChoice;
+      }
       const client = await this.customClient();
       const res = await client.chat.completions.create(params as any);
       return LLMAdapter.normalizeOpenAIResponse(res.choices?.[0]?.message ?? {});
@@ -456,11 +502,13 @@ export class LLMAdapter {
       const params: Record<string, any> = {
         model: modelName,
         messages: messages as any,
-        tools: options.tools as any,
-        tool_choice: toolChoice,
         temperature,
         max_tokens: maxTokens,
       };
+      if (tools) {
+        params.tools = tools;
+        params.tool_choice = resolvedToolChoice;
+      }
       if (options.reasoningEffort) {
         params.reasoning_budget = REASONING_BUDGETS[options.reasoningEffort];
         params.chat_template_kwargs = { enable_thinking: true };
@@ -472,11 +520,11 @@ export class LLMAdapter {
     if (provider === 'openai' || provider === 'groq' || provider === 'openrouter') {
       return this.callCloudWithTools(provider, {
         messages,
-        tools: options.tools,
+        tools,
         temperature,
         maxTokens,
         model,
-        toolChoice,
+        toolChoice: resolvedToolChoice,
       });
     }
 
@@ -486,7 +534,7 @@ export class LLMAdapter {
         tools: options.tools,
         maxTokens,
         model,
-        toolChoice,
+        toolChoice: resolvedToolChoice,
       });
     }
 
@@ -498,11 +546,13 @@ export class LLMAdapter {
     const githubBody: Record<string, any> = {
       model: model ?? config.github.model,
       messages,
-      tools: options.tools,
-      tool_choice: toolChoice,
       temperature,
       max_tokens: maxTokens,
     };
+    if (tools) {
+      githubBody.tools = tools;
+      githubBody.tool_choice = resolvedToolChoice;
+    }
     if (options.reasoningEffort) {
       githubBody.reasoning_effort = options.reasoningEffort;
     }
@@ -539,7 +589,7 @@ export class LLMAdapter {
     tools: object[];
     maxTokens: number;
     model?: string;
-    toolChoice: { type: 'function'; function: { name: string } } | 'auto';
+    toolChoice?: { type: 'function'; function: { name: string } } | 'auto';
   }): Promise<LLMMessage> {
     const tools = options.tools.flatMap((tool) => {
       const candidate = tool as {
@@ -563,7 +613,9 @@ export class LLMAdapter {
       tools,
       toolChoice: options.toolChoice === 'auto'
         ? { type: 'auto' }
-        : { type: 'tool', name: options.toolChoice.function.name },
+        : options.toolChoice
+          ? { type: 'tool', name: options.toolChoice.function.name }
+          : undefined,
     });
     const toolCalls: RawToolCall[] = response.content
       .filter((block) => block.type === 'tool_use' && block.id && block.name)
@@ -635,10 +687,18 @@ export class LLMAdapter {
       }),
       signal: AbortSignal.timeout(this.timeoutMs),
     });
-    if (!response.ok) throw new Error(`Anthropic returned HTTP ${response.status}`);
+    // Raw fetch does not throw on 4xx/5xx. A bare `new Error("HTTP 429")`
+    // discarded the status and the `Retry-After` header, so the retry layer
+    // downstream could see neither — it only had the number inside a string.
+    if (!response.ok) {
+      throw llmHttpFailure(`Anthropic returned HTTP ${response.status}`, response.status, response.headers);
+    }
     const data: unknown = await response.json();
     if (!data || typeof data !== 'object' || !Array.isArray((data as { content?: unknown }).content)) {
-      throw new Error('Anthropic returned an invalid response');
+      throw new LlmFailureError({
+        code: 'EMPTY_RESPONSE',
+        message: 'Anthropic returned a response with no content.',
+      });
     }
     return data as { content: Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }> };
   }
@@ -833,11 +893,23 @@ export class LLMAdapter {
   private static normalizeOpenAIResponse(msg: any): LLMMessage {
     const rawContent = (msg.content ?? '').toString();
     let content = LLMAdapter.stripThinking(rawContent) || null;
-    const thought: string | null = null;
-
+    // Previously hardcoded to `null`, which discarded reasoning the model had
+    // already produced and billed for. It is captured onto its own field now —
+    // still never concatenated into `content`.
+    const nativeReasoning = readReasoningMessage(msg) ?? null;
     const hasTools = msg.tool_calls && msg.tool_calls.length > 0;
 
     if (hasTools) content = null;
+
+    // On a tool-calling turn `content` is dropped, so a model that explained
+    // itself inline before reaching for the tool lost that explanation with it.
+    // It goes to the reasoning field instead: the panel can then open on WHY the
+    // tool was called rather than on the call. Deliberately scoped to tool
+    // turns — with no tool call the inline block is already removed from
+    // `content`, and re-surfacing it there would duplicate a stream that shows
+    // reasoning separately.
+    const inlineReasoning = hasTools ? extractPrivateReasoning(rawContent) : '';
+    const thought: string | null = nativeReasoning || inlineReasoning || null;
 
     return {
       role: 'assistant',

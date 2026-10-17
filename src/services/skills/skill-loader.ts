@@ -93,11 +93,12 @@ export function listBozSkills(): BozSkillFrontmatter[] {
     { name: 'global', description: 'Global market outlook — equities, bonds/rates, macro regime', triggers: ['/global'], title: 'Global', icon: 'fa-earth-asia' },
     { name: 'help', description: 'List what BOZ can do — all slash skills', triggers: ['/help'], title: 'Help', icon: 'fa-circle-question' },
     { name: 'idx', description: 'Hunt IDX momentum setups — rebound, breakout, oversold [sector]', triggers: ['/idx'], title: 'IDX Hunt', icon: 'fa-magnifying-glass-chart' },
-    { name: 'intraday', description: 'Live intraday analysis & key levels [ticker]', triggers: ['/intraday'], title: 'Intraday', icon: 'fa-chart-line' },
-    { name: 'longterm', description: 'Fundamental analysis & long-term outlook [ticker]', triggers: ['/longterm'], title: 'Longterm', icon: 'fa-scale-balanced' },
+    { name: 'intraday', description: 'Intraday technical analysis & trade plan [ticker]', triggers: ['/intraday'], title: 'Intraday', icon: 'fa-chart-line', arg: 'ticker' },
+    { name: 'longterm', description: 'Fundamental analysis & long-term outlook [ticker]', triggers: ['/longterm'], title: 'Longterm', icon: 'fa-scale-balanced', arg: 'ticker' },
     { name: 'newsintel', description: 'Scan latest market headlines', triggers: ['/newsintel'], title: '/newsintel', icon: 'fa-newspaper' },
-    { name: 'price', description: 'Quick live price check for any asset [ticker]', triggers: ['/price'], title: 'Price', icon: 'fa-tag' },
+    { name: 'price', description: 'Quick live price check for any asset [ticker]', triggers: ['/price'], title: 'Price', icon: 'fa-tag', arg: 'ticker' },
     { name: 'sentiment', description: 'Crowd sentiment check — Fear & Greed + StockTwits pulse', triggers: ['/sentiment'], title: 'Sentiment', icon: 'fa-face-smile' },
+    { name: 'who', description: 'Company profile — who they are, disclosure depth, legitimacy, latest news [ticker]', triggers: ['/who'], title: 'Who', icon: 'fa-building', arg: 'ticker', shape: 'profile' },
   ];
 }
 

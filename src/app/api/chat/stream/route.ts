@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { WebChatEngine } from '../chat.engine';
+import { WebChatEngine, type ChatRetryEventData } from '../chat.engine';
 import type { ThoughtEffort } from '@/shared/thought-prompts';
 import {
   parseBody,
@@ -8,10 +8,12 @@ import {
 } from '@/app/lib/api-helpers';
 import { chatWorkloadGate } from '@/services/security/workload-gate';
 import {
+  chatStreamFailureFromLlmFailure,
   classifyChatStreamFailure,
   describeChatStreamFailure,
   type ChatStreamFailure,
 } from '@/shared/chat-stream-failure';
+import { normalizeLlmFailure } from '@/shared/llm-retry';
 
 const VALID_EFFORTS: ThoughtEffort[] = ['Low', 'Medium', 'High', 'Extra', 'Max'];
 
@@ -96,6 +98,43 @@ export async function POST(request: NextRequest) {
 
       const engine = new WebChatEngine();
 
+      /**
+       * Retry notices bypass the generator because a retried pass streams
+       * nothing — `run()` is parked awaiting the provider while the backoff
+       * runs, so a `yield` there would only surface after the retry already
+       * completed. Emitting directly keeps the notice in the same ordered
+       * stream and lets the client show a countdown the user can Stop.
+       */
+      const enqueueRetryNotice = (data: ChatRetryEventData) => {
+        if (clientSignal.aborted) return;
+        try {
+          controller.enqueue(encoder.encode(`event: retry\ndata: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          // Client went away mid-notice; the abort handler closes the stream.
+        }
+      };
+
+      /**
+       * Provider reasoning is forwarded on its own SSE channel.
+       *
+       * The first delta also emits `reasoning_start`, which is what opens the
+       * client's disclosure. A pass streams no answer tokens, so without this
+       * the model would look stalled for the whole of every synthesis pass.
+       */
+      let reasoningOpen = false;
+      const enqueueReasoning = (text: string) => {
+        if (clientSignal.aborted || !text) return;
+        try {
+          if (!reasoningOpen) {
+            reasoningOpen = true;
+            controller.enqueue(encoder.encode('event: reasoning_start\ndata: {}\n\n'));
+          }
+          controller.enqueue(encoder.encode(`event: reasoning\ndata: ${JSON.stringify({ text })}\n\n`));
+        } catch {
+          // Client went away mid-pass; the abort handler closes the stream.
+        }
+      };
+
       try {
         for await (const event of engine.run({
           message: body.message,
@@ -104,6 +143,10 @@ export async function POST(request: NextRequest) {
           thinking,
           model: body.model,
           signal: clientSignal,
+          continueFrom: body.continueFrom,
+          interrupted: body.interrupted,
+          onRetryNotice: enqueueRetryNotice,
+          onReasoningDelta: enqueueReasoning,
         })) {
           if (clientSignal.aborted) break;
           const payload = JSON.stringify(event.data);
@@ -115,15 +158,10 @@ export async function POST(request: NextRequest) {
           // User pressed Stop: engine gave up without a terminal event.
           // Just close; the client already settled as cancelled.
         } else {
-          const failure: ChatStreamFailure = {
-            status: typeof (err as { status?: unknown })?.status === 'number'
-              ? (err as { status: number }).status
-              : undefined,
-            code: typeof (err as { code?: unknown })?.code === 'string'
-              ? (err as { code: string }).code
-              : undefined,
-            message: err instanceof Error ? err.message : undefined,
-          };
+          // One normalizer at the boundary: the engine and the adapter have
+          // already classified this, so the user-facing classification must
+          // not re-guess from an HTTP status and a message string.
+          const failure: ChatStreamFailure = chatStreamFailureFromLlmFailure(normalizeLlmFailure(err));
           const sseError = `event: error\ndata: ${JSON.stringify({
             code: classifyChatStreamFailure(failure),
             message: describeChatStreamFailure(failure),

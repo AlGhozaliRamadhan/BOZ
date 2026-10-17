@@ -315,10 +315,11 @@ export default function LongtermAnalysisPage() {
             </div>
           </div>
 
-          {/* AI Fundamental Reasoning & Thought Process Accordion */}
-          {(verdict?.thought || verdict?.thoughts || (verdict?.reasons && verdict.reasons.length > 0)) && (
+          {/* AI Fundamental Reasoning & Thought Process Accordion. */}
+          {(verdict?.reasoning || verdict?.thought || verdict?.thoughts || (verdict?.reasons && verdict.reasons.length > 0)) && (
             <div style={{ marginTop: 'var(--space-4)' }}>
               <ThoughtAccordion
+                reasoning={verdict.reasoning}
                 thoughts={verdict.thoughts || verdict.reasons || verdict.thought}
                 title="Long-Term AI Fundamental Thesis & Thought Process"
                 defaultOpen={false}

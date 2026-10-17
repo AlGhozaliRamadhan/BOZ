@@ -1,3 +1,5 @@
+import type { LlmFailure } from './llm-retry';
+
 export type ChatStreamFailureCode =
   | 'busy'
   | 'provider_authentication'
@@ -10,6 +12,11 @@ export type ChatStreamFailureCode =
 
 export interface ChatStreamFailure {
   status?: number;
+  /**
+   * Either one of {@link ChatStreamFailureCode} (our own vocabulary) or a raw
+   * provider code. {@link classifyChatStreamFailure} prefers a known code and
+   * otherwise falls back to status and message heuristics.
+   */
   code?: string;
   message?: string;
 }
@@ -35,9 +42,50 @@ function normalizedText(failure: ChatStreamFailure): string {
   return `${failure.code ?? ''} ${failure.message ?? ''}`.toLowerCase();
 }
 
+/**
+ * How a normalized LLM failure maps onto the reader-facing vocabulary.
+ *
+ * This is the single translation point between the retry layer's taxonomy
+ * (`src/shared/llm-retry.ts`) and what the user is told. Without it the same
+ * failure would be classified twice — once accurately at the adapter, once
+ * again by regex over a message string at the SSE boundary.
+ */
+const LLM_FAILURE_CODE_MAP: Readonly<Record<string, ChatStreamFailureCode>> = {
+  RATE_LIMIT: 'busy',
+  QUOTA: 'busy',
+  SERVER: 'service_unavailable',
+  TIMEOUT: 'timeout',
+  TRANSPORT: 'connection_interrupted',
+  EMPTY_RESPONSE: 'connection_interrupted',
+  AUTH: 'provider_authentication',
+  INVALID_REQUEST: 'provider_setup',
+  CONTEXT_WINDOW_EXCEEDED: 'execution_limit',
+  EXECUTION_LIMIT: 'execution_limit',
+  UNKNOWN: 'unknown',
+};
+
+/**
+ * Carry an already-classified `LlmFailure` into the stream-failure shape.
+ *
+ * The message is intentionally dropped: `describeChatStreamFailure` supplies
+ * the reader-facing text for every code, and passing a provider message
+ * through risks leaking a key, an internal URL, or a stack fragment into a
+ * chat bubble.
+ */
+export function chatStreamFailureFromLlmFailure(failure: LlmFailure): ChatStreamFailure {
+  return { code: LLM_FAILURE_CODE_MAP[failure.code] ?? 'unknown', ...(failure.status === undefined ? {} : { status: failure.status }) };
+}
+
 export function classifyChatStreamFailure(failure: ChatStreamFailure): ChatStreamFailureCode {
   if (failure.code && KNOWN_FAILURE_CODES.has(failure.code as ChatStreamFailureCode)) {
     return failure.code as ChatStreamFailureCode;
+  }
+
+  // A code carried over from the LLM taxonomy is already decided upstream;
+  // re-guessing it from the message text would only risk disagreeing with the
+  // adapter that produced it.
+  if (failure.code && LLM_FAILURE_CODE_MAP[failure.code]) {
+    return LLM_FAILURE_CODE_MAP[failure.code];
   }
 
   const text = normalizedText(failure);

@@ -3,6 +3,7 @@ name: longterm
 description: Fundamental analysis & long-term outlook [ticker]
 title: Longterm
 icon: fa-scale-balanced
+arg: ticker
 triggers: ["/longterm"]
 ---
 

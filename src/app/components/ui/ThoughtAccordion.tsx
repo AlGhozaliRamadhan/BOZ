@@ -1,12 +1,19 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'isomorphic-dompurify';
 import styles from './ThoughtAccordion.module.css';
 import type { ToolResult } from '@/shared/chat-tool-results';
+import type { ThoughtStep } from '@/app/chat/_lib/chat-stream-manager';
 import { parseWebSources, type WebSourceDetail } from '@/shared/tool-result-details';
 
+/**
+ * Marks a timeline entry as the model's own thinking rather than a tool call.
+ *
+ * The renderer branches on `type` alone: a separate "is this thinking" title
+ * meant the label a user read and the branch that styled it could drift apart.
+ */
 export interface ThoughtTimelineStep {
   id?: string;
   type: 'thought' | 'tool' | 'search';
@@ -32,6 +39,21 @@ export interface ThoughtAccordionProps {
    * Optional timeline steps
    */
   timeline?: ThoughtTimelineStep[];
+  /**
+   * The thinking stream, in the order it happened.
+   *
+   * Preferred over `thoughts`/`reasoning`: one chronological list renders as a
+   * narrative — thought, tool, result, reaction — whereas two separate lists
+   * lose the causal order that is the only reason to show a timeline at all.
+   */
+  steps?: ThoughtStep[];
+  /**
+   * The model's own reasoning, shown as the FIRST timeline entry.
+   *
+   * Legacy path for callers that only have a reasoning blob. New callers pass
+   * `steps`.
+   */
+  reasoning?: string;
   /** Tool outputs matched to timeline entries, available through Show more. */
   toolResults?: ToolResult[];
   /**
@@ -87,6 +109,8 @@ export function ThoughtAccordion({
   thoughts,
   thought,
   timeline,
+  steps: streamSteps,
+  reasoning,
   toolResults,
   title,
   duration,
@@ -98,10 +122,29 @@ export function ThoughtAccordion({
   style = {},
 }: ThoughtAccordionProps) {
   // Normalize steps into structured timeline items
-  const steps: ThoughtTimelineStep[] = [];
+  const assembled: ThoughtTimelineStep[] = [];
 
-  if (timeline && timeline.length > 0) {
-    steps.push(...timeline);
+  // A unified stream is already in order; nothing to derive.
+  const unified = streamSteps
+    ?.filter((step) => step.kind === 'reasoning' ? step.text.trim().length > 0 : true)
+    .map((step): ThoughtTimelineStep => step.kind === 'reasoning'
+      ? { id: step.id, type: 'thought', content: step.text }
+      : {
+          id: step.id,
+          type: 'tool',
+          title: step.tool,
+          content: step.fact ?? '',
+          toolName: step.tool,
+          args: step.args,
+          preview: step.preview,
+          detail: step.detail,
+          status: step.status,
+        });
+
+  if (unified && unified.length > 0) {
+    assembled.push(...unified);
+  } else if (timeline && timeline.length > 0) {
+    assembled.push(...timeline);
   } else {
     const unclaimedToolResults = [...(toolResults ?? [])];
     const rawList: string[] = [];
@@ -126,16 +169,18 @@ export function ThoughtAccordion({
         const toolId = toolName?.split(/\s+\(/, 1)[0];
         const resultIndex = unclaimedToolResults.findIndex((result) => result.tool === toolId);
         const result = resultIndex >= 0 ? unclaimedToolResults.splice(resultIndex, 1)[0] : undefined;
-        steps.push({
+        assembled.push({
           type: 'tool',
           toolName,
-          content: raw,
+          // The row already names the tool, so the summary starts after the
+          // "tool used:" prefix instead of repeating it.
+          content: parts.slice(1).join(' — ').trim(),
           preview: parts[1]?.trim(),
           detail: result?.detail || result?.preview,
           status: 'done',
         });
       } else {
-        steps.push({
+        assembled.push({
           type: 'thought',
           content: raw,
         });
@@ -143,28 +188,23 @@ export function ThoughtAccordion({
     });
   }
 
+  // A `reasoning` blob from a caller that has no stream (the intraday, long-term
+  // and news pages) used to be shown only as the collapsed one-liner in the
+  // header, so it was never actually readable anywhere. With that line gone it
+  // becomes the first entry of the panel body instead: the same text, in the
+  // place the reader actually opens to read.
+  const reasoningText = reasoning?.trim() ?? '';
+  if (reasoningText && !assembled.some((step) => step.type === 'thought')) {
+    assembled.unshift({ type: 'thought', content: reasoningText });
+  }
+
+  const steps = dropRepeatedThoughts(assembled);
+
   const hasThoughts = steps.length > 0 || isStreaming;
   const initialOpen = defaultOpen !== undefined ? defaultOpen : false;
 
   const [isOpen, setIsOpen] = useState(initialOpen);
   const [copied, setCopied] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const stickToBottom = useRef(true);
-
-  useEffect(() => {
-    if (isStreaming && isOpen && contentRef.current) {
-      if (stickToBottom.current) {
-        contentRef.current.scrollTop = contentRef.current.scrollHeight;
-      }
-    }
-  }, [isStreaming, isOpen, steps]);
-
-  const handleScroll = () => {
-    const el = contentRef.current;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    stickToBottom.current = distanceFromBottom < 60;
-  };
 
   if (!hasThoughts) return null;
 
@@ -252,8 +292,10 @@ export function ThoughtAccordion({
 
           <span className={styles['thought-label']}>{label}</span>
 
-          {!isStreaming && stepCount > 1 && (
-            <span className={styles['thought-step-badge']}>{stepCount} steps</span>
+          {!isOpen && !isStreaming && stepCount > 1 && (
+            <span className={styles['thought-step-badge']}>
+              {stepCount} step{stepCount === 1 ? '' : 's'}
+            </span>
           )}
 
           {!isStreaming && formattedDuration && (
@@ -287,7 +329,7 @@ export function ThoughtAccordion({
 
       {/* Expandable Timeline Track */}
       {isOpen && (
-        <div ref={contentRef} className={styles['thought-content-area']} onScroll={handleScroll}>
+        <div className={styles['thought-content-area']}>
           <div className={styles['thought-timeline-track']}>
             {steps.map((step, idx) => (
               <div
@@ -306,26 +348,25 @@ export function ThoughtAccordion({
                 </div>
 
                 <div className={styles['thought-timeline-content']}>
-                  {step.type === 'tool' || step.type === 'search' ? (
-                    <div className={styles['thought-tool-block']}>
-                      <div className={styles['thought-tool-header']}>
-                        <span className={styles['thought-tool-name']}>{step.toolName || step.title || 'tool_call'}</span>
-                        {step.status === 'running' && (
-                          <span className="thought-tool-spinner" />
-                        )}
-                      </div>
-                      {step.preview && (
-                        <ToolTimelinePreview
-                          preview={step.preview}
-                          detail={step.detail}
-                          isWebSearch={step.toolName?.startsWith('web_search') ?? false}
-                        />
-                      )}
-                    </div>
-                  ) : (
+                  {step.type === 'thought' ? (
+                    // Plain prose. No container, no banner, no "what the model
+                    // worked through" label: the block IS the thinking, and a
+                    // box around it made the reasoning read as a labelled
+                    // artefact instead of the thing it is. Markdown is still
+                    // rendered (and sanitized) because several legacy callers
+                    // hand this component real markdown.
                     <div
                       className={styles['thought-markdown-text']}
                       dangerouslySetInnerHTML={{ __html: formatThoughtHtml(step.content) }}
+                    />
+                  ) : (
+                    <ToolStepRow
+                      name={step.toolName || step.title || 'tool_call'}
+                      summary={step.content}
+                      preview={step.preview}
+                      detail={step.detail}
+                      isRunning={step.status === 'running'}
+                      isWebSearch={step.toolName?.startsWith('web_search') ?? false}
                     />
                   )}
                 </div>
@@ -352,34 +393,143 @@ export function ThoughtAccordion({
 
 export default ThoughtAccordion;
 
-function ToolTimelinePreview({
+/**
+ * Drop a reasoning block the model already said, word for word.
+ *
+ * A retry re-issues a prompt, and a provider that replays the same reasoning
+ * block produces two identical entries: the reader scrolls past the same
+ * paragraph twice and reads it as the app stuttering.
+ *
+ * Deliberately exact. Near-duplicates are the model's own phrasing drifting
+ * between two passes, and quietly deleting a thought BOZ merely judges
+ * "similar" is exactly the authorship this component must not do — that text is
+ * the model's, not ours. Whitespace is collapsed only so a re-wrapped block is
+ * recognised as the same words.
+ */
+function dropRepeatedThoughts(steps: ThoughtTimelineStep[]): ThoughtTimelineStep[] {
+  const seen = new Set<string>();
+  const kept: ThoughtTimelineStep[] = [];
+  for (const step of steps) {
+    if (step.type !== 'thought') {
+      kept.push(step);
+      continue;
+    }
+    const key = step.content.replace(/\s+/g, ' ').trim();
+    if (!key) {
+      kept.push(step);
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push({ ...step, content: dropRepeatedParagraphs(step.content) });
+  }
+  return kept;
+}
+
+/**
+ * Collapse a paragraph the model wrote twice inside ONE block.
+ *
+ * The stream manager merges contiguous reasoning into a single entry, so a
+ * block that repeats itself arrives as one step and the step-level dedupe above
+ * cannot see it. Observed verbatim in the panel: the same twelve-line "let me
+ * load the idx skill and run a scan" plan printed twice, and the same
+ * "the dashboard's own plan fails at R:R 0.33/0.48" paragraph printed twice.
+ *
+ * Exact paragraph match only, for the same reason as above — a paragraph the
+ * model rephrased is a thought, and quietly dropping it is authoring. Split on
+ * blank lines because that is the boundary the model itself used when it
+ * repeated itself.
+ */
+function dropRepeatedParagraphs(content: string): string {
+  const paragraphs = content.split(/\r?\n(?:[\t ]*\r?\n)+/);
+  if (paragraphs.length < 2) return content;
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const paragraph of paragraphs) {
+    const key = paragraph.replace(/\s+/g, ' ').trim();
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    kept.push(paragraph);
+  }
+  return kept.join('\n\n');
+}
+
+/** Longest one-line summary shown before the reader asks for the raw output. */
+const SUMMARY_LIMIT = 190;
+
+/**
+ * First meaningful line of a tool payload, clipped to one row.
+ *
+ * A tool step is a fact about the run, not the analysis: the panel's job is the
+ * reasoning, so a call takes one line and the payload waits behind a click.
+ * Without this the thinking was a wall of `<boz_skills>` XML dumps and the
+ * model's own words were the smallest thing on screen.
+ */
+function oneLineSummary(...sources: Array<string | undefined>): string {
+  for (const source of sources) {
+    const first = (source ?? '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0);
+    if (!first) continue;
+    return first.length > SUMMARY_LIMIT ? `${first.slice(0, SUMMARY_LIMIT).trimEnd()}…` : first;
+  }
+  return '';
+}
+
+/**
+ * One tool call, collapsed by default.
+ *
+ * Name plus the single fact that came back. Raw output, and the web-source list
+ * for a search, only render once the reader opens it — so provenance stays one
+ * click away without competing with the prose for the eye.
+ */
+function ToolStepRow({
+  name,
+  summary,
   preview,
   detail,
+  isRunning,
   isWebSearch,
 }: {
-  preview: string;
+  name: string;
+  summary?: string;
+  preview?: string;
   detail?: string;
+  isRunning: boolean;
   isWebSearch: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const fullDetail = detail?.trim() || '';
-  const sources = isWebSearch ? parseWebSources(fullDetail || preview) : [];
-  const canExpand = fullDetail.length > preview.trim().length;
-  const shown = expanded && canExpand ? fullDetail : preview;
-
-  if (sources.length > 0) return <WebSearchSourceList sources={sources} />;
+  const headline = oneLineSummary(summary, preview);
+  const rawDetail = detail?.trim() ?? '';
+  const sources = isWebSearch ? parseWebSources(rawDetail || preview || '') : [];
+  const hasRawOutput = sources.length > 0 || rawDetail !== headline;
 
   return (
-    <div>
-      <div className={styles['thought-tool-preview']}>{shown}</div>
-      {canExpand && (
-        <button
-          type="button"
-          className={styles['thought-tool-toggle']}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? 'Show less' : 'Show more'}
-        </button>
+    <div className={styles['thought-tool-row']}>
+      <button
+        type="button"
+        className={styles['thought-tool-line']}
+        onClick={() => hasRawOutput && setExpanded((value) => !value)}
+        aria-expanded={hasRawOutput ? expanded : undefined}
+        disabled={!hasRawOutput}
+      >
+        <span className={styles['thought-tool-name']}>{name}</span>
+        {isRunning && <span className="spinner spinner-xs" aria-hidden="true" />}
+        {headline && <span className={styles['thought-tool-summary']}>{headline}</span>}
+        {hasRawOutput && (
+          <span className={styles['thought-tool-toggle']}>
+            {expanded ? 'Hide output' : 'Show output'}
+          </span>
+        )}
+      </button>
+
+      {expanded && hasRawOutput && (
+        sources.length > 0 ? (
+          <WebSearchSourceList sources={sources} />
+        ) : (
+          <pre className={styles['thought-tool-output']}>{rawDetail || preview}</pre>
+        )
       )}
     </div>
   );

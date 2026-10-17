@@ -3,6 +3,7 @@ name: price
 description: Quick live price check for any asset [ticker]
 title: Price
 icon: fa-tag
+arg: ticker
 triggers: ["/price"]
 ---
 

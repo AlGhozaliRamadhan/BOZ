@@ -1,10 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import {
+  extractPrivateReasoning,
   parseAnalysisPassOutput,
   PrivateReasoningStreamFilter,
   sanitizeAssistantOutput,
   summarizeAnalysisActivity,
 } from '../src/shared/assistant-output.js';
+
+describe('extractPrivateReasoning', () => {
+  // Reads the working out of ONE complete response, for the tool-calling turn
+  // where the adapter drops `content` — the reason a model could call a tool
+  // with its explanation discarded instead of shown.
+  it('returns the block and nothing else', () => {
+    expect(extractPrivateReasoning('<thinking>settle whether NVDA is extended</thinking>')).toBe(
+      'settle whether NVDA is extended',
+    );
+    expect(extractPrivateReasoning('<thinking>intent</thinking>Answer text.')).toBe('intent');
+    expect(extractPrivateReasoning('Just an answer.')).toBe('');
+    expect(extractPrivateReasoning('')).toBe('');
+  });
+
+  it('keeps a truncated block instead of losing it', () => {
+    // A cut-off turn is exactly when the working is most worth reading.
+    expect(extractPrivateReasoning('<thinking>started but never closed')).toBe(
+      'started but never closed',
+    );
+  });
+});
 
 describe('sanitizeAssistantOutput', () => {
   it('removes complete and truncated private reasoning blocks', () => {
@@ -19,22 +41,52 @@ describe('sanitizeAssistantOutput', () => {
       .toBe('## Current view\nBuy only above 100.');
   });
 
-  it('never releases private reasoning when tags are split across stream chunks', () => {
+  it('never lets reasoning reach the answer when tags are split across chunks', () => {
+    // The contract CHANGED deliberately: reasoning used to be discarded, and
+    // BOZ filled the panel with its own canned sentences instead. It is now
+    // extracted and SHOWN. What must never change is the guarantee that no part
+    // of a reasoning block can end up in `publicText`.
     const filter = new PrivateReasoningStreamFilter();
 
-    expect(filter.push('Public finding. <thi')).toBe('Public finding. ');
-    expect(filter.push('nk>private scratchpad')).toBe('');
-    expect(filter.push(' that must not appear</think>Action: wait for confirmation.')).toBe('Action: wait for confirmation.');
-    expect(filter.finish()).toBe('');
+    const first = filter.push('Public finding. <thi');
+    expect(first.publicText).toBe('Public finding. ');
+    expect(first.reasoning).toBe('');
+
+    const second = filter.push('nk>private scratchpad');
+    expect(second.publicText).toBe('');
+    expect(second.reasoning).toBe('private scratchpad');
+
+    const third = filter.push(' that must not appear</think>Action: wait for confirmation.');
+    expect(third.publicText).toBe('Action: wait for confirmation.');
+    expect(third.reasoning).toBe(' that must not appear');
+
+    expect(filter.finish()).toEqual({ publicText: '', reasoning: '' });
   });
 
-  it('fails closed for orphaned and truncated private stream blocks', () => {
+  it('routes an orphaned or truncated block to reasoning, never to the answer', () => {
     const orphaned = new PrivateReasoningStreamFilter();
-    expect(orphaned.push('private prefill</THINK>Public conclusion.')).toBe('Public conclusion.');
+    const orphanResult = orphaned.push('private prefill</THINK>Public conclusion.');
+    expect(orphanResult.publicText).toBe('Public conclusion.');
+    expect(orphanResult.reasoning).toBe('private prefill');
 
     const truncated = new PrivateReasoningStreamFilter();
-    expect(truncated.push('Visible start <thought>private')).toBe('Visible start ');
-    expect(truncated.finish()).toBe('');
+    const partial = truncated.push('Visible start <thought>private');
+    expect(partial.publicText).toBe('Visible start ');
+    // Flushed as soon as it can no longer be the start of a tag, so nothing is
+    // held back waiting for a close that never arrives.
+    expect(partial.reasoning).toBe('private');
+    expect(truncated.finish()).toEqual({ publicText: '', reasoning: '' });
+  });
+
+  it('shows reasoning from a block the stream cut off mid-tag', () => {
+    // The tag itself is split across chunks, so nothing is known yet. Once the
+    // stream ends without a close, the withheld suffix goes to reasoning —
+    // dropping it is exactly what used to leave the panel empty.
+    const filter = new PrivateReasoningStreamFilter();
+    const held = filter.push('Visible start <thou');
+    expect(held.publicText).toBe('Visible start ');
+    expect(held.reasoning).toBe('');
+    expect(filter.finish()).toEqual({ publicText: '', reasoning: '<thou' });
   });
 
   it('removes generic output announcements', () => {

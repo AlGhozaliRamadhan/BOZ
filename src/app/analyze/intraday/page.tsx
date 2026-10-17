@@ -420,10 +420,12 @@ export default function IntradayAnalysisPage() {
             </div>
           </div>
 
-          {/* AI Reasoning & Deep Thinking Accordion */}
-          {(verdict?.thought || verdict?.thoughts || (verdict?.reasons && verdict.reasons.length > 0)) && (
+          {/* AI Reasoning & Deep Thinking Accordion. The model's own narration leads
+              inside the same disclosure rather than stacking a second one. */}
+          {(verdict?.reasoning || verdict?.thought || verdict?.thoughts || (verdict?.reasons && verdict.reasons.length > 0)) && (
             <div style={{ marginTop: 'var(--space-4)' }}>
               <ThoughtAccordion
+                reasoning={verdict.reasoning}
                 thoughts={verdict.thoughts || verdict.reasons || verdict.thought}
                 title="Intraday AI Deep Reasoning Process"
                 defaultOpen={false}
