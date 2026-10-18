@@ -35,7 +35,8 @@ export async function GET(request: NextRequest) {
 
     const [candlesRaw, quoteRaw, macro, sentiment, headlines] = await Promise.all([
       yahoo.getHistoricalData(symbol, from, '1d', false, { adjustPrices: true }),
-      yahooFinance.quote(symbol).catch(() => null),
+      // Validation off so commodities/FX/indices still populate the snapshot.
+      yahooFinance.quote(symbol, {}, { validateResult: false }).catch(() => null),
       macroService.getMacroContext(symbol).catch(() => null),
       sentimentService.fetchCrowdSentiment(symbol).catch(() => null),
       newsService.getStockNews(symbol).catch(() => [] as string[]),

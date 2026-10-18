@@ -60,6 +60,13 @@ export interface ScreenerResult {
 
 export type ScreenerUniverse = 'idx' | 'us' | 'crypto' | 'global';
 
+/**
+ * Upper bound on rows a single scan returns. Lives here rather than in the
+ * scanner service so the UI can show the "results capped" notice without
+ * importing server-only market code into the client bundle.
+ */
+export const MAX_SCAN_RESULTS = 200;
+
 export interface ScreenerQuery {
   sector: string;
   preset: ScreenerPreset;
@@ -78,6 +85,11 @@ export interface ScreenerMeta {
   skippedCount: number;
   partial: boolean;
   cacheHit: boolean;
+  /** Present on paged responses; absent on the legacy full-scan shape. */
+  page?: number;
+  pageSize?: number;
+  hasMore?: boolean;
+  presets?: ScreenerPreset[];
 }
 
 export interface ScreenerSummary {

@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IdxScannerService } from '../src/services/market/idx.scanner.service.js';
+import { MAX_SCAN_RESULTS } from '../src/shared/screener-contract.js';
+
+/**
+ * Fast-mode ceiling on chart-enriched candidates. Mirrors the private
+ * FAST_CANDIDATE_LIMIT so the truncation assertions stay honest if the
+ * pipeline budget is retuned.
+ */
+const FAST_CANDIDATE_LIMIT = 120;
 import { yahooFinance } from '../src/services/market/yahoo.service.js';
 import { deepScanWorkloadGate, WorkloadBusyError } from '../src/services/security/workload-gate.js';
 
@@ -70,22 +78,49 @@ describe('IDX scanner service', () => {
     expect(skipped).toEqual([]);
   });
 
-  it('caps fast enrichment at 60 while deep mode keeps the full valid quote set', () => {
+  it('keeps every candidate below the fast threshold and caps above it', () => {
     const service = new IdxScannerService();
-    const candidates = Array.from({ length: 90 }, (_, index) => ({
+    const quoted = Array.from({ length: 400 }, (_, index) => ({
       ticker: `T${index}.JK`,
       name: `Ticker ${index}`,
       sector: 'banking',
-      quote: {},
-      preScore: index,
+      // A quote rich enough for preScoreQuote to rank on.
+      quote: {
+        regularMarketPrice: 100 + index,
+        regularMarketChangePercent: 1,
+        regularMarketVolume: 1_000_000 + index * 1000,
+        averageDailyVolume10Day: 1_000_000,
+        fiftyTwoWeekHigh: 400,
+        fiftyTwoWeekLow: 50,
+      },
     }));
 
-    const fast = (service as any).selectChartCandidates(candidates, 'fast');
-    const deep = (service as any).selectChartCandidates(candidates, 'deep');
+    const rank = (mode: 'fast' | 'deep', count: number) =>
+      (service as any).rankCandidates(quoted.slice(0, count), 'any', 'momentum', mode) as Array<{
+        ticker: string;
+        preScore: number;
+      }>;
 
-    expect(fast).toHaveLength(60);
-    expect(fast[0].ticker).toBe('T89.JK');
-    expect(deep).toHaveLength(90);
+    // Under FAST_FULL_SCAN_LIMIT: nothing is dropped, but it is still ranked —
+    // a paged board enriches in this order, so it decides page 1.
+    const small = rank('fast', 90);
+    expect(small).toHaveLength(90);
+    const scores = small.map(entry => entry.preScore);
+    expect([...scores].sort((a, b) => b - a)).toEqual(scores);
+
+    // Over it: fast mode truncates to FAST_CANDIDATE_LIMIT, keeping the best.
+    const large = rank('fast', 400);
+    expect(large).toHaveLength(FAST_CANDIDATE_LIMIT);
+    expect(large[0].preScore).toBeGreaterThanOrEqual(large.at(-1).preScore);
+
+    // Deep mode is never capped.
+    expect(rank('deep', 400)).toHaveLength(400);
+  });
+
+  it('exposes the scan result cap so the UI notice cannot go stale', () => {
+    // ScreenerPage renders a "results capped" notice from this value.
+    expect(MAX_SCAN_RESULTS).toBeGreaterThan(0);
+    expect(Number.isInteger(MAX_SCAN_RESULTS)).toBe(true);
   });
 
   it('rejects a concurrent deep scan before fetching the universe', async () => {

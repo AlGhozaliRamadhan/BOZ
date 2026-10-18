@@ -1,88 +1,114 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
 /* ────────────────────────────────────────────────────────────────────────────
-   BLOOMBERG-STYLE MARKET TICKER
+   MARKET TICKER
    Dense, data-rich scrolling strip inspired by the Bloomberg Terminal.
+
+   Every cell is a real quote pulled from /api/market/quotes — the strip used to
+   paint 22 hardcoded strings that never moved. Nothing renders a number that
+   did not come back from the API: cells read '—' until their quote lands.
    Features:
-   – Category section dividers (EQUITY · CRYPTO · CMDTY · FX · RATES)
+   – Category section dividers (INDEX · EQUITY · CRYPTO · CMDTY · FX · RATES)
    – Compact price cells with change badges
-   – Pause-on-hover with subtle deceleration
-   – Live clock + session indicator
-   – Mini volume/trend micro-indicators
+   – Pause-on-hover
+   – Live clock + real US session state (from the S&P 500 quote, not a UTC guess)
    ──────────────────────────────────────────────────────────────────────────── */
 
-interface TickerItem {
+type TickerCategory = 'INDEX' | 'EQUITY' | 'CRYPTO' | 'CMDTY' | 'FX' | 'RATES';
+
+interface TapeEntry {
+  /** Yahoo symbol to quote. */
   symbol: string;
-  price: string;
-  change: string;       // e.g. "+0.21" or "-0.78"
-  isUp: boolean;
-  volume?: string;      // abbreviated volume
-  category: 'EQUITY' | 'INDEX' | 'CRYPTO' | 'CMDTY' | 'FX' | 'RATES';
+  /** Short label shown in the ribbon. */
+  label: string;
+  category: TickerCategory;
 }
 
-const MOCK_TICKERS: TickerItem[] = [
-  // Indices
-  { symbol: 'SPX',     price: '6,021.4',  change: '+0.32', isUp: true,  category: 'INDEX' },
-  { symbol: 'NDX',     price: '21,712',   change: '+0.61', isUp: true,  category: 'INDEX' },
-  { symbol: 'DJI',     price: '44,801',   change: '-0.14', isUp: false, category: 'INDEX' },
-  { symbol: 'VIX',     price: '14.82',    change: '-3.21', isUp: false, category: 'INDEX' },
-  { symbol: 'IHSG',    price: '7,412',    change: '+0.28', isUp: true,  category: 'INDEX' },
+interface TapeQuote {
+  symbol: string;
+  price: number | null;
+  changePercent: number | null;
+  marketState: string | null;
+}
+
+const TAPE: TapeEntry[] = [
+  // Indices — ^GSPC doubles as the US session clock.
+  { symbol: '^GSPC', label: 'SPX', category: 'INDEX' },
+  { symbol: '^IXIC', label: 'NDX', category: 'INDEX' },
+  { symbol: '^DJI', label: 'DJI', category: 'INDEX' },
+  { symbol: '^RUT', label: 'RUT', category: 'INDEX' },
+  { symbol: '^VIX', label: 'VIX', category: 'INDEX' },
+  { symbol: '^JKSE', label: 'IHSG', category: 'INDEX' },
   // Equities
-  { symbol: 'NVDA',    price: '142.62',   change: '+2.14', isUp: true,  volume: '48.2M', category: 'EQUITY' },
-  { symbol: 'AAPL',    price: '227.10',   change: '+0.45', isUp: true,  volume: '32.1M', category: 'EQUITY' },
-  { symbol: 'MSFT',    price: '468.35',   change: '-0.18', isUp: false, volume: '18.7M', category: 'EQUITY' },
-  { symbol: 'BBCA',    price: '10,475',   change: '+1.20', isUp: true,  volume: '12.4M', category: 'EQUITY' },
-  { symbol: 'BBRI',    price: '5,225',    change: '-0.47', isUp: false, volume: '89.3M', category: 'EQUITY' },
+  { symbol: 'NVDA', label: 'NVDA', category: 'EQUITY' },
+  { symbol: 'AAPL', label: 'AAPL', category: 'EQUITY' },
+  { symbol: 'MSFT', label: 'MSFT', category: 'EQUITY' },
+  { symbol: 'TSLA', label: 'TSLA', category: 'EQUITY' },
+  { symbol: 'BBCA.JK', label: 'BBCA', category: 'EQUITY' },
+  { symbol: 'BBRI.JK', label: 'BBRI', category: 'EQUITY' },
   // Crypto
-  { symbol: 'BTC',     price: '104,283',  change: '+2.04', isUp: true,  volume: '28.1B', category: 'CRYPTO' },
-  { symbol: 'ETH',     price: '3,884',    change: '+1.12', isUp: true,  volume: '11.6B', category: 'CRYPTO' },
-  { symbol: 'SOL',     price: '248.90',   change: '+3.81', isUp: true,  volume: '4.2B',  category: 'CRYPTO' },
+  { symbol: 'BTC-USD', label: 'BTC', category: 'CRYPTO' },
+  { symbol: 'ETH-USD', label: 'ETH', category: 'CRYPTO' },
+  { symbol: 'SOL-USD', label: 'SOL', category: 'CRYPTO' },
   // Commodities
-  { symbol: 'GOLD',    price: '2,654.1',  change: '+0.15', isUp: true,  category: 'CMDTY' },
-  { symbol: 'WTI',     price: '71.34',    change: '-1.22', isUp: false, category: 'CMDTY' },
-  { symbol: 'SILVER',  price: '31.18',    change: '+0.42', isUp: true,  category: 'CMDTY' },
+  { symbol: 'GC=F', label: 'GOLD', category: 'CMDTY' },
+  { symbol: 'SI=F', label: 'SILVER', category: 'CMDTY' },
+  { symbol: 'CL=F', label: 'WTI', category: 'CMDTY' },
+  { symbol: 'BZ=F', label: 'BRENT', category: 'CMDTY' },
   // FX
-  { symbol: 'DXY',     price: '103.42',   change: '-0.08', isUp: false, category: 'FX' },
-  { symbol: 'EUR/USD', price: '1.0912',   change: '+0.12', isUp: true,  category: 'FX' },
-  { symbol: 'USD/JPY', price: '149.82',   change: '+0.31', isUp: true,  category: 'FX' },
+  { symbol: 'EURUSD=X', label: 'EUR/USD', category: 'FX' },
+  { symbol: 'JPY=X', label: 'USD/JPY', category: 'FX' },
+  { symbol: 'DX-Y.NYB', label: 'DXY', category: 'FX' },
   // Rates
-  { symbol: 'US10Y',   price: '4.284',    change: '+0.02', isUp: true,  category: 'RATES' },
-  { symbol: 'US2Y',    price: '4.612',    change: '-0.01', isUp: false, category: 'RATES' },
+  { symbol: '^TNX', label: 'US10Y', category: 'RATES' },
+  { symbol: '^FVX', label: 'US5Y', category: 'RATES' },
+  { symbol: '^TYX', label: 'US30Y', category: 'RATES' },
 ];
 
-// Group items by category and produce an interleaved array
-// with category divider markers
+const REFRESH_MS = 60_000;
+const SESSION_LABEL: Record<string, string> = {
+  REGULAR: 'US OPEN',
+  PRE: 'US PRE',
+  POST: 'US POST',
+  POSTPOST: 'CLOSED',
+  CLOSED: 'CLOSED',
+};
+
+const CATEGORY_ORDER: TickerCategory[] = ['INDEX', 'EQUITY', 'CRYPTO', 'CMDTY', 'FX', 'RATES'];
+
 type RenderItem =
   | { type: 'divider'; label: string }
-  | { type: 'ticker'; data: TickerItem };
+  | { type: 'ticker'; data: TapeEntry };
 
-function buildRenderItems(tickers: TickerItem[]): RenderItem[] {
-  const categoryOrder: TickerItem['category'][] = ['INDEX', 'EQUITY', 'CRYPTO', 'CMDTY', 'FX', 'RATES'];
+function buildRenderItems(entries: TapeEntry[]): RenderItem[] {
   const items: RenderItem[] = [];
-  for (const cat of categoryOrder) {
-    const group = tickers.filter(t => t.category === cat);
+  for (const category of CATEGORY_ORDER) {
+    const group = entries.filter(entry => entry.category === category);
     if (group.length === 0) continue;
-    items.push({ type: 'divider', label: cat });
-    for (const t of group) {
-      items.push({ type: 'ticker', data: t });
-    }
+    items.push({ type: 'divider', label: category });
+    for (const entry of group) items.push({ type: 'ticker', data: entry });
   }
   return items;
 }
 
-const RENDER_ITEMS = buildRenderItems(MOCK_TICKERS);
+const RENDER_ITEMS = buildRenderItems(TAPE);
+
+function formatPrice(value: number | null): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  const digits = Math.abs(value) >= 1000 ? 1 : value < 10 ? 4 : 2;
+  return value.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
 
 interface MarketTickerProps {
   visible?: boolean;
 }
 
 export default function MarketTicker({ visible = true }: MarketTickerProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [clock, setClock] = useState('');
-  const [marketSession, setMarketSession] = useState('PRE');
+  const [quotes, setQuotes] = useState<Record<string, TapeQuote>>({});
 
   // Live clock
   useEffect(() => {
@@ -92,23 +118,57 @@ export default function MarketTicker({ visible = true }: MarketTickerProps) {
       const mm = now.getMinutes().toString().padStart(2, '0');
       const ss = now.getSeconds().toString().padStart(2, '0');
       setClock(`${hh}:${mm}:${ss}`);
-
-      // Determine session
-      const utcH = now.getUTCHours();
-      if (utcH >= 13 && utcH < 20) {
-        setMarketSession('US OPEN');
-      } else if (utcH >= 1 && utcH < 8) {
-        setMarketSession('ASIA');
-      } else if (utcH >= 7 && utcH < 16) {
-        setMarketSession('EU OPEN');
-      } else {
-        setMarketSession('AFTER');
-      }
     };
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, []);
+
+  // Live quotes — one batch request per refresh, skipped while the tab is hidden.
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+
+    const fetchTape = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      try {
+        const res = await fetch(`/api/market/quotes?tickers=${encodeURIComponent(TAPE.map(e => e.symbol).join(','))}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const rows = Array.isArray(data?.quotes) ? data.quotes : [];
+        if (cancelled) return;
+        setQuotes(prev => {
+          const next = { ...prev };
+          for (const row of rows) {
+            if (typeof row?.symbol !== 'string') continue;
+            next[row.symbol.toUpperCase()] = {
+              symbol: row.symbol.toUpperCase(),
+              price: typeof row.price === 'number' ? row.price : null,
+              changePercent: typeof row.changePercent === 'number' ? row.changePercent : null,
+              marketState: typeof row.marketState === 'string' ? row.marketState : null,
+            };
+          }
+          return next;
+        });
+      } catch {
+        // Keep the last good values rather than blanking the strip on a blip.
+      }
+    };
+
+    void fetchTape();
+    const id = setInterval(fetchTape, REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [visible]);
+
+  // The S&P 500 quote carries Yahoo's own US session state, which beats
+  // guessing from the UTC hour.
+  const sessionLabel = useMemo(() => {
+    const state = quotes['^GSPC']?.marketState;
+    return (state && SESSION_LABEL[state.toUpperCase()]) || '—';
+  }, [quotes]);
 
   const handleMouseEnter = useCallback(() => setIsPaused(true), []);
   const handleMouseLeave = useCallback(() => setIsPaused(false), []);
@@ -124,17 +184,16 @@ export default function MarketTicker({ visible = true }: MarketTickerProps) {
       {/* Left session badge */}
       <div className="bbg-ticker__session">
         <span className="bbg-ticker__session-dot" />
-        <span className="bbg-ticker__session-label">{marketSession}</span>
+        <span className="bbg-ticker__session-label">{sessionLabel}</span>
       </div>
 
       {/* Scrolling area */}
       <div className="bbg-ticker__track">
         <div
-          ref={scrollRef}
           className="bbg-ticker__ribbon"
           style={{ animationPlayState: isPaused ? 'paused' : 'running' }}
         >
-          {/* Double the items for seamless loop */}
+          {/* Double the items for a seamless loop */}
           {[0, 1].map(pass => (
             <React.Fragment key={pass}>
               {RENDER_ITEMS.map((item, i) => {
@@ -145,17 +204,23 @@ export default function MarketTicker({ visible = true }: MarketTickerProps) {
                     </span>
                   );
                 }
-                const t = item.data;
+
+                const entry = item.data;
+                const quote = quotes[entry.symbol];
+                const change = quote?.changePercent ?? null;
+                const isUp = change != null && change >= 0;
+
                 return (
-                  <span key={`${pass}-t-${i}`} className="bbg-ticker__cell">
-                    <span className="bbg-ticker__symbol">{t.symbol}</span>
-                    <span className="bbg-ticker__price">{t.price}</span>
-                    <span className={`bbg-ticker__change ${t.isUp ? 'up' : 'down'}`}>
-                      {t.isUp ? '▲' : '▼'} {t.change}%
+                  <span
+                    key={`${pass}-t-${i}`}
+                    className="bbg-ticker__cell"
+                    title={quote ? `${entry.label} · ${formatPrice(quote.price)}` : `${entry.label} · no quote`}
+                  >
+                    <span className="bbg-ticker__symbol">{entry.label}</span>
+                    <span className="bbg-ticker__price">{formatPrice(quote?.price ?? null)}</span>
+                    <span className={`bbg-ticker__change ${change == null ? '' : isUp ? 'up' : 'down'}`}>
+                      {change == null ? '—' : `${isUp ? '▲' : '▼'} ${change.toFixed(2)}%`}
                     </span>
-                    {t.volume && (
-                      <span className="bbg-ticker__vol">{t.volume}</span>
-                    )}
                   </span>
                 );
               })}

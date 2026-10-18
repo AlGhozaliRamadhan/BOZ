@@ -218,6 +218,9 @@
   left: 0;
   right: 0;
   z-index: 50;
+  max-height: min(360px, 60vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px;
   border: 1px solid #3b3b3b;
   border-radius: 7px;
@@ -246,7 +249,50 @@
 .ticker-search__result:focus-visible { background: #242424; outline: none; }
 .ticker-search__symbol { color: var(--accent-cyan); font-weight: 700; }
 .ticker-search__name { color: #ddd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ticker-search__exchange { color: #888; font-size: 9px; }
+.ticker-search__exchange {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #888;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+/* Which market a hit belongs to, so an IDX listing is never mistaken for a
+   same-named US one. */
+.ticker-search__market {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--surface-glass-active);
+  color: var(--text-secondary);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.ticker-search__more {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: 7px 8px;
+  border: 0;
+  border-top: 1px solid var(--border-glass);
+  border-radius: 4px;
+  background: transparent;
+  /* --text-primary, not an accent token: accents resolve to #ffffff and the
+     dropdown is near-white in the light theme. */
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+.ticker-search__more:hover:not(:disabled) { background: var(--surface-glass-hover); }
+.ticker-search__more:disabled { cursor: default; opacity: 0.5; }
+
 .ticker-search__message { padding: 10px; color: #999; font-size: 10px; text-align: center; }
 
 .ticker-overview {

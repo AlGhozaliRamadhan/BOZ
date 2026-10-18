@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import searchStyles from '../ticker/[ticker]/TickerPage.module.css';
 import styles from './DiscoverPage.module.css';
@@ -8,13 +8,10 @@ import {
   loadRecentTickers,
   recordRecentTicker,
 } from '@/shared/discover';
+import { pageWindow, type PageToken } from '@/shared/pagination';
+import { SYMBOL_MARKET_LABEL, type SymbolMarket } from '@/shared/symbol-search';
+import { useLoadMoreOnScroll, useSymbolSearch } from '@/app/lib/hooks';
 import type { ScreenerResult } from '@/shared/screener-contract';
-
-interface SearchResult {
-  symbol: string;
-  name: string;
-  exchange: string;
-}
 
 interface TapeQuote {
   price: number | null;
@@ -70,8 +67,6 @@ export default function DiscoverPage() {
   const abortRef = useRef<AbortController | null>(null);
 
   const [tickerInput, setTickerInput] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
 
   const [tape, setTape] = useState<Record<string, TapeQuote>>({});
@@ -81,10 +76,21 @@ export default function DiscoverPage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [scanMeta, setScanMeta] = useState<string>('');
+  const [pageCount, setPageCount] = useState(1);
+  const [hasMorePage, setHasMorePage] = useState(false);
 
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recent, setRecent] = useState<string[]>([]);
   const [page, setPage] = useState(0);
+
+  // Symbol search loads a page at a time and keeps fetching on demand, so the
+  // dropdown no longer stops at a pre-truncated top-N.
+  const symbolSearch = useSymbolSearch(tickerInput, { enabled: showDropdown });
+  const searchLoadMoreRef = useLoadMoreOnScroll(
+    symbolSearch.hasMore,
+    symbolSearch.isSearching || symbolSearch.isLoadingMore,
+    symbolSearch.loadMore,
+  );
 
   const openTicker = useCallback(
     (symbol: string) => {
@@ -159,58 +165,56 @@ export default function DiscoverPage() {
     }
   };
 
-  // Market board — one tab fans out across four screener lenses and merges
-  // them, so the board holds the whole market picture instead of a single
-  // preset's matches. Partial failures are tolerated (allSettled).
-  const runScan = useCallback(async (market: MarketTab) => {
+  // Market board — four screener lenses are merged SERVER-SIDE and enriched one
+  // page at a time. The board previously fired four full scans and waited for
+  // every chart call before painting anything; now page 1 arrives as soon as
+  // its own rows are ready, and the pager pulls only the page you click.
+  const LENSES = 'momentum,breakout,rebound,oversold';
+
+  const loadPage = useCallback(async (market: MarketTab, pageIndex: number) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
     setError(null);
     try {
-      const lenses = ['momentum', 'breakout', 'rebound', 'oversold'];
-      const settled = await Promise.allSettled(
-        lenses.map(async lens => {
-          const params = new URLSearchParams({
-            preset: lens,
-            sector: 'all',
-            direction: 'any',
-            minimumConviction: 'LOW',
-            mode: 'fast',
-            universe: market,
-          });
-          const res = await fetch(`/api/idx/scan?${params.toString()}`, { signal: controller.signal });
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(typeof data?.error === 'string' ? data.error : 'Scan failed');
-          return Array.isArray(data?.results) ? (data.results as ScreenerResult[]) : [];
-        }),
-      );
-      if (controller.signal.aborted) return;
-      const byTicker = new Map<string, ScreenerResult>();
-      let okLenses = 0;
-      let cached = 0;
-      settled.forEach((s, i) => {
-        if (s.status !== 'fulfilled') return;
-        okLenses++;
-        // Second+ lens responses are usually cache-warmed; count roughly.
-        if (i > 0) cached++;
-        s.value.forEach(r => {
-          const prev = byTicker.get(r.ticker);
-          if (!prev || r.screenScore > prev.screenScore) byTicker.set(r.ticker, r);
-        });
+      const params = new URLSearchParams({
+        presets: LENSES,
+        sector: 'all',
+        direction: 'any',
+        minimumConviction: 'LOW',
+        mode: 'fast',
+        universe: market,
+        page: String(pageIndex),
+        pageSize: String(PAGE_SIZE),
       });
-      if (okLenses === 0) throw new Error('All four screens failed. Please try again.');
-      const merged = [...byTicker.values()].sort((a, b) => b.screenScore - a.screenScore);
-      setRows(merged);
-      setPage(0);
+      const res = await fetch(`/api/idx/scan?${params.toString()}`, { signal: controller.signal });
+      const data = await res.json().catch(() => ({}));
+      if (controller.signal.aborted) return;
+      if (!res.ok) throw new Error(typeof data?.error === 'string' ? data.error : 'Scan failed');
+
+      const results = Array.isArray(data?.results) ? (data.results as ScreenerResult[]) : [];
+      const meta = (data?.meta ?? {}) as {
+        universeCount?: number;
+        candidateCount?: number;
+        enrichedCount?: number;
+        hasMore?: boolean;
+      };
+
+      setRows(results);
+      setPage(pageIndex);
+      setPageCount(Math.max(1, meta.candidateCount ?? 0));
+      setHasMorePage(meta.hasMore === true);
       setScanMeta(
-        `${merged.length} tickers · ${okLenses}/4 screens${okLenses < 4 ? ' · partial' : ''}${cached > 0 ? ' · cached' : ''}`,
+        `${results.length} shown · ${meta.universeCount ?? 0} scanned · ${meta.candidateCount ?? 0} candidates`
+        + `${meta.hasMore ? ' · more available' : ''}`,
       );
     } catch (err) {
       if (controller.signal.aborted) return;
       setError(err instanceof Error ? err.message : 'Scan failed');
       setRows([]);
+      setPageCount(1);
+      setHasMorePage(false);
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
       setLoading(false);
@@ -218,42 +222,24 @@ export default function DiscoverPage() {
   }, []);
 
   useEffect(() => {
-    runScan(tab);
     setFilter('');
-    setPage(0);
+    void loadPage(tab, 0);
     return () => abortRef.current?.abort();
-  }, [tab, runScan]);
-
-  // Ticker search autocomplete.
-  useEffect(() => {
-    const timer = setTimeout(async () => {
-      if (tickerInput.trim() && showDropdown) {
-        setIsSearching(true);
-        try {
-          const res = await fetch(`/api/market/search?q=${encodeURIComponent(tickerInput.trim())}`);
-          if (res.ok) {
-            const data = await res.json();
-            setSearchResults(Array.isArray(data) ? data.slice(0, 6) : []);
-          }
-        } catch {
-          setSearchResults([]);
-        } finally {
-          setIsSearching(false);
-        }
-      } else {
-        setSearchResults([]);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [tickerInput, showDropdown]);
+  }, [tab, loadPage]);
 
   const query = filter.trim().toLowerCase();
   const visible = query
     ? rows.filter(r => r.ticker.toLowerCase().includes(query) || r.name.toLowerCase().includes(query))
     : rows;
-  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
-  const safePage = Math.min(page, pageCount - 1);
-  const paged = visible.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  // `visible` is already the requested page: the server enriches and slices it.
+  // The text filter narrows within that page only.
+  const safePage = page;
+  const paged = visible;
+  const pagerTokens = useMemo(() => pageWindow(safePage + 1, pageCount), [safePage, pageCount]);
+  const goToPage = useCallback((next: number) => {
+    const clamped = Math.min(Math.max(0, next), Math.max(0, pageCount - 1));
+    void loadPage(tab, clamped);
+  }, [loadPage, pageCount, tab]);
 
   const renderSkeletonRows = () => (
     <div className={styles['discover-table']} aria-label="Loading board" aria-busy="true">
@@ -369,8 +355,8 @@ export default function DiscoverPage() {
               e.preventDefault();
               if (!tickerInput.trim()) return;
               const pick =
-                showDropdown && searchResults.length > 0
-                  ? searchResults[0].symbol.toUpperCase()
+                showDropdown && symbolSearch.results.length > 0
+                  ? symbolSearch.results[0].symbol.toUpperCase()
                   : tickerInput.trim().toUpperCase();
               openTicker(pick);
             }}
@@ -397,21 +383,41 @@ export default function DiscoverPage() {
           </form>
           {showDropdown && tickerInput.trim() !== '' && (
             <div className={searchStyles['ticker-search__results']}>
-              {isSearching ? (
+              {symbolSearch.isSearching ? (
                 <div className={searchStyles['ticker-search__message']}>SEARCHING...</div>
-              ) : searchResults.length > 0 ? (
-                searchResults.map((result, i) => (
-                  <button
-                    type="button"
-                    key={result.symbol + i}
-                    className={searchStyles['ticker-search__result']}
-                    onClick={() => openTicker(result.symbol)}
-                  >
-                    <span className={searchStyles['ticker-search__symbol']}>{result.symbol}</span>
-                    <span className={searchStyles['ticker-search__name']}>{result.name}</span>
-                    <span className={searchStyles['ticker-search__exchange']}>{result.exchange}</span>
-                  </button>
-                ))
+              ) : symbolSearch.results.length > 0 ? (
+                <>
+                  {symbolSearch.results.map((result, i) => (
+                    <button
+                      type="button"
+                      key={result.symbol + i}
+                      className={searchStyles['ticker-search__result']}
+                      onClick={() => openTicker(result.symbol)}
+                    >
+                      <span className={searchStyles['ticker-search__symbol']}>{result.symbol}</span>
+                      <span className={searchStyles['ticker-search__name']}>{result.name}</span>
+                      <span className={searchStyles['ticker-search__exchange']}>
+                        <span className={searchStyles['ticker-search__market']}>
+                          {SYMBOL_MARKET_LABEL[(result.market as SymbolMarket) ?? 'other']}
+                        </span>
+                        {result.exchange}
+                      </span>
+                    </button>
+                  ))}
+                  <div ref={searchLoadMoreRef} />
+                  {symbolSearch.hasMore && (
+                    <button
+                      type="button"
+                      className={searchStyles['ticker-search__more']}
+                      onClick={symbolSearch.loadMore}
+                      disabled={symbolSearch.isLoadingMore}
+                    >
+                      {symbolSearch.isLoadingMore
+                        ? 'LOADING...'
+                        : `LOAD MORE · ${symbolSearch.results.length}/${symbolSearch.total}`}
+                    </button>
+                  )}
+                </>
               ) : (
                 <div className={searchStyles['ticker-search__message']}>NO RESULTS</div>
               )}
@@ -478,10 +484,9 @@ export default function DiscoverPage() {
             value={filter}
             onChange={e => {
               setFilter(e.target.value);
-              setPage(0);
             }}
-            placeholder="Filter this board…"
-            aria-label="Filter board results"
+            placeholder="Filter this page…"
+            aria-label="Filter the current page of board results"
           />
         </div>
       </div>
@@ -490,7 +495,7 @@ export default function DiscoverPage() {
         <div className={styles['discover-error']} role="alert">
           <i className="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
           <span>Board failed to load — {error}</span>
-          <button type="button" className={styles['discover-retry']} onClick={() => runScan(tab)}>Retry</button>
+          <button type="button" className={styles['discover-retry']} onClick={() => loadPage(tab, 0)}>Retry</button>
         </div>
       )}
 
@@ -522,29 +527,33 @@ export default function DiscoverPage() {
                   <button
                     type="button"
                     className={styles['discover-page-btn']}
-                    onClick={() => setPage(p => Math.max(0, p - 1))}
+                    onClick={() => goToPage(safePage - 1)}
                     disabled={safePage === 0}
                     aria-label="Previous page"
                   >
                     ‹
                   </button>
-                  {Array.from({ length: pageCount }, (_, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      className={`${styles['discover-page-btn']}${i === safePage ? ' is-current' : ''}`}
-                      onClick={() => setPage(i)}
-                      aria-label={`Page ${i + 1}`}
-                      aria-current={i === safePage ? 'page' : undefined}
-                    >
-                      {i + 1}
-                    </button>
+                  {pagerTokens.map((token: PageToken, i: number) => (
+                    token === 'gap' ? (
+                      <span key={`gap-${i}`} className={styles['discover-page-gap']} aria-hidden="true">…</span>
+                    ) : (
+                      <button
+                        key={token}
+                        type="button"
+                        className={`${styles['discover-page-btn']}${token - 1 === safePage ? ' is-current' : ''}`}
+                        onClick={() => goToPage(token - 1)}
+                        aria-label={`Page ${token}`}
+                        aria-current={token - 1 === safePage ? 'page' : undefined}
+                      >
+                        {token}
+                      </button>
+                    )
                   ))}
                   <button
                     type="button"
                     className={styles['discover-page-btn']}
-                    onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}
-                    disabled={safePage === pageCount - 1}
+                    onClick={() => goToPage(safePage + 1)}
+                    disabled={!hasMorePage || safePage >= pageCount - 1}
                     aria-label="Next page"
                   >
                     ›
@@ -561,7 +570,7 @@ export default function DiscoverPage() {
 
       {!loading && !error && visible.length === 0 && (
         <div className={styles['discover-status']}>
-          {filter ? `Nothing on this board matches “${filter.trim()}”.` : 'No candidates on this board right now.'}
+          {filter ? `Nothing on this page matches “${filter.trim()}”.` : 'No candidates on this page right now.'}
         </div>
       )}
 
