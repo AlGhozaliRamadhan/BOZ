@@ -77,7 +77,8 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
       yahoo.getHistoricalData(symbol, fromDaily, '1d', false, { adjustPrices: true }),
       yahoo.getHistoricalData(symbol, fromHourly, '1h', false, { adjustPrices: true }).catch(() => []),
       yahoo.getHistoricalData(symbol, fromWeekly, '1wk', false, { adjustPrices: true }).catch(() => []),
-      yahooFinance.quote(symbol).catch(() => null),
+      // Validation off so commodities/FX/indices still populate the snapshot.
+      yahooFinance.quote(symbol, {}, { validateResult: false }).catch(() => null),
       macroService.getMacroContext(symbol).catch(() => null),
       sentimentService.fetchCrowdSentiment(symbol).catch(() => null),
       newsService.getStockNews(symbol).catch(() => [] as string[]),
@@ -255,7 +256,9 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
 export async function executeFetchPrice(raw: string): Promise<string> {
   const symbol = resolveSymbolIDX(raw) || raw.toUpperCase();
   try {
-    const quote = await yahooFinance.quote(symbol);
+    // Validation off: the schema rejects whole symbols for commodities and FX,
+    // which made `GC=F` and `EURUSD=X` report as "not found" despite existing.
+    const quote = await yahooFinance.quote(symbol, {}, { validateResult: false });
     const price = (quote as any)?.regularMarketPrice;
     const change = (quote as any)?.regularMarketChangePercent;
     if (price === undefined || price === null) {

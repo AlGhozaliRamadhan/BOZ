@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { jsonResponse, errorResponse } from '@/app/lib/api-helpers';
-import { idxScannerService, normalizeScannerUniverse } from '@/services/market/idx.scanner.service';
+import { idxScannerService, normalizePresets, normalizeScannerUniverse } from '@/services/market/idx.scanner.service';
 import type { ScannerUniverse, SignalFilter, SetupFilter, ScanMode } from '@/services/market/idx.scanner.service';
 import { WorkloadBusyError } from '@/services/security/workload-gate';
 import { log } from '@/utils/logger';
@@ -26,7 +26,16 @@ export async function GET(request: NextRequest) {
     const universe = (params.get('universe') ?? 'idx') as ScannerUniverse;
     const sector = params.get('sector') ?? 'all';
     const signal = (params.get('direction') ?? params.get('signal') ?? 'buy') as SignalFilter;
-    const setup = (params.get('preset') ?? params.get('setup') ?? 'momentum') as SetupFilter;
+    const setupParam = params.get('presets') ?? params.get('preset') ?? params.get('setup') ?? 'momentum';
+    // `presets=a,b,c` fans several lenses out server-side; the legacy
+    // `preset=a` form stays a single lens.
+    const setup = setupParam as SetupFilter;
+    const requestedPresets = normalizePresets(setupParam);
+    for (const preset of requestedPresets) {
+      if (!VALID_SETUPS.includes(preset)) {
+        return errorResponse(`Invalid preset. Valid: ${VALID_SETUPS.join(', ')}`, 400);
+      }
+    }
     const mode = (params.get('mode') ?? 'fast') as ScanMode;
     const minimumConviction = (params.get('minimumConviction') ?? 'LOW').toUpperCase() as typeof VALID_CONVICTIONS[number];
 
@@ -45,14 +54,53 @@ export async function GET(request: NextRequest) {
     if (!VALID_SIGNALS.includes(signal)) {
       return errorResponse(`Invalid signal. Valid: ${VALID_SIGNALS.join(', ')}`, 400);
     }
-    if (!VALID_SETUPS.includes(setup)) {
-      return errorResponse(`Invalid setup. Valid: ${VALID_SETUPS.join(', ')}`, 400);
-    }
     if (!VALID_MODES.includes(mode)) {
       return errorResponse(`Invalid mode. Valid: ${VALID_MODES.join(', ')}`, 400);
     }
     if (!VALID_CONVICTIONS.includes(minimumConviction)) {
       return errorResponse(`Invalid minimumConviction. Valid: ${VALID_CONVICTIONS.join(', ')}`, 400);
+    }
+
+    const wantsPaging = params.has('page') || params.has('pageSize') || params.has('presets');
+
+    // Paged mode enriches one page at a time so the board paints immediately.
+    if (wantsPaging) {
+      const page = await idxScannerService.scanPage(sector, signal, setup, mode, {
+        minimumConviction,
+        signal: request.signal,
+        universe,
+        page: Number(params.get('page') ?? 0),
+        pageSize: Number(params.get('pageSize')),
+      });
+
+      return jsonResponse({
+        schemaVersion: 1,
+        timestamp: page.completedAt,
+        query: {
+          sector: page.sector,
+          preset: page.presets[0],
+          direction: page.signalFilter,
+          mode: page.mode,
+          minimumConviction,
+          universe: page.universe,
+        },
+        meta: {
+          startedAt: page.startedAt,
+          completedAt: page.completedAt,
+          universeCount: page.universeCount,
+          candidateCount: page.candidateCount,
+          enrichedCount: page.enrichedCount,
+          skippedCount: page.skipped.length,
+          partial: page.hasMore,
+          cacheHit: false,
+          page: page.page,
+          pageSize: page.pageSize,
+          hasMore: page.hasMore,
+          presets: page.presets,
+        },
+        summary: null,
+        results: page.results,
+      });
     }
 
     const result = await idxScannerService.scan(sector, signal, setup, mode, {

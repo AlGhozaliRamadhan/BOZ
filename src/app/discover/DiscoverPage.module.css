@@ -267,26 +267,48 @@
 .discover-pager {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
+/* Deliberately borderless and unfilled.
+   Every accent token in this monochrome system resolves to #ffffff, so a
+   "selected" pill painted with one renders white-on-white and the number
+   disappears. The current page is marked by brightness plus an underline
+   instead, which stays legible in the dark and light themes alike. */
 .discover-page-btn {
-  min-width: 28px;
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--border-glass);
-  border-radius: 6px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 700;
+  line-height: 1;
 }
 
-.discover-page-btn:hover:not(:disabled) { border-color: #555; color: #fff; }
+.discover-page-btn:hover:not(:disabled) {
+  background: var(--surface-glass-hover);
+  color: var(--text-primary);
+}
+
+.discover-page-btn:focus-visible { outline: 2px solid var(--border-glass-hover); outline-offset: 1px; }
 .discover-page-btn:disabled { cursor: default; opacity: 0.35; }
-.discover-page-btn:global(.is-current) { border-color: var(--accent-violet); color: #fff; }
+
+.discover-page-btn:global(.is-current) {
+  color: var(--text-primary);
+  box-shadow: inset 0 -2px 0 var(--text-primary);
+}
+
+.discover-page-gap {
+  min-width: 16px;
+  color: var(--text-muted);
+  text-align: center;
+  user-select: none;
+}
 
 .discover-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 

@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type RefObject, type SetStateAction } from 'react';
+import { useEffect, useMemo, useState, type Dispatch, type KeyboardEvent, type RefObject, type SetStateAction } from 'react';
 import ChatEffortPicker from './ChatEffortPicker';
 import ChatModelPicker from './ChatModelPicker';
 import ChatRiskPicker from './ChatRiskPicker';
 import { parseTickerArgPrompt } from '@/shared/boz-skills';
+import { SYMBOL_MARKET_LABEL, type SymbolMarket } from '@/shared/symbol-search';
+import { useLoadMoreOnScroll, useSymbolSearch } from '@/app/lib/hooks';
 import styles from './Composer.module.css';
 
 interface SlashMenuItem {
@@ -20,6 +22,7 @@ interface TickerResult {
   name: string;
   exchange?: string;
   type?: string;
+  market?: string;
 }
 
 /** Fallback when the skills API is unreachable. Mirrors the committed BOZ skill frontmatter. */
@@ -29,8 +32,6 @@ const FALLBACK_SLASH_COMMANDS: SlashMenuItem[] = [
   { cmd: '/price ', title: 'Price', desc: 'Quick live price check for any asset [ticker]', icon: 'fa-tag', needsTicker: true },
   { cmd: '/newsintel ', title: '/newsintel', desc: 'Scan latest market headlines', icon: 'fa-newspaper', needsTicker: false },
 ];
-
-const MAX_TICKER_RESULTS = 6;
 
 interface ComposerProps {
   input: string;
@@ -59,21 +60,30 @@ export default function Composer({ input, setInput, loading, stopping, onSend, o
   }, []);
 
   // ── Ticker picker ────────────────────────────────────────────────────────
-  // `/intraday nvx` offers the tickers that match, the same Yahoo-backed
-  // similar-name search the ticker page and Discover use, so the symbol never
-  // has to be guessed.
-  const [tickerResults, setTickerResults] = useState<TickerResult[]>([]);
-  const [tickerSearching, setTickerSearching] = useState(false);
+  // `/intraday nvx` offers the tickers that match, the same market-aware
+  // search the ticker page and Discover use, so the symbol never has to be
+  // guessed. Results load a page at a time — nothing is pre-truncated, and
+  // indices are no longer filtered out just for starting with `^`.
   const [tickerHighlight, setTickerHighlight] = useState(0);
   // Escape dismisses the picker; typing the next character brings it back.
   const [tickerDismissed, setTickerDismissed] = useState(false);
-  const searchAbortRef = useRef<AbortController | null>(null);
 
   const tickerPrompt = useMemo(
     () => parseTickerArgPrompt(input, slashCommands),
     [input, slashCommands],
   );
   const tickerQuery = tickerPrompt?.query ?? '';
+  const tickerSearch = useSymbolSearch(tickerQuery, {
+    enabled: !!tickerPrompt && !tickerDismissed,
+  });
+  const tickerResults = tickerSearch.results as TickerResult[];
+  const tickerSearching = tickerSearch.isSearching;
+  const tickerLoadMoreRef = useLoadMoreOnScroll(
+    tickerSearch.hasMore,
+    tickerSearch.isSearching || tickerSearch.isLoadingMore,
+    tickerSearch.loadMore,
+  );
+
   const pickerOpen =
     !!tickerPrompt &&
     !tickerDismissed &&
@@ -81,52 +91,17 @@ export default function Composer({ input, setInput, loading, stopping, onSend, o
 
   useEffect(() => {
     if (!tickerPrompt) {
-      setTickerResults([]);
-      setTickerSearching(false);
       setTickerHighlight(0);
       return;
     }
     setTickerHighlight(0);
     setTickerDismissed(false);
-    if (!tickerQuery) {
-      setTickerResults([]);
-      setTickerSearching(false);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      searchAbortRef.current?.abort();
-      const controller = new AbortController();
-      searchAbortRef.current = controller;
-      setTickerSearching(true);
-      try {
-        const res = await fetch(`/api/market/search?q=${encodeURIComponent(tickerQuery)}`, {
-          signal: controller.signal,
-        });
-        if (!res.ok) return;
-        const data: unknown = await res.json();
-        if (controller.signal.aborted) return;
-        // Yahoo mixes indices (`^GSPC`) into its results; a ticker command
-        // wants tradable symbols only.
-        const quotes = (Array.isArray(data) ? data : [])
-          .filter((r): r is TickerResult => !!r && typeof r.symbol === 'string' && !r.symbol.includes('^'))
-          .slice(0, MAX_TICKER_RESULTS);
-        setTickerResults(quotes);
-      } catch {
-        if (!controller.signal.aborted) setTickerResults([]);
-      } finally {
-        if (!controller.signal.aborted) setTickerSearching(false);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
   }, [tickerPrompt?.cmd, tickerQuery]);
-
-  useEffect(() => () => searchAbortRef.current?.abort(), []);
 
   const selectTicker = (symbol: string) => {
     if (!tickerPrompt) return;
     setInput(tickerPrompt.apply(symbol));
-    setTickerResults([]);
-    setTickerSearching(false);
+    tickerSearch.reset();
     setTickerDismissed(true);
     // Put the caret after the symbol so the user can keep typing immediately.
     requestAnimationFrame(() => {
@@ -142,8 +117,7 @@ export default function Composer({ input, setInput, loading, stopping, onSend, o
     if (e.key === 'Escape' && pickerOpen) {
       // Close the picker first; only an open composer with no picker means stop.
       e.preventDefault();
-      setTickerResults([]);
-      setTickerSearching(false);
+      tickerSearch.reset();
       setTickerDismissed(true);
       return;
     }
@@ -216,28 +190,46 @@ export default function Composer({ input, setInput, loading, stopping, onSend, o
               {tickerSearching ? 'Searching…' : `No ticker matches “${tickerQuery}”.`}
             </div>
           ) : (
-            tickerResults.map((result, idx) => (
-              <button
-                key={`${result.symbol}-${result.exchange ?? ''}`}
-                type="button"
-                role="option"
-                aria-selected={idx === tickerHighlight}
-                onMouseEnter={() => setTickerHighlight(idx)}
-                onClick={() => selectTicker(result.symbol)}
-                className={`${styles['chat-slash-item']}${idx === tickerHighlight ? ` ${styles['chat-slash-item-active']}` : ''}`}
-              >
-                <span className={styles['chat-slash-item-icon']}>
-                  <i className="fa-solid fa-tag"></i>
-                </span>
-                <span className={styles['chat-slash-item-text']}>
-                  <span className={styles['chat-slash-item-title']}>{result.symbol}</span>
-                  <span className={styles['chat-slash-item-desc']}>
-                    {result.name}
-                    {result.exchange ? ` · ${result.exchange}` : ''}
+            <>
+              {tickerResults.map((result, idx) => (
+                <button
+                  key={`${result.symbol}-${result.exchange ?? ''}`}
+                  type="button"
+                  role="option"
+                  aria-selected={idx === tickerHighlight}
+                  onMouseEnter={() => setTickerHighlight(idx)}
+                  onClick={() => selectTicker(result.symbol)}
+                  className={`${styles['chat-slash-item']}${idx === tickerHighlight ? ` ${styles['chat-slash-item-active']}` : ''}`}
+                >
+                  <span className={styles['chat-slash-item-icon']}>
+                    <i className="fa-solid fa-tag"></i>
                   </span>
-                </span>
-              </button>
-            ))
+                  <span className={styles['chat-slash-item-text']}>
+                    <span className={styles['chat-slash-item-title']}>{result.symbol}</span>
+                    <span className={styles['chat-slash-item-desc']}>
+                      {result.name}
+                      {result.exchange ? ` · ${result.exchange}` : ''}
+                    </span>
+                  </span>
+                  <span className={styles['chat-slash-item-market']}>
+                    {SYMBOL_MARKET_LABEL[(result.market as SymbolMarket) ?? 'other']}
+                  </span>
+                </button>
+              ))}
+              <div ref={tickerLoadMoreRef} />
+              {tickerSearch.hasMore && (
+                <button
+                  type="button"
+                  className={styles['chat-slash-more']}
+                  onClick={tickerSearch.loadMore}
+                  disabled={tickerSearch.isLoadingMore}
+                >
+                  {tickerSearch.isLoadingMore
+                    ? 'Loading…'
+                    : `Load more · ${tickerResults.length}/${tickerSearch.total}`}
+                </button>
+              )}
+            </>
           )}
         </div>
       )}

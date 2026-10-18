@@ -7,6 +7,8 @@ import TechnicalStrip from '@/app/components/ui/TechnicalStrip';
 import { buildStocktwitsPulse, stocktwitsContrarianNote } from '@/shared/crowd-pulse';
 import ExternalAiBriefButton from '@/app/components/ui/ExternalAiBriefButton';
 import { recordRecentTicker } from '@/shared/discover';
+import { SYMBOL_MARKET_LABEL, type SymbolMarket } from '@/shared/symbol-search';
+import { useLoadMoreOnScroll, useSymbolSearch } from '@/app/lib/hooks';
 import styles from './TickerPage.module.css';
 
 interface QuoteData {
@@ -161,11 +163,16 @@ export default function DashboardPage() {
   const ticker = rawTicker ? decodeURIComponent(rawTicker).toUpperCase() : '';
 
   const [tickerInput, setTickerInput] = useState(ticker);
-  
-  // Autocomplete state
-  const [searchResults, setSearchResults] = useState<{symbol: string, name: string, exchange: string}[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+
+  // Autocomplete state — paged, so the list keeps loading instead of stopping
+  // at a pre-truncated top-N.
   const [showDropdown, setShowDropdown] = useState(false);
+  const symbolSearch = useSymbolSearch(tickerInput, { enabled: showDropdown });
+  const searchLoadMoreRef = useLoadMoreOnScroll(
+    symbolSearch.hasMore,
+    symbolSearch.isSearching || symbolSearch.isLoadingMore,
+    symbolSearch.loadMore,
+  );
 
   // Chart style state (per-ticker, persisted to localStorage)
   const [chartStyle, setChartStyle] = useState<ChartStyle>(DEFAULT_STYLE);
@@ -410,36 +417,12 @@ export default function DashboardPage() {
   } : null), [sentiment]);
   const contrarianNote = useMemo(() => stocktwitsContrarianNote(pulse), [pulse]);
 
-
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(async () => {
-      if (tickerInput.trim() && showDropdown) {
-        setIsSearching(true);
-        try {
-          const res = await fetch(`/api/market/search?q=${encodeURIComponent(tickerInput.trim())}`);
-          if (res.ok) {
-            const data = await res.json();
-            setSearchResults(data.slice(0, 6)); // Top 6 results
-          }
-        } catch (err) {
-          console.error('Search failed', err);
-        } finally {
-          setIsSearching(false);
-        }
-      } else {
-        setSearchResults([]);
-      }
-    }, 300);
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [tickerInput, showDropdown, ticker]);
-
   const handleTickerSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (tickerInput.trim()) {
       let newTicker = tickerInput.trim().toUpperCase();
-      if (showDropdown && searchResults.length > 0) {
-        newTicker = searchResults[0].symbol.toUpperCase();
+      if (showDropdown && symbolSearch.results.length > 0) {
+        newTicker = symbolSearch.results[0].symbol.toUpperCase();
         setTickerInput(newTicker);
       }
       setShowDropdown(false);
@@ -526,26 +509,46 @@ export default function DashboardPage() {
 
           {showDropdown && (tickerInput.trim() !== '') && (
             <div className={styles['ticker-search__results']}>
-              {isSearching ? (
+              {symbolSearch.isSearching ? (
                 <div className={styles['ticker-search__message']}>SEARCHING...</div>
-              ) : searchResults.length > 0 ? (
-                searchResults.map((result, i) => (
-                  <button
-                    type="button"
-                    key={result.symbol + i}
-                    className={styles['ticker-search__result']}
-                    onClick={() => {
-                      const newTicker = result.symbol.toUpperCase();
-                      setTickerInput(newTicker);
-                      setShowDropdown(false);
-                      router.push(`/ticker/${encodeURIComponent(newTicker)}`);
-                    }}
-                  >
-                    <span className={styles['ticker-search__symbol']}>{result.symbol}</span>
-                    <span className={styles['ticker-search__name']}>{result.name}</span>
-                    <span className={styles['ticker-search__exchange']}>{result.exchange}</span>
-                  </button>
-                ))
+              ) : symbolSearch.results.length > 0 ? (
+                <>
+                  {symbolSearch.results.map((result, i) => (
+                    <button
+                      type="button"
+                      key={result.symbol + i}
+                      className={styles['ticker-search__result']}
+                      onClick={() => {
+                        const newTicker = result.symbol.toUpperCase();
+                        setTickerInput(newTicker);
+                        setShowDropdown(false);
+                        router.push(`/ticker/${encodeURIComponent(newTicker)}`);
+                      }}
+                    >
+                      <span className={styles['ticker-search__symbol']}>{result.symbol}</span>
+                      <span className={styles['ticker-search__name']}>{result.name}</span>
+                      <span className={styles['ticker-search__exchange']}>
+                        <span className={styles['ticker-search__market']}>
+                          {SYMBOL_MARKET_LABEL[(result.market as SymbolMarket) ?? 'other']}
+                        </span>
+                        {result.exchange}
+                      </span>
+                    </button>
+                  ))}
+                  <div ref={searchLoadMoreRef} />
+                  {symbolSearch.hasMore && (
+                    <button
+                      type="button"
+                      className={styles['ticker-search__more']}
+                      onClick={symbolSearch.loadMore}
+                      disabled={symbolSearch.isLoadingMore}
+                    >
+                      {symbolSearch.isLoadingMore
+                        ? 'LOADING...'
+                        : `LOAD MORE · ${symbolSearch.results.length}/${symbolSearch.total}`}
+                    </button>
+                  )}
+                </>
               ) : (
                 <div className={styles['ticker-search__message']}>NO RESULTS</div>
               )}

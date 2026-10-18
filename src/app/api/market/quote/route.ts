@@ -7,7 +7,10 @@ export async function GET(request: NextRequest) {
     const ticker = request.nextUrl.searchParams.get('ticker');
     if (!ticker) return errorResponse('Missing ?ticker query parameter', 400);
 
-    const quote = await yahooFinance.quote(ticker);
+    // Validation stays off: Yahoo's quote schema rejects whole symbols rather
+    // than a single bad field, which used to 500 commodities (GC=F), FX
+    // (DX-Y.NYB) and several indices (^DJI, ^IXIC) outright.
+    const quote = await yahooFinance.quote(ticker, {}, { validateResult: false });
     if (!quote) return errorResponse(`No quote found for ${ticker}`, 404);
 
     const q = quote as any;

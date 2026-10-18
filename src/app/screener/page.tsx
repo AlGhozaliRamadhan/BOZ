@@ -10,6 +10,7 @@ import type {
   ScreenerResult,
   ScreenerUniverse,
 } from '@/shared/screener-contract';
+import { MAX_SCAN_RESULTS as SCAN_RESULT_CAP } from '@/shared/screener-contract';
 import { signalConfidence } from '@/shared/screener-confidence';
 
 type ConvictionFilter = 'LOW' | 'MEDIUM' | 'HIGH';
@@ -293,8 +294,9 @@ export default function ScreenersPage() {
 
   const responseUniverse = response ? toMarketTab(response.query.universe ?? universe) : market;
   const summary = response?.summary ?? null;
-  // The scan service caps matches at 100 — say so instead of implying full coverage.
-  const isCapped = (response?.results.length ?? 0) >= 100;
+  // The scan service caps matches at SCAN_RESULT_CAP — say so instead of implying
+  // full coverage. Kept in step with the scanner so the notice never goes stale.
+  const isCapped = (response?.results.length ?? 0) >= SCAN_RESULT_CAP;
   const isDefaultConfig =
     preset === 'momentum' && sector === 'all' && direction === 'buy' &&
     minimumConviction === 'LOW' && mode === 'fast';

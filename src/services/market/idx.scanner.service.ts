@@ -8,6 +8,7 @@ import type {
   ScreenerPreset,
   ScreenerResult,
 } from '../../shared/screener-contract.js';
+import { MAX_SCAN_RESULTS } from '../../shared/screener-contract.js';
 import type { Candle } from '../../types/types.js';
 import { log } from '../../utils/logger.js';
 import { deepScanWorkloadGate, WorkloadBusyError } from '../security/workload-gate.js';
@@ -85,9 +86,14 @@ export interface ScanResult {
   formatted: string;
 }
 
-interface QuoteCandidate extends StockEntry {
+interface QuotedEntry extends StockEntry {
   quote: any;
+}
+
+interface QuoteCandidate extends QuotedEntry {
   preScore: number;
+  /** Which lens queued this candidate, so a board can report it. */
+  preset: ScreenerPreset;
 }
 
 export interface ScanOptions {
@@ -96,16 +102,109 @@ export interface ScanOptions {
   universe?: ScannerUniverse;
 }
 
+/** One page of a scan. `hasMore` drives the pager; nothing is pre-enriched. */
+export interface ScanPage {
+  sector: string;
+  presets: ScreenerPreset[];
+  signalFilter: SignalFilter;
+  universe: ScannerUniverse;
+  mode: ScanMode;
+  startedAt: string;
+  completedAt: string;
+  universeCount: number;
+  candidateCount: number;
+  /** Candidates already chart-enriched across all requested pages. */
+  enrichedCount: number;
+  /** Rows returned by this page only. */
+  results: StockResult[];
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  skipped: string[];
+}
+
+export interface ScanPageOptions extends ScanOptions {
+  page?: number;
+  pageSize?: number;
+}
+
 const QUOTE_BATCH_SIZE = 100;
 const CHART_BATCH_SIZE = 8;
-const FAST_FULL_SCAN_LIMIT = 60;
-const FAST_CANDIDATE_LIMIT = 60;
+/** Fast mode analyses everything below this candidate count. */
+const FAST_FULL_SCAN_LIMIT = 120;
+/** Fast-mode ceiling on chart-enriched candidates. Each one costs a Yahoo chart
+ *  call, so this trades board size against wall-clock; deep mode is uncapped. */
+const FAST_CANDIDATE_LIMIT = 120;
+/** Upper bound on rows returned to a single scan. */
 const MIN_SCREEN_SCORE = 35;
+/** Enrichment is paid lazily, one page at a time, so these bound a page. */
+export const DEFAULT_PAGE_SIZE = 15;
+export const MAX_PAGE_SIZE = 60;
+/** A page keeps enriching past `pageSize` until it has this many qualifying
+ *  rows, because the score/conviction filter drops candidates. */
+const PAGE_TARGET_MULTIPLIER = 2;
+const PAGE_MIN_ENRICH = 8;
+const PAGE_ENRICH_BUDGET = 45;
+/** Paged sessions live as long as the result cache. */
+const MAX_SESSIONS = 16;
 const HISTORY_DAYS = 420;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 16;
+const SESSION_TTL_MS = CACHE_TTL_MS;
 
 const scanCache = new Map<string, { expiresAt: number; value: ScanResult }>();
+const scanSessions = new Map<string, ScanSession>();
+
+interface SessionParams {
+  sector: string;
+  direction: SignalFilter;
+  setup: SetupFilter;
+  presets: ScreenerPreset[];
+  mode: ScanMode;
+  minimumConviction: 'LOW' | 'MEDIUM' | 'HIGH';
+  universe: ScannerUniverse;
+}
+
+/** Quotes are lens-independent, so the session is shared across presets. */
+interface ScanSession {
+  key: string;
+  createdAt: number;
+  sector: string;
+  universe: ScannerUniverse;
+  mode: ScanMode;
+  signalFilter: SignalFilter;
+  presets: ScreenerPreset[];
+  minimumConviction: 'LOW' | 'MEDIUM' | 'HIGH';
+  universeCount: number;
+  /** Ranked, de-duplicated, ready to enrich. */
+  candidates: QuoteCandidate[];
+  cursor: number;
+  enriched: StockResult[];
+  skipped: string[];
+}
+
+function sessionKey(params: SessionParams): string {
+  return [params.universe, params.sector, params.direction, params.mode, params.minimumConviction].join(':');
+}
+
+/** Accepts a comma list of presets so the board can fan out server-side. */
+export function normalizePresets(setup: SetupFilter | string): ScreenerPreset[] {
+  if (typeof setup === 'string' && setup.includes(',')) {
+    const seen = new Set<ScreenerPreset>();
+    for (const part of setup.split(',')) {
+      const value = part.trim();
+      if (value) seen.add(normalizeSetupFilter(value as SetupFilter));
+    }
+    return [...seen];
+  }
+  return [normalizeSetupFilter(setup as SetupFilter)];
+}
+
+export function clampPageSize(raw: unknown): number {
+  const value = Math.floor(Number(raw));
+  if (!Number.isFinite(value) || value < 1) return DEFAULT_PAGE_SIZE;
+  return Math.min(value, MAX_PAGE_SIZE);
+}
 
 export function normalizeSetupFilter(setup: SetupFilter): ScreenerPreset {
   return setup === 'all_time_low' ? 'near_52w_low' : setup;
@@ -210,14 +309,18 @@ export class IdxScannerService {
     return score;
   }
 
-  private async fetchQuoteCandidates(
+  /**
+   * Fetch quotes for the whole universe.
+   *
+   * Deliberately lens-independent: the quote payload is the same for every
+   * preset, so a multi-lens board pays this once instead of once per lens.
+   */
+  private async fetchQuoted(
     universe: StockEntry[],
-    direction: SignalFilter,
-    preset: ScreenerPreset,
     skipped: string[],
     signal?: AbortSignal,
-  ): Promise<QuoteCandidate[]> {
-    const candidates: QuoteCandidate[] = [];
+  ): Promise<QuotedEntry[]> {
+    const quoted: QuotedEntry[] = [];
 
     for (const batch of this.chunks(universe, QUOTE_BATCH_SIZE)) {
       throwIfAborted(signal);
@@ -244,11 +347,7 @@ export class IdxScannerService {
             skipped.push(stock.ticker);
             continue;
           }
-          candidates.push({
-            ...stock,
-            quote,
-            preScore: this.preScoreQuote(quote, direction, preset),
-          });
+          quoted.push({ ...stock, quote });
         }
       } catch {
         for (const retryBatch of this.chunks(batch, 10)) {
@@ -259,11 +358,7 @@ export class IdxScannerService {
               skipped.push(stock.ticker);
               return;
             }
-            candidates.push({
-              ...stock,
-              quote,
-              preScore: this.preScoreQuote(quote, direction, preset),
-            });
+            quoted.push({ ...stock, quote });
           }));
           await this.sleep(100);
         }
@@ -271,15 +366,42 @@ export class IdxScannerService {
       if (batch.length === QUOTE_BATCH_SIZE) await this.sleep(150);
     }
 
-    return candidates;
+    return quoted;
   }
 
-  private selectChartCandidates(candidates: QuoteCandidate[], mode: ScanMode): QuoteCandidate[] {
-    if (mode === 'deep' || candidates.length <= FAST_FULL_SCAN_LIMIT) return candidates;
-    return [...candidates]
-      .filter(candidate => candidate.preScore > -100)
-      .sort((left, right) => right.preScore - left.preScore)
-      .slice(0, FAST_CANDIDATE_LIMIT);
+  /**
+   * Rank quoted entries for one lens. Cheap and purely in-memory.
+   *
+   * Always sorts, even when nothing is truncated: a paged board enriches in
+   * queue order, so the ranking decides what lands on page 1.
+   */
+  private rankCandidates(
+    quoted: QuotedEntry[],
+    direction: SignalFilter,
+    preset: ScreenerPreset,
+    mode: ScanMode,
+  ): QuoteCandidate[] {
+    const scored = quoted
+      .map(entry => ({ ...entry, preScore: this.preScoreQuote(entry.quote, direction, preset), preset }))
+      .sort((left, right) => right.preScore - left.preScore);
+    if (mode === 'deep' || scored.length <= FAST_FULL_SCAN_LIMIT) return scored;
+    return scored.filter(candidate => candidate.preScore > -100).slice(0, FAST_CANDIDATE_LIMIT);
+  }
+
+  private async fetchQuoteCandidates(
+    universe: StockEntry[],
+    direction: SignalFilter,
+    preset: ScreenerPreset,
+    mode: ScanMode,
+    skipped: string[],
+    signal?: AbortSignal,
+  ): Promise<QuoteCandidate[]> {
+    return this.rankCandidates(
+      await this.fetchQuoted(universe, skipped, signal),
+      direction,
+      preset,
+      mode,
+    );
   }
 
   private chartCandles(chartResult: any): Candle[] {
@@ -437,6 +559,222 @@ export class IdxScannerService {
     scanCache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, value });
   }
 
+  // ── Paged (lazy) scans ─────────────────────────────────────────────────────
+  //
+  // A full scan chart-enriches every candidate before returning anything, so
+  // the board used to sit blank for the whole run. Instead a session holds the
+  // quote-only candidate list and enriches forward one page at a time: page 1
+  // costs one quote sweep plus ~a batch of charts, and later pages cost only
+  // the charts they still need.
+
+  private async ensureSession(
+    params: SessionParams,
+    signal?: AbortSignal,
+  ): Promise<ScanSession> {
+    const key = sessionKey(params);
+    const existing = scanSessions.get(key);
+    if (existing && existing.createdAt + SESSION_TTL_MS > Date.now()) {
+      scanSessions.delete(key);
+      scanSessions.set(key, existing);
+      return existing;
+    }
+
+    const universe = await this.getUniverse(params.sector, params.universe);
+    const skipped: string[] = [];
+    const quoted = await this.fetchQuoted(universe, skipped, signal);
+    const presets = params.presets.length > 0 ? params.presets : [normalizeSetupFilter(params.setup)];
+    const candidates = this.buildQueue(quoted, params, presets);
+
+    if (scanSessions.size >= MAX_SESSIONS) {
+      const oldestKey = scanSessions.keys().next().value;
+      if (oldestKey) scanSessions.delete(oldestKey);
+    }
+    const session: ScanSession = {
+      key,
+      createdAt: Date.now(),
+      sector: params.sector,
+      universe: params.universe,
+      mode: params.mode,
+      signalFilter: params.direction,
+      presets,
+      minimumConviction: params.minimumConviction,
+      universeCount: universe.length,
+      candidates,
+      cursor: 0,
+      enriched: [],
+      skipped,
+    };
+    scanSessions.set(key, session);
+    log.info('scan-session', `queued ${candidates.length} candidates from ${universe.length} universe symbols`);
+    return session;
+  }
+
+  /**
+   * Interleave the per-lens rankings into one queue.
+   *
+   * Round-robin means page 1 samples every lens instead of draining the first
+   * one, and de-duplicating keeps the best-ranked lens for a ticker that
+   * qualifies under several.
+   */
+  private buildQueue(
+    quoted: QuotedEntry[],
+    params: SessionParams,
+    presets: ScreenerPreset[],
+  ): QuoteCandidate[] {
+    const lists = presets.map(preset => this.rankCandidates(quoted, params.direction, preset, params.mode));
+    const queue: QuoteCandidate[] = [];
+    const seen = new Set<string>();
+    const longest = Math.max(0, ...lists.map(list => list.length));
+
+    for (let index = 0; index < longest; index++) {
+      for (const list of lists) {
+        const candidate = list[index];
+        if (!candidate || seen.has(candidate.ticker)) continue;
+        seen.add(candidate.ticker);
+        queue.push(candidate);
+      }
+    }
+    return queue;
+  }
+
+  private pageQualifies(
+    result: StockResult,
+    signalFilter: SignalFilter,
+    minimumConviction: 'LOW' | 'MEDIUM' | 'HIGH',
+  ): boolean {
+    if (result.screenScore < MIN_SCREEN_SCORE) return false;
+    if (convictionRank(result.expertSignal.conviction) < convictionRank(minimumConviction)) return false;
+    if (signalFilter === 'buy') {
+      return result.expertSignal.action === 'BUY'
+        || (result.expertSignal.action === 'WATCH' && result.expertSignal.bias === 'BULL');
+    }
+    if (signalFilter === 'sell') {
+      return result.expertSignal.action === 'SELL'
+        || (result.expertSignal.action === 'WATCH' && result.expertSignal.bias === 'BEAR');
+    }
+    return true;
+  }
+
+  /** Enrich forward until `target` qualifying rows exist or the queue runs dry. */
+  private async enrichPage(
+    session: ScanSession,
+    target: number,
+    signal?: AbortSignal,
+  ): Promise<StockResult[]> {
+    const collected: StockResult[] = [];
+    const budget = Math.min(session.candidates.length, session.cursor + PAGE_ENRICH_BUDGET);
+    const floor = Math.min(budget, session.cursor + Math.max(PAGE_MIN_ENRICH, target * PAGE_TARGET_MULTIPLIER));
+
+    while (collected.length < target && session.cursor < budget) {
+      throwIfAborted(signal);
+      const slice = session.candidates.slice(session.cursor, Math.min(floor, session.cursor + CHART_BATCH_SIZE));
+      if (slice.length === 0) break;
+      session.cursor += slice.length;
+
+      const enriched = await Promise.all(slice.map(async candidate => {
+        try {
+          return await this.enrichCandidate(candidate, candidate.preset, signal);
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          return null;
+        }
+      }));
+
+      enriched.forEach((result, index) => {
+        if (!result) {
+          session.skipped.push(slice[index].ticker);
+          return;
+        }
+        session.enriched.push(result);
+        if (this.pageQualifies(result, session.signalFilter, session.minimumConviction)) {
+          collected.push(result);
+        }
+      });
+
+      if (session.cursor < floor) await this.sleep(150);
+    }
+
+    return collected.sort((left, right) => right.screenScore - left.screenScore);
+  }
+
+  /**
+   * Return one page. Work already done is reused from the session, so paging
+   * forward never re-runs the quote sweep or a chart call.
+   */
+  async scanPage(
+    sector: string = 'all',
+    signalFilter: SignalFilter = 'buy',
+    setup: SetupFilter = 'momentum',
+    mode: ScanMode = 'fast',
+    options: ScanPageOptions = {},
+  ): Promise<ScanPage> {
+    const presets = normalizePresets(setup);
+    const page = Math.max(0, Math.floor(options.page ?? 0) || 0);
+    const pageSize = clampPageSize(options.pageSize);
+    const scannerUniverse = normalizeScannerUniverse(options.universe ?? 'idx');
+
+    const release = mode === 'deep' ? deepScanWorkloadGate.tryAcquire() : () => undefined;
+    if (!release) {
+      const busyLabel = scannerUniverse === 'crypto' ? 'A deep Crypto scan is already running'
+        : scannerUniverse === 'us' ? 'A deep US scan is already running'
+        : 'A deep IDX scan is already running';
+      throw new WorkloadBusyError(busyLabel);
+    }
+
+    const startedAt = new Date().toISOString();
+    try {
+      const params: SessionParams = {
+        sector,
+        direction: signalFilter,
+        setup,
+        presets,
+        mode,
+        minimumConviction: options.minimumConviction ?? 'LOW',
+        universe: scannerUniverse,
+      };
+      const session = await this.ensureSession(params, options.signal);
+      throwIfAborted(options.signal);
+
+      const collected: StockResult[] = [];
+      let exhausted = session.cursor >= session.candidates.length;
+
+      for (let index = 0; index <= page && !exhausted; index++) {
+        // Re-serving an earlier page must not double-count rows.
+        const rows = await this.enrichPage(session, pageSize, options.signal);
+        collected.length = 0;
+        collected.push(...rows);
+        exhausted = session.cursor >= session.candidates.length;
+      }
+
+      const results = collected.slice(0, pageSize) as StockResult[];
+
+      return {
+        sector: session.sector,
+        presets: session.presets,
+        signalFilter: session.signalFilter,
+        universe: session.universe,
+        mode: session.mode,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        universeCount: session.universeCount,
+        candidateCount: session.candidates.length,
+        enrichedCount: session.enriched.length,
+        results,
+        page,
+        pageSize,
+        hasMore: session.cursor < session.candidates.length,
+        skipped: session.skipped,
+      };
+    } finally {
+      release();
+    }
+  }
+
+  /** Drop cached paged sessions (used by tests and manual refresh). */
+  resetSessions(): void {
+    scanSessions.clear();
+  }
+
   async scan(
     sector: string = 'all',
     signalFilter: SignalFilter = 'buy',
@@ -464,8 +802,8 @@ export class IdxScannerService {
       throwIfAborted(options.signal);
       const universe = await this.getUniverse(sector, scannerUniverse);
       const skipped: string[] = [];
-      const quoted = await this.fetchQuoteCandidates(universe, signalFilter, preset, skipped, options.signal);
-      const chartCandidates = this.selectChartCandidates(quoted, mode);
+      const quoted = await this.fetchQuoteCandidates(universe, signalFilter, preset, mode, skipped, options.signal);
+      const chartCandidates = quoted;
       const enriched: StockResult[] = [];
 
       log.info(
@@ -508,7 +846,7 @@ export class IdxScannerService {
           right.screenScore - left.screenScore
           || Math.abs(right.expertSignal.score) - Math.abs(left.expertSignal.score),
         )
-        .slice(0, 100);
+        .slice(0, MAX_SCAN_RESULTS);
 
       const buyCount = enriched.filter(result => result.expertSignal.action === 'BUY').length;
       const sellCount = enriched.filter(result => result.expertSignal.action === 'SELL').length;
