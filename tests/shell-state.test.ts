@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SHELL_PREFERENCES,
+  applyShellAppearance,
   readShellPreferences,
   writeShellPreferences,
   parseStoredBoolean,
+  type ShellPreferences,
   type ShellStorage,
 } from '../src/app/components/layout/shell-state.js';
 import { getShellNavigationTarget, getShellRouteLabel } from '../src/app/components/layout/shell-menu.js';
@@ -34,13 +36,68 @@ describe('shell layout preferences', () => {
     expect(readShellPreferences(storage)).toEqual(DEFAULT_SHELL_PREFERENCES);
   });
 
-  it('round-trips explicitly saved sidebar and ticker preferences', () => {
+  it('round-trips explicitly saved shell preferences including the visual scales', () => {
     const storage = createStorage();
-    const preferences = { sidebarCollapsed: true, tickerVisible: false };
+    const preferences: ShellPreferences = {
+      sidebarCollapsed: true,
+      tickerVisible: false,
+      density: 'compact',
+      chatText: 'large',
+      font: 'mono',
+      motion: 'reduced',
+    };
 
     writeShellPreferences(storage, preferences);
 
     expect(readShellPreferences(storage)).toEqual(preferences);
+  });
+
+  it('falls back to the default presets for unknown stored values', () => {
+    const storage = createStorage({
+      boz_shell_density: 'roomy',
+      boz_shell_chat_text: 'huge',
+      boz_shell_font: 'comic',
+      boz_shell_motion: 'cinematic',
+    });
+
+    const preferences = readShellPreferences(storage);
+
+    expect(preferences.density).toBe('comfortable');
+    expect(preferences.chatText).toBe('medium');
+    expect(preferences.font).toBe('serif');
+    expect(preferences.motion).toBe('system');
+  });
+
+  it('applies zooms, the font voice, and forces the motion attribute when reduced', () => {
+    const applied: Record<string, string> = {};
+    const dataset: Record<string, string | undefined> = {};
+    applyShellAppearance(
+      {
+        style: { setProperty: (name, value) => { applied[name] = value; } },
+        dataset,
+      },
+      { density: 'compact', chatText: 'large', font: 'sans', motion: 'reduced' },
+    );
+
+    expect(applied['--ui-density-zoom']).toBe('0.94');
+    expect(applied['--chat-text-zoom']).toBe('1.08');
+    expect(applied['--font-ui']).toBe('var(--font-ui-sans)');
+    expect(dataset.motion).toBe('reduced');
+  });
+
+  it('clears the motion attribute in system mode so the OS setting decides', () => {
+    const applied: Record<string, string> = {};
+    const dataset: Record<string, string | undefined> = { motion: 'reduced' };
+    applyShellAppearance(
+      {
+        style: { setProperty: (name, value) => { applied[name] = value; } },
+        dataset,
+      },
+      { density: 'comfortable', chatText: 'medium', font: 'mono', motion: 'system' },
+    );
+
+    expect(applied['--font-ui']).toBe('var(--font-ui-mono)');
+    expect(dataset.motion).toBeUndefined();
   });
 
   it('routes the global navigation commands to existing BOZ pages', () => {

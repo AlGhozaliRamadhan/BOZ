@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import SettingsModal from '../ui/SettingsModal';
 import type { SettingsTab } from './shell-commands';
 
-const SETTINGS_TABS: SettingsTab[] = ['profile', 'providers', 'general'];
+const SETTINGS_TABS: SettingsTab[] = ['profile', 'providers', 'appearance', 'general'];
 
 export default function GlobalSettings() {
   const [settingsOpen, setSettingsOpen] = useState(false);

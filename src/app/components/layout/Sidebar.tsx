@@ -3,7 +3,12 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import DesktopUpdateControl from '../ui/DesktopUpdateControl';
+import DesktopUpdateControl, {
+  normalizeUpdateStatus,
+  type HostUpdateStatus,
+} from '../ui/DesktopUpdateControl';
+import { invoke, isTauri } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import {
   getSessionStatus,
   loadListedSessions,
@@ -65,6 +70,9 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
+  // True while the desktop host reports an installable update the user has
+  // not snoozed; drives the footer dot and the first-open popup.
+  const [updateAvailable, setUpdateAvailable] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
 
@@ -138,6 +146,50 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
     const handleOpenAbout = () => setIsUpdateModalOpen(true);
     window.addEventListener('boz_open_about', handleOpenAbout);
     return () => window.removeEventListener('boz_open_about', handleOpenAbout);
+  }, []);
+
+  // Update availability + first-open popup.
+  //
+  // The desktop host checks silently once per launch and only publishes the
+  // status (the native dialog belongs to the manual path), so a fresh session
+  // with an installable update otherwise shows nothing. Host rules already
+  // folded in: a snoozed version arrives as an idle status, so `available`
+  // here means "not snoozed". The prompt opens at most once per browser
+  // session; afterwards only the dot speaks.
+  useEffect(() => {
+    if (!isTauri()) return undefined;
+    let cancelled = false;
+    const SESSION_KEY = 'boz_update_prompted_session';
+
+    const apply = (raw: unknown) => {
+      const status: HostUpdateStatus = normalizeUpdateStatus(raw);
+      const available = status.phase === 'available' && !status.snoozedVersion;
+      if (cancelled) return;
+      setUpdateAvailable(available);
+      if (available) {
+        let prompted = false;
+        try {
+          prompted = window.sessionStorage.getItem(SESSION_KEY) === 'true';
+          if (!prompted) window.sessionStorage.setItem(SESSION_KEY, 'true');
+        } catch {
+          // Storage unavailable: treat as already prompted so the popup only
+          // ever appears through an explicit host event.
+          prompted = true;
+        }
+        if (!prompted) setIsUpdateModalOpen(true);
+      }
+    };
+
+    // The host can finish its launch check before this mounts; read first.
+    void invoke<unknown>('update_status')
+      .then((raw) => apply(raw))
+      .catch(() => undefined);
+
+    const unlisten = listen<unknown>('boz://update-status', (event) => {
+      apply(event.payload);
+    }).then((off) => () => { cancelled = true; off(); }).catch(() => () => { cancelled = true; });
+
+    return () => { cancelled = true; void unlisten.then((off) => off()); };
   }, []);
 
   useEffect(() => {
@@ -326,6 +378,9 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
         >
           <div className="sidebar-profile-avatar" style={{ position: 'relative', background: profile.avatarColor, borderColor: 'transparent', color: '#fff' }} aria-hidden="true">
             {profileInitial(profile.displayName) || <i className="fa-solid fa-user" style={{ fontSize: '13px', opacity: 0.85 }}></i>}
+            {updateAvailable && (
+              <span className="sidebar-update-dot" title="BOZ update available" />
+            )}
           </div>
           {!collapsed && (
             <div className="sidebar-profile-meta">
@@ -343,9 +398,14 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
         </div>
         {!collapsed && (
           <div className="sidebar-version-row">
-            <span className="sidebar-version">
+            <button
+              type="button"
+              className="sidebar-version"
+              onClick={() => setIsUpdateModalOpen(true)}
+              title="About BOZ"
+            >
               v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.8.2'}
-            </span>
+            </button>
           </div>
         )}
       </div>

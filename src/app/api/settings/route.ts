@@ -172,6 +172,37 @@ function withCurrentModel(
   return [{ id: current, label: current }, ...models];
 }
 
+// Fresh-install truth about the active provider. Mirrors the chat engine's
+// `checkProviderSetup` (custom counts its model as the credential) so the UI
+// and the engine agree on whether a generation can even start. The chat view
+// uses this to show the "set up a model" state instead of implying a working
+// provider the first message would reject.
+export type ProviderSetupIssue = 'no-credential' | 'no-model' | null;
+
+export interface ProviderSetupState {
+  configured: boolean;
+  issue: ProviderSetupIssue;
+}
+
+function providerSetupState(): ProviderSetupState {
+  const provider = config.aiProvider;
+  const model = (config.aiModel || '').trim();
+  const noModel = !model || model.startsWith('~');
+  const hasCredential =
+    provider === 'github' ? Boolean(config.github.token) :
+    provider === 'nvidia' ? Boolean(config.nvidia.apiKey) :
+    provider === 'openai' ? Boolean(config.openai.apiKey) :
+    provider === 'anthropic' ? Boolean(config.anthropic.apiKey) :
+    provider === 'groq' ? Boolean(config.groq.apiKey) :
+    provider === 'openrouter' ? Boolean(config.openrouter.apiKey) :
+    provider === 'offline' ? Boolean(config.offline.endpoint) :
+    Boolean(config.custom.model);
+  // A missing model short-circuits even when a credential exists — a key with
+  // no model is exactly the "open the picker first" situation.
+  const issue: ProviderSetupIssue = noModel ? 'no-model' : (!hasCredential ? 'no-credential' : null);
+  return { configured: issue === null, issue };
+}
+
 function settingsPayload() {
   const customModels = customModelsPayload();
   const providerModels: Record<AIProvider, { id: string; label: string }[]> = {
@@ -206,6 +237,7 @@ function settingsPayload() {
     // honour — the tier always changes BOZ's own verification passes, but the
     // model's own thinking budget only moves on some routes.
     reasoningSupport: describeReasoningSupport(config.aiProvider),
+    setup: providerSetupState(),
     allModels: (Object.entries(providerModels) as [AIProvider, { id: string; label: string }[]][])
       .flatMap(([provider, models]) => models.map((model) => ({ ...model, provider }))),
   };

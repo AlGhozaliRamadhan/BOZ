@@ -97,6 +97,13 @@ html[data-theme='light'] {
   --font-sans: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Consolas', 'Fira Code', monospace;
 
+  /* BOZ font voices (Settings → Appearance). --font-ui is the switchable app
+     voice and defaults to BOZ Serif; --font-mono stays terminal-only. */
+  --font-ui-serif: ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
+  --font-ui-sans: var(--font-outfit), ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+  --font-ui-mono: 'JetBrains Mono', 'Cascadia Code', 'Consolas', 'Fira Code', monospace;
+  --font-ui: var(--font-ui-serif);
+
   --text-xs:  0.6875rem;
   --text-sm:  0.75rem;
   --text-base: 0.875rem;

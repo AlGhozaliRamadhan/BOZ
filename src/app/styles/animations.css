@@ -43,3 +43,31 @@
 .animate-slideUp   { animation: slideUp var(--duration-base) var(--ease-out); }
 .animate-pulse     { animation: pulse 2s ease-in-out infinite; }
 .animate-glow      { animation: glow 2s ease-in-out infinite; }
+
+/* ═════════════════════════════════════════════════════════════════════════
+   Motion preference (Settings → Appearance).
+   'System' (default) leaves the OS in charge: the media query below engages
+   only when the device asks for reduced motion. 'Reduced' sets
+   html[data-motion='reduced'] from the shell and forces the same minimum
+   regardless of the OS. Both keep every animation defined; they only shrink
+   its duration to effectively nothing, so no state gets stuck mid-animation.
+   ═════════════════════════════════════════════════════════════════════════ */
+html[data-motion='reduced'] *,
+html[data-motion='reduced'] *::before,
+html[data-motion='reduced'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='reduced']) *,
+  html:not([data-motion='reduced']) *::before,
+  html:not([data-motion='reduced']) *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

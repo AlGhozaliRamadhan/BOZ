@@ -24,7 +24,10 @@ export async function createCustomProviderClient(options: {
   });
 }
 
-async function readBoundedJson(response: Response): Promise<unknown> {
+// Shared bounded reader for any `GET /models` catalog response. The 1 MB
+// ceiling is deliberately modest: model catalogs are kilobytes, so a larger
+// payload is a misbehaving or hostile endpoint, not a bigger catalog.
+export async function readBoundedJson(response: Response): Promise<unknown> {
   const declaredLength = Number(response.headers.get('content-length') ?? 0);
   if (declaredLength > MAX_MODELS_RESPONSE_BYTES) {
     throw new Error('Custom model response is too large');
