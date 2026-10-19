@@ -1,11 +1,15 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import DesktopUpdateControl from './DesktopUpdateControl';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   DEFAULT_SHELL_PREFERENCES,
   readShellPreferences,
   writeShellPreferences,
+  type ShellPreferences,
+  type UiDensity,
+  type ChatTextSize,
+  type BozFont,
+  type MotionPreference,
 } from '../layout/shell-state';
 import {
   readTheme,
@@ -220,7 +224,230 @@ const ModelBadge = ({
   );
 };
 
-export type SettingsTab = 'profile' | 'providers' | 'general';
+import type { SettingsTab } from '../layout/shell-commands';
+
+export type { SettingsTab };
+
+/** One settings row: label + description on the left, control on the right.
+ *
+ * The stacked variant places the control under the label, full width, for
+ * wider controls such as segmented buttons. */
+function SettingRow({ title, description, children, last = false, stacked = false }: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  last?: boolean;
+  stacked?: boolean;
+}) {
+  const border = last ? 'none' : '1px solid rgba(255,255,255,0.05)';
+  if (stacked) {
+    return (
+      <div style={{ padding: '16px 0', borderBottom: border }}>
+        <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>{title}</div>
+        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{description}</div>
+        <div style={{ marginTop: '12px' }}>{children}</div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', borderBottom: border, gap: '16px' }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>{title}</div>
+        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{description}</div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Styled listbox dropdown for the appearance controls.
+ *
+ * A native <select> opens an OS-default popup that clashes with the modal,
+ * so this renders the options itself: outside click and Escape dismiss, the
+ * trigger keeps focus, and from there ArrowUp/ArrowDown walk the options
+ * while Enter commits the highlighted one. Hovering moves the highlight. */
+function ShellDropdown({ value, options, onChange, ariaLabel }: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+  ariaLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  const selected = options.find((option) => option.value === value) ?? options[0];
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [open]);
+
+  useEffect(() => {
+    // The highlight tracks the committed value each time the list opens.
+    if (open) {
+      const index = options.findIndex((option) => option.value === value);
+      setActiveIndex(index === -1 ? 0 : index);
+    }
+  }, [open, value, options]);
+
+  const commit = (next: string) => {
+    onChange(next);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            setOpen(false);
+            return;
+          }
+          if (!open) {
+            if (['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(event.key)) {
+              event.preventDefault();
+              setOpen(true);
+            }
+            return;
+          }
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setActiveIndex((current) => Math.min(options.length - 1, current + 1));
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            setActiveIndex((current) => Math.max(0, current - 1));
+          } else if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            const option = options[activeIndex];
+            if (option) commit(option.value);
+          }
+        }}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
+          minWidth: '150px', padding: '8px 12px', borderRadius: '8px', textAlign: 'left',
+          background: hovered || open ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.05)',
+          border: open ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.12)',
+          color: 'var(--text-primary)', fontSize: '13px', cursor: 'pointer', outline: 'none',
+          transition: 'background 0.15s ease, border-color 0.15s ease',
+        }}
+      >
+        <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{selected?.label}</span>
+        <i
+          className="fa-solid fa-chevron-down"
+          aria-hidden="true"
+          style={{
+            fontSize: '9px', opacity: open ? 1 : 0.6, flexShrink: 0,
+            transition: 'transform 0.15s ease', transform: open ? 'rotate(180deg)' : 'none',
+          }}
+        ></i>
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label={ariaLabel}
+          style={{
+            position: 'absolute', top: 'calc(100% + 6px)', left: 0, minWidth: '100%',
+            background: 'var(--bg-elevated)', border: '1px solid rgba(255,255,255,0.14)',
+            borderRadius: '10px', padding: '4px', overflow: 'hidden', zIndex: 60,
+            boxShadow: '0 14px 34px -10px rgba(0,0,0,0.6)',
+          }}
+        >
+          {options.map((option, index) => {
+            const isSelected = option.value === value;
+            const isActive = index === activeIndex;
+            return (
+              <div
+                key={option.value}
+                role="option"
+                aria-selected={isSelected}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => commit(option.value)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+                  padding: '8px 10px', borderRadius: '6px', fontSize: '13px', cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  background: isActive ? 'rgba(255,255,255,0.07)' : 'transparent',
+                  color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  fontWeight: isSelected ? 600 : 400,
+                  transition: 'background 0.12s ease',
+                }}
+              >
+                <span>{option.label}</span>
+                {isSelected && <i className="fa-solid fa-check" aria-hidden="true" style={{ fontSize: '10px' }}></i>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Segmented control: a row of pill options where the current pick is
+ * outlined and raised. Used for the appearance toggles with a small, fixed
+ * option set where a dropdown would hide a one-click choice. */
+function SegmentedControl({ value, options, onChange, ariaLabel }: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={ariaLabel}
+      style={{
+        display: 'inline-flex', padding: '3px', gap: '2px', maxWidth: '100%',
+        background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: '10px',
+      }}
+    >
+      {options.map((option) => {
+        const selected = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => { if (!selected) onChange(option.value); }}
+            style={{
+              padding: '6px 14px', borderRadius: '7px', fontSize: '12.5px', cursor: 'pointer',
+              border: selected ? '1px solid rgba(255,255,255,0.35)' : '1px solid transparent',
+              background: selected ? 'rgba(255,255,255,0.1)' : 'transparent',
+              color: selected ? 'var(--text-primary)' : 'var(--text-secondary)',
+              fontWeight: selected ? 600 : 500,
+              whiteSpace: 'nowrap',
+              transition: 'background 0.15s ease, color 0.15s ease, border-color 0.15s ease',
+            }}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Labels for the BOZ font voices shown in the font picker and toasts. */
+const FONT_LABELS: Record<BozFont, string> = {
+  serif: 'BOZ Serif',
+  sans: 'BOZ Sans',
+  mono: 'BOZ Mono',
+};
 
 export default function SettingsModal({ isOpen, initialTab = 'profile', onClose }: { isOpen: boolean, initialTab?: SettingsTab, onClose: () => void }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
@@ -237,6 +464,12 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
   const [theme, setTheme] = useState<Theme>('dark');
   const [tickerVisible, setTickerVisible] = useState(DEFAULT_SHELL_PREFERENCES.tickerVisible);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(DEFAULT_SHELL_PREFERENCES.sidebarCollapsed);
+  const [density, setDensityState] = useState<UiDensity>(DEFAULT_SHELL_PREFERENCES.density);
+  const [chatText, setChatTextState] = useState<ChatTextSize>(DEFAULT_SHELL_PREFERENCES.chatText);
+  const [font, setFontState] = useState<BozFont>(DEFAULT_SHELL_PREFERENCES.font);
+  const [motion, setMotionState] = useState<MotionPreference>(DEFAULT_SHELL_PREFERENCES.motion);
+  const [defaultTicker, setDefaultTicker] = useState('');
+  const [tickerNote, setTickerNote] = useState<string | null>(null);
   const [customUrl, setCustomUrl] = useState('http://localhost:20128/v1');
   const [offlineUrl, setOfflineUrl] = useState('http://localhost:11434');
   const [customKey, setCustomKey] = useState('');
@@ -284,6 +517,14 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
       setCustomModels(Array.isArray(data.availableModels) && data.provider === 'custom'
         ? data.availableModels
         : (data.allModels || []).filter((m: { provider?: string }) => m.provider === 'custom'));
+      // Visual scales + chat-knob state load with the rest of the modal.
+      const storedShell = readShellPreferences(window.localStorage);
+      setDensityState(storedShell.density);
+      setChatTextState(storedShell.chatText);
+      setFontState(storedShell.font);
+      setMotionState(storedShell.motion);
+      if (typeof data.ticker === 'string') setDefaultTicker(data.ticker);
+
       setCredentialDrafts({
         github: '',
         nvidia: '',
@@ -330,6 +571,37 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
   const showToast = (msg: string) => {
     setSaveMessage(msg);
     setTimeout(() => setSaveMessage(null), 3000);
+  };
+
+  // Persists an Appearance change and hands it to the shell, which owns the
+  // DOM-wide zoom variables; dispatch beats prop-drilling through pages.
+  const saveShellVisuals = (patch: { density?: UiDensity; chatText?: ChatTextSize; font?: BozFont; motion?: MotionPreference }) => {
+    const next: ShellPreferences = {
+      sidebarCollapsed,
+      tickerVisible,
+      density: patch.density ?? density,
+      chatText: patch.chatText ?? chatText,
+      font: patch.font ?? font,
+      motion: patch.motion ?? motion,
+    };
+    try {
+      writeShellPreferences(window.localStorage, next);
+    } catch {
+      // Layout prefs are optional.
+    }
+    if (patch.density !== undefined) setDensityState(patch.density);
+    if (patch.chatText !== undefined) setChatTextState(patch.chatText);
+    if (patch.font !== undefined) setFontState(patch.font);
+    if (patch.motion !== undefined) setMotionState(patch.motion);
+    window.dispatchEvent(new Event('boz_shell_updated'));
+  };
+
+  // Ticker save is validated server-side (symbol directory); a rejection is
+  // surfaced inline next to the field rather than only as a toast.
+  const saveDefaultTicker = async (): Promise<void> => {
+    const symbol = defaultTicker.trim();
+    const ok = await updateConfig({ ticker: symbol }, symbol ? 'Default ticker saved' : 'Default ticker cleared');
+    if (!ok) setTickerNote('Unknown ticker. Check the symbol (e.g. NVDA, BTC-USD, ^GSPC).');
   };
 
   const updateConfig = async (payload: Record<string, unknown>, successMsg: string): Promise<boolean> => {
@@ -510,7 +782,7 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
 
       {/* Main Modal Window */}
       <div style={{
-        background: 'var(--bg-elevated)', width: '100%', maxWidth: '900px', height: '70vh', minHeight: '550px',
+        background: 'var(--bg-elevated)', width: '100%', maxWidth: '900px', height: '85vh', minHeight: '680px',
         borderRadius: 'var(--radius-xl)', display: 'flex', overflow: 'hidden',
         border: '1px solid rgba(255, 255, 255, 0.05)',
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
@@ -553,6 +825,20 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
               }}
             >
               <i className="fa-solid fa-cloud" style={{ fontSize: '14px' }}></i> Providers
+            </button>
+
+            <button
+              onClick={() => setActiveTab('appearance')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px',
+                borderRadius: '8px', cursor: 'pointer', border: 'none',
+                background: activeTab === 'appearance' ? 'var(--text-primary)' : 'transparent',
+                color: activeTab === 'appearance' ? 'var(--bg-primary)' : 'var(--text-secondary)',
+                fontWeight: activeTab === 'appearance' ? 600 : 500, fontSize: '13px',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <i className="fa-solid fa-palette" style={{ fontSize: '14px' }}></i> Appearance
             </button>
 
             <button 
@@ -1029,48 +1315,119 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
                   </div>
                 )}
 
-                {activeTab === 'general' && (
+                {activeTab === 'appearance' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
                     <div>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Appearance</h3>
-                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>Theme applies across the app and charts.</p>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Looks</h3>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>Fonts, theme, spacing, and motion. Applies immediately.</p>
 
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                        <div>
-                          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>Theme</div>
-                          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Dark is the default terminal look; light is easy on the eyes.</div>
-                        </div>
-                        <select
+                      <SettingRow
+                        title="Theme"
+                        description="Dark is the default terminal look; light is easy on the eyes."
+                      >
+                        <ShellDropdown
+                          ariaLabel="Theme"
                           value={theme}
-                          onChange={(e) => {
-                            const next = e.target.value === 'light' ? 'light' : 'dark';
-                            setTheme(next);
+                          options={[
+                            { value: 'dark', label: 'Dark' },
+                            { value: 'light', label: 'Light' },
+                          ]}
+                          onChange={(next) => {
+                            const themeNext = next === 'light' ? 'light' : 'dark';
+                            setTheme(themeNext);
                             try {
-                              writeTheme(window.localStorage, next);
+                              writeTheme(window.localStorage, themeNext);
                             } catch {
                               // Theme just won't persist when storage is unavailable.
                             }
-                            applyTheme(next);
+                            applyTheme(themeNext);
                             window.dispatchEvent(new Event('boz_theme_changed'));
-                            showToast(next === 'light' ? 'Light theme on' : 'Dark theme on');
+                            showToast(themeNext === 'light' ? 'Light theme on' : 'Dark theme on');
                           }}
-                          style={{
-                            background: 'rgba(255, 255, 255, 0.05)',
-                            border: '1px solid rgba(255, 255, 255, 0.1)',
-                            color: 'var(--text-primary)',
-                            padding: '8px 12px',
-                            borderRadius: '6px',
-                            fontSize: '13px',
-                            outline: 'none',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <option value="dark">Dark</option>
-                          <option value="light">Light</option>
-                        </select>
-                      </div>
-                    </div>
+                        />
+                      </SettingRow>
 
+                      <SettingRow
+                        title="Font"
+                        description="BOZ Serif is the default voice. Sans is the classic app look; Mono reads terminal."
+                      >
+                        <ShellDropdown
+                          ariaLabel="Font"
+                          value={font}
+                          options={(Object.keys(FONT_LABELS) as BozFont[]).map((key) => ({ value: key, label: FONT_LABELS[key] }))}
+                          onChange={(next) => {
+                            const fontNext = (['serif', 'sans', 'mono'].includes(next) ? next : 'serif') as BozFont;
+                            saveShellVisuals({ font: fontNext });
+                            showToast(`Font set to ${FONT_LABELS[fontNext]}`);
+                          }}
+                        />
+                      </SettingRow>
+
+                      <SettingRow
+                        stacked
+                        title="Chat text size"
+                        description="Scales text inside the chat surface: bubbles, composer input, and transcripts."
+                      >
+                        <SegmentedControl
+                          ariaLabel="Chat text size"
+                          value={chatText}
+                          options={[
+                            { value: 'small', label: 'Small' },
+                            { value: 'medium', label: 'Medium' },
+                            { value: 'large', label: 'Large' },
+                          ]}
+                          onChange={(next) => {
+                            const sizeNext = (['small', 'medium', 'large'].includes(next) ? next : 'medium') as ChatTextSize;
+                            saveShellVisuals({ chatText: sizeNext });
+                            showToast(`Chat text: ${sizeNext}`);
+                          }}
+                        />
+                      </SettingRow>
+
+                      <SettingRow
+                        stacked
+                        title="Interface density"
+                        description="Compact shrinks the sidebar and chat surface to fit more on screen."
+                      >
+                        <SegmentedControl
+                          ariaLabel="Interface density"
+                          value={density}
+                          options={[
+                            { value: 'comfortable', label: 'Comfortable' },
+                            { value: 'compact', label: 'Compact' },
+                          ]}
+                          onChange={(next) => {
+                            saveShellVisuals({ density: next === 'compact' ? 'compact' : 'comfortable' });
+                            showToast(next === 'compact' ? 'Compact density' : 'Comfortable density');
+                          }}
+                        />
+                      </SettingRow>
+
+                      <SettingRow
+                        stacked
+                        last
+                        title="Motion"
+                        description="Reduced stops animations and transitions. System follows your OS setting."
+                      >
+                        <SegmentedControl
+                          ariaLabel="Motion"
+                          value={motion}
+                          options={[
+                            { value: 'system', label: 'System' },
+                            { value: 'reduced', label: 'Reduced' },
+                          ]}
+                          onChange={(next) => {
+                            saveShellVisuals({ motion: next === 'reduced' ? 'reduced' : 'system' });
+                            showToast(next === 'reduced' ? 'Motion reduced' : 'Motion follows system');
+                          }}
+                        />
+                      </SettingRow>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'general' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
                     <div>
                       <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Layout</h3>
                       <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>Shell chrome around the workspace.</p>
@@ -1091,6 +1448,10 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
                               writeShellPreferences(window.localStorage, {
                                 sidebarCollapsed,
                                 tickerVisible: next,
+                                density,
+                                chatText,
+                                font,
+                                motion,
                               });
                             } catch {
                               // Layout prefs are optional.
@@ -1119,6 +1480,10 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
                           onClick={() => {
                             setTickerVisible(DEFAULT_SHELL_PREFERENCES.tickerVisible);
                             setSidebarCollapsed(DEFAULT_SHELL_PREFERENCES.sidebarCollapsed);
+                            setDensityState(DEFAULT_SHELL_PREFERENCES.density);
+                            setChatTextState(DEFAULT_SHELL_PREFERENCES.chatText);
+                            setFontState(DEFAULT_SHELL_PREFERENCES.font);
+                            setMotionState(DEFAULT_SHELL_PREFERENCES.motion);
                             try {
                               writeShellPreferences(window.localStorage, { ...DEFAULT_SHELL_PREFERENCES });
                             } catch {
@@ -1135,7 +1500,66 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
                     </div>
 
                     <div>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Charts & data</h3>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Default ticker</h3>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                        Symbol the workspace opens with when nothing is favorited or remembered yet.
+                      </p>
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', borderBottom: '1px solid rgba(255, 255, 255, 0.05)', gap: '16px' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>Default symbol</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>e.g. NVDA, BTC-USD, ^GSPC. Validated against the symbol directory.</div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                          <input
+                            type="text"
+                            value={defaultTicker}
+                            placeholder="NVDA"
+                            onChange={(e) => {
+                              setDefaultTicker(e.target.value);
+                              setTickerNote(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                void saveDefaultTicker();
+                              }
+                            }}
+                            style={{
+                              background: 'rgba(255, 255, 255, 0.05)',
+                              border: '1px solid rgba(255, 255, 255, 0.1)',
+                              color: 'var(--text-primary)',
+                              padding: '8px 12px',
+                              borderRadius: '6px',
+                              fontSize: '13px',
+                              outline: 'none',
+                              width: '140px',
+                              textTransform: 'uppercase',
+                            }}
+                          />
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => {
+                              void saveDefaultTicker();
+                            }}
+                            style={{
+                              background: 'var(--text-primary)', color: 'var(--bg-primary)', border: 'none',
+                              padding: '8px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
+                              cursor: saving ? 'wait' : 'pointer',
+                            }}
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                      {tickerNote && (
+                        <div style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '8px' }}>{tickerNote}</div>
+                      )}
+                    </div>
+
+                    <div>
+                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Data & privacy</h3>
                       <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>Local chart styles and stored workspace data.</p>
 
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
@@ -1184,13 +1608,6 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
                           Clear data
                         </button>
                       </div>
-                    </div>
-
-                    {/* Desktop Version Section */}
-                    <div>
-                      <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px', color: 'var(--text-primary)' }}>Version & Updates</h3>
-                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>Signed updates download and apply from the desktop app, with no manual reinstall required.</p>
-                      <DesktopUpdateControl version={process.env.NEXT_PUBLIC_BOZ_VERSION || '2.8.2'} />
                     </div>
                   </div>
                 )}

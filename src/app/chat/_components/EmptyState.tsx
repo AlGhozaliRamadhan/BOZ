@@ -1,5 +1,6 @@
 import styles from './EmptyState.module.css';
 import type { MarketQuote } from '../_lib/chat-types';
+import type { ProviderSetupState } from '../_hooks/useSetupState';
 
 interface EmptyStateSuggestion {
   text: string;
@@ -21,11 +22,30 @@ interface EmptyStateProps {
   greeting: string;
   quote: MarketQuote | null;
   onSuggest: (action: string) => void;
+  /** Active provider setup truth from /api/settings; null while loading. */
+  setup?: ProviderSetupState | null;
+  onOpenSettings: () => void;
 }
 
-export default function EmptyState({ greeting, quote, onSuggest }: EmptyStateProps) {
+export default function EmptyState({ greeting, quote, onSuggest, setup, onOpenSettings }: EmptyStateProps) {
   return (
     <div className="empty-state" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+      {/* First-run setup card: shown while nothing usable is configured. */}
+      {setup && !setup.configured && (
+        <div className={styles['setup-callout']} role="status">
+          <div className={styles['setup-callout-heading']}>
+            <i className="fa-solid fa-circle-exclamation" aria-hidden="true"></i>
+            <strong>A model isn't set up yet</strong>
+          </div>
+          <p className={styles['setup-callout-text']}>
+            Chats need a provider credential and a model. Connect one (OpenRouter, 9router, GitHub, OpenAI, Groq&hellip;) in provider settings.
+          </p>
+          <button type="button" className={styles['setup-callout-button']} onClick={onOpenSettings}>
+            <i className="fa-solid fa-gear" aria-hidden="true"></i>
+            Set up model
+          </button>
+        </div>
+      )}
       <div style={{ width: 80, height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
         <img src="/logo-boz-transparant-white.png" alt="BOZ" style={{ width: 80, height: 80, objectFit: 'contain', borderRadius: '16px' }} />
       </div>

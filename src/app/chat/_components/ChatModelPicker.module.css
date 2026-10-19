@@ -30,6 +30,20 @@
   color: var(--text-primary);
 }
 
+/* Trigger state when the active provider has no usable credential/model. */
+.chat-model-id-unset {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--danger, #ef5350);
+  font-weight: 600;
+  max-width: 130px;
+}
+
+.chat-model-id-unset i {
+  font-size: 10px;
+}
+
 .chat-model-trigger:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -235,6 +249,110 @@
 .chat-model-option:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* === FOLDER GROUPING ======================================================
+ * Vendor-prefix folders: `openai/…` → "openai" folder. When every model
+ * shares one prefix the picker renders flat instead (handled in TSX). */
+
+.chat-model-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-model-folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+.chat-model-folder:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.chat-model-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.chat-model-folder-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 9px;
+  padding: 1px 7px;
+  line-height: 1.5;
+}
+
+.chat-model-folder-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: 10px;
+  padding-left: 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* === SETUP CALLOUT (not configured) ======================================= */
+
+.chat-model-setup-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  margin: 2px 2px 4px;
+  border: 1px solid rgba(239, 83, 80, 0.35);
+  background: rgba(239, 83, 80, 0.08);
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.chat-model-setup-note i {
+  color: var(--danger, #ef5350);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.chat-model-setup-note span {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-model-setup-note button {
+  background: var(--accent-cyan, #4dd0e1);
+  color: #06282b;
+  border: none;
+  border-radius: 7px;
+  padding: 4px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.15s ease;
+}
+
+.chat-model-setup-note button:hover {
+  opacity: 0.85;
 }
 
 .chat-model-custom-row {

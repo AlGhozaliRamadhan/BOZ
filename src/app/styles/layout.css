@@ -472,7 +472,7 @@
 }
 
 .sidebar-profile-name {
-  font-family: var(--font-sans);
+  font-family: var(--font-ui);
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
@@ -489,7 +489,7 @@
 }
 
 .sidebar-profile-role {
-  font-family: var(--font-sans);
+  font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 400;
   color: var(--text-muted);
@@ -756,6 +756,23 @@
   font-size: var(--text-xs);
   color: var(--text-muted);
   font-family: var(--font-mono);
+  background: transparent;
+  border: none;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease;
+}
+
+.sidebar-version:hover {
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Interface density: the compact preset scales the shell footer/nav and the
+   chat surface down; the zoom variables are set on <html> by AppShell. */
+.sidebar {
+  zoom: var(--ui-density-zoom, 1);
 }
 
 .sidebar-update-badge {

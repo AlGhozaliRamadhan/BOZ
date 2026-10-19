@@ -7,6 +7,7 @@ import EmptyState from './EmptyState';
 import MessageList from './MessageList';
 import { useChatHistory } from '../_hooks/useChatHistory';
 import { useChatStream } from '../_hooks/useChatStream';
+import { useSetupState } from '../_hooks/useSetupState';
 import { getRandomGreeting, MARKET_QUOTES } from '../_lib/greetings';
 import { takeChatPrefill } from '@/shared/discover';
 import type { MarketQuote } from '../_lib/chat-types';
@@ -15,6 +16,7 @@ import { NEW_CHAT_EVENT } from '../_lib/chat-storage';
 export default function ChatComponent({ chatId }: { chatId?: string }) {
   const { messages, setMessages, persistSession, requestSessionTitle, resetSignal } =
     useChatHistory(chatId);
+  const { setup } = useSetupState();
   const [input, setInput] = useState('');
   const [greeting, setGreeting] = useState('How can I help you today?');
   const [currentQuote, setCurrentQuote] = useState<MarketQuote | null>(null);
@@ -113,7 +115,15 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
         {/* Messages */}
         <div className={styles['chat-messages']}>
           {messages.length === 0 && !loading ? (
-            <EmptyState greeting={greeting} quote={currentQuote} onSuggest={sendMessage} />
+            <EmptyState
+              greeting={greeting}
+              quote={currentQuote}
+              onSuggest={sendMessage}
+              setup={setup}
+              onOpenSettings={() => {
+                window.dispatchEvent(new CustomEvent('boz_open_settings', { detail: { tab: 'providers' } }));
+              }}
+            />
           ) : (
             <MessageList
               messages={messages}

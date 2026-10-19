@@ -2,7 +2,7 @@ export type ShellCommandKind = 'route' | 'action';
 
 export type ShellCommandAction = 'new-chat' | 'open-settings' | 'open-about';
 
-export type SettingsTab = 'profile' | 'providers' | 'general';
+export type SettingsTab = 'profile' | 'providers' | 'appearance' | 'general';
 
 export interface ShellCommand {
   id: string;
@@ -118,9 +118,9 @@ export const SHELL_COMMANDS: ShellCommand[] = [
     hint: 'Settings',
     icon: 'fa-solid fa-circle-half-stroke',
     kind: 'action',
-    keywords: ['theme', 'dark', 'light', 'appearance', 'look'],
+    keywords: ['theme', 'dark', 'light', 'appearance', 'look', 'density', 'text size'],
     action: 'open-settings',
-    settingsTab: 'general',
+    settingsTab: 'appearance',
   },
   {
     id: 'settings-layout',

@@ -7,6 +7,7 @@ import MarketTicker from './MarketTicker';
 import Sidebar from './Sidebar';
 import {
   DEFAULT_SHELL_PREFERENCES,
+  applyShellAppearance,
   readShellPreferences,
   writeShellPreferences,
   type ShellPreferences,
@@ -26,8 +27,10 @@ export default function AppShell({ children }: AppShellProps) {
     try {
       setPreferences(readShellPreferences(window.localStorage));
       applyTheme(readTheme(window.localStorage));
+      applyShellAppearance(document.documentElement, readShellPreferences(window.localStorage));
     } catch {
       setPreferences(DEFAULT_SHELL_PREFERENCES);
+      applyShellAppearance(document.documentElement, DEFAULT_SHELL_PREFERENCES);
     } finally {
       setHydrated(true);
     }
@@ -40,7 +43,11 @@ export default function AppShell({ children }: AppShellProps) {
     };
     const syncShell = () => {
       try {
-        setPreferences(readShellPreferences(window.localStorage));
+        const stored = readShellPreferences(window.localStorage);
+        setPreferences(stored);
+        // Appearance variables apply straight to the DOM: the chat modules,
+        // sidebar stylesheet, and animations.css read these from <html>.
+        applyShellAppearance(document.documentElement, stored);
       } catch {
         // Keep current shell prefs when storage is unavailable.
       }

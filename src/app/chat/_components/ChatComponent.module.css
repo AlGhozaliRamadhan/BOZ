@@ -20,6 +20,10 @@
   width: calc(100% + var(--space-6) + var(--space-6));
   margin-inline: calc(0px - var(--space-6));
   overflow: hidden;
+  /* Chat text size × interface density: both variables are set on <html> by
+     the shell (Settings → Appearance / Chat). zoom scales the pixel-denominated
+     bubble typography uniformly, including injected markdown content. */
+  zoom: calc(var(--chat-text-zoom, 1) * var(--ui-density-zoom, 1));
 }
 
 .chat-container {

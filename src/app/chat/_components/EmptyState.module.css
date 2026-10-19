@@ -32,6 +32,64 @@
   white-space: nowrap;
 }
 
+/* === FIRST-RUN SETUP CALLOUT ==============================================
+ * Shown while the active provider has no usable credential/model. A nudge,
+ * not a gate — the composer stays functional and the engine preflight still
+ * reports anything the UI could have missed. */
+
+.setup-callout {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(520px, 92%);
+  background: rgba(239, 83, 80, 0.06);
+  border: 1px solid rgba(239, 83, 80, 0.3);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 22px;
+  text-align: left;
+}
+
+.setup-callout-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--text-primary);
+}
+
+.setup-callout-heading i {
+  color: var(--danger, #ef5350);
+  font-size: 13px;
+}
+
+.setup-callout-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.setup-callout-button {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--accent-cyan, #4dd0e1);
+  color: #06282b;
+  border: none;
+  border-radius: 9px;
+  padding: 8px 15px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.setup-callout-button:hover {
+  opacity: 0.85;
+}
+
 /* Minimal text suggestion chips (Claude-style) */
 .suggestion-chip {
   background: rgba(255, 255, 255, 0.03);
@@ -43,7 +101,7 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  font-family: var(--font-sans);
+  font-family: var(--font-ui);
 }
 .suggestion-chip:hover {
   border-color: rgba(255, 255, 255, 0.25);

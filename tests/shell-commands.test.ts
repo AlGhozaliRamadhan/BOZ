@@ -33,7 +33,7 @@ describe('shell command search', () => {
 
   it('opens settings entries on a valid settings tab', () => {
     for (const command of SHELL_COMMANDS.filter(entry => entry.action === 'open-settings')) {
-      expect(['profile', 'providers', 'general']).toContain(command.settingsTab);
+      expect(['profile', 'providers', 'appearance', 'general']).toContain(command.settingsTab);
     }
   });
 
