@@ -308,6 +308,26 @@ export function removeAssistantMessage(
 }
 
 /**
+ * Removes the whole session with `id` and announces. Callers must stop any
+ * live stream first (`stopStream`) — a running generation would otherwise
+ * re-persist progress into a session the user just deleted. Returns false
+ * when the session is already gone.
+ */
+export function deleteSessionById(
+  storage: ChatSessionStorage = defaultSessionStorage(),
+  id: string,
+  announce = true,
+): boolean {
+  const sessions = readSessions(storage);
+  const index = sessions.findIndex((s) => s.id === id);
+  if (index < 0) return false;
+  sessions.splice(index, 1);
+  writeSessions(storage, sessions);
+  if (announce) announceSessionsChanged();
+  return true;
+}
+
+/**
  * Sorted sessions for the recent-chat list, newest first. Reconcile is opt-in
  * so live views can refresh on every store event without racing a just-sent
  * user turn (its persist announces before the stream runner registers, and

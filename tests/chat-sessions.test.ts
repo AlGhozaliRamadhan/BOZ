@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   appendAssistantMessage,
+  deleteSessionById,
   getSessionStatus,
   loadListedSessions,
   patchAssistantMessage,
@@ -160,5 +161,25 @@ describe('chat sessions', () => {
     // Healing persists, so a later refresh keeps the interrupted status.
     const stored = readSessions(storage);
     expect(getSessionStatus(stored.find((s) => s.id === 'orphan')!)).toBe('interrupted');
+  });
+
+  it('deleteSessionById removes one session and announces the change', () => {
+    const storage = fakeStorage();
+    writeSessions(storage, [
+      { id: 'keep', title: 'Keep', messages: [], updatedAt: 100 },
+      { id: 'drop', title: 'Drop', messages: [], updatedAt: 200 },
+    ]);
+    expect(deleteSessionById(storage, 'drop')).toBe(true);
+    expect(readSessions(storage).map((s) => s.id)).toEqual(['keep']);
+  });
+
+  it('deleteSessionById leaves storage untouched when the session is missing', () => {
+    const storage = fakeStorage();
+    writeSessions(storage, [
+      { id: 'keep', title: 'Keep', messages: [], updatedAt: 100 },
+    ]);
+    const before = storage.getItem('boz_chat_sessions');
+    expect(deleteSessionById(storage, 'missing')).toBe(false);
+    expect(storage.getItem('boz_chat_sessions')).toBe(before);
   });
 });
