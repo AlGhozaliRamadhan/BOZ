@@ -10,9 +10,14 @@ import DesktopUpdateControl, {
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import {
+  deleteSessionById,
   getSessionStatus,
   loadListedSessions,
 } from '../../chat/_lib/chat-sessions';
+import {
+  RECENT_CHATS_LIMIT,
+  chatStatusLabel,
+} from '../../chat/_lib/chat-list';
 import { isStreamActive, stopStream } from '../../chat/_lib/chat-stream-manager';
 import type { ChatGenerationStatus } from '@/shared/chat-generation-status';
 import {
@@ -92,19 +97,15 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
     e.stopPropagation();
     try {
       // Stop a live generation first: otherwise the background stream would
-      // re-persist progress into a session the user just deleted.
+      // re-persist progress into a session the user just deleted. The store
+      // helper removes it and announces so the sidebar and All Chats page
+      // both refresh through their event listeners.
       stopStream(id);
-      const stored = localStorage.getItem('boz_chat_sessions');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        const updated = parsed.filter((s: any) => s.id !== id);
-        localStorage.setItem('boz_chat_sessions', JSON.stringify(updated));
-        setChatSessions((prev) => prev.filter((s) => s.id !== id));
-        window.dispatchEvent(new Event('boz_chat_updated'));
-        if (pathname === `/chat/${id}`) {
-          router.push('/chat');
-          window.dispatchEvent(new Event('boz_new_chat'));
-        }
+      deleteSessionById(window.localStorage, id);
+      setChatSessions((prev) => prev.filter((s) => s.id !== id));
+      if (pathname === `/chat/${id}`) {
+        router.push('/chat');
+        window.dispatchEvent(new Event('boz_new_chat'));
       }
     } catch (err) {
       console.error('Failed to delete session', err);
@@ -249,17 +250,10 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
                 {chatSessions.length > 0 && (
                   <div className="sidebar-recent-chats">
                     <div className="sidebar-group-title">Recent Chats</div>
-                    {chatSessions.slice(0, 10).map((session) => {
+                    {chatSessions.slice(0, RECENT_CHATS_LIMIT).map((session) => {
                       const chatHref = `/chat/${session.id}`;
                       const isSelected = pathname === chatHref;
-                      const statusLabel =
-                        session.status === 'streaming'
-                          ? 'Generating…'
-                          : session.status === 'error' || session.status === 'interrupted'
-                            ? 'Needs attention'
-                            : session.status === 'cancelled'
-                              ? 'Stopped'
-                              : 'Finished';
+                      const statusLabel = chatStatusLabel(session.status);
                       return (
                         <div key={session.id} className={`sidebar-chat-item-wrapper${isSelected ? ' active' : ''} sidebar-chat-status-${session.status}`}>
                           <Link 
@@ -298,6 +292,21 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
                       );
                     })}
                   </div>
+                )}
+                {chatSessions.length > RECENT_CHATS_LIMIT && (
+                  // Outside the scrollable recent list: that box caps at
+                  // RECENT_CHATS_LIMIT rows, so a link left inside it would
+                  // scroll out of reach exactly when it is needed.
+                  <Link
+                    href="/chat/all"
+                    className="sidebar-show-all-chats"
+                    title="Open every chat in a full list"
+                    aria-label={`Show all chats (${chatSessions.length} total)`}
+                  >
+                    <i className="fa-solid fa-list" aria-hidden="true"></i>
+                    <span>Show all chats</span>
+                    <span className="sidebar-show-all-count">{chatSessions.length}</span>
+                  </Link>
                 )}
               </div>
             )}

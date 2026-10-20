@@ -1,0 +1,426 @@
+/* AllChats styles — co-located CSS Module for the /chat/all history page.
+ * Full-bleed trick matches ChatComponent.module.css (negative inline margin
+ * against the page padding) so the list spans the content column. Global
+ * primitives (empty-state, spinner) stay plain in TSX from
+ * primitives.css/animations.css and are not redefined here. */
+
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  width: calc(100% + var(--space-6) + var(--space-6));
+  margin-inline: calc(0px - var(--space-6));
+  zoom: calc(var(--ui-density-zoom, 1));
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--border-glass);
+}
+
+/* === SEARCH PICKER ========================================================= */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: var(--space-3) var(--space-6) 0;
+  flex-shrink: 0;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 460px;
+  padding: 7px 12px;
+  border: 1px solid var(--border-glass);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.searchBox:focus-within {
+  border-color: var(--accent-cyan);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.searchBox i {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.searchInput::placeholder {
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
+.searchInput::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+.clearSearch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 150ms ease;
+}
+
+.clearSearch:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.title {
+  font-size: var(--text-xl, 20px);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.subtitle {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}
+
+.newChatBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-glass);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-decoration: none !important;
+  transition: all 150ms ease;
+  flex-shrink: 0;
+}
+
+.newChatBtn i {
+  font-size: 11px;
+}
+
+.newChatBtn:hover,
+.newChatBtn:focus,
+.newChatBtn:active {
+  text-decoration: none !important;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-glass-hover, var(--border-glass));
+}
+
+/* === LIST ================================================================== */
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-6) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scrollbar-gutter: stable;
+}
+
+.list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+}
+
+.row {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  position: relative;
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+  /* Immutable in the flex-column list: .list is a fixed-height flex container
+     whose items otherwise compress when a page's natural height (25 rows ×
+     ~88px) exceeds it — and with overflow:hidden here every row collapses to
+     an ~11px empty pill instead of the list scrolling. Flexbox allows exactly
+     that because overflow!=visible zeroes the item's automatic minimum size. */
+  flex-shrink: 0;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.row:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border-glass-hover, var(--border-glass));
+}
+
+.rowLink {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 11px 14px;
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  text-decoration: none !important;
+}
+
+.statusIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 20px;
+  flex-shrink: 0;
+  font-size: 13px;
+  opacity: 0.65;
+  color: var(--text-secondary);
+  margin-top: 1px;
+}
+
+.statusIcon .spinner-xs {
+  border-top-color: var(--accent-cyan);
+}
+
+.statusDone .statusIcon { color: var(--text-secondary); }
+.statusStreaming .statusIcon { opacity: 1; color: var(--accent-cyan); }
+.statusAttention .statusIcon { opacity: 1; color: var(--accent-amber, #f5a623); }
+.statusCancelled .statusIcon { opacity: 0.45; }
+
+.rowMain {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.rowTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rowTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowAge {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.rowPreview {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.metaDot {
+  opacity: 0.6;
+}
+
+.deleteBtn {
+  opacity: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  width: 30px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  margin: 8px 6px 8px 0;
+  font-size: 12px;
+  transition: all 150ms ease;
+  flex-shrink: 0;
+}
+
+.row:hover .deleteBtn {
+  opacity: 0.8;
+}
+
+.deleteBtn:hover {
+  opacity: 1 !important;
+  color: #ff5252;
+  background: rgba(255, 82, 82, 0.15);
+}
+
+/* === EMPTY STATE ACTION ==================================================== */
+.emptyAction {
+  margin-top: var(--space-4);
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none !important;
+  transition: all 150ms ease;
+}
+
+.emptyAction:hover,
+.emptyAction:focus,
+.emptyAction:active {
+  text-decoration: none !important;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+/* === PAGER ================================================================= */
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 10px var(--space-6) 12px;
+  border-top: 1px solid var(--border-glass);
+  flex-shrink: 0;
+}
+
+.pagerInfo {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.pagerPages {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pagerBtn {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 150ms ease;
+}
+
+.pagerBtn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pagerBtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.pagerCurrent {
+  color: var(--bg-primary);
+  background: var(--text-primary);
+  border-color: transparent;
+}
+
+.pagerCurrent:hover:not(:disabled) {
+  color: var(--bg-primary);
+  background: var(--text-primary);
+}
+
+.pagerNav i {
+  font-size: 10px;
+}
+
+.pagerGap {
+  min-width: 18px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+
+/* === RESPONSIVE ============================================================ */
+@media (max-width: 768px) {
+  .page {
+    width: calc(100% + var(--space-4) + var(--space-4));
+    margin-inline: calc(0px - var(--space-4));
+  }
+
+  .header {
+    padding: var(--space-3) var(--space-4);
+    align-items: center;
+  }
+
+  .toolbar {
+    padding: var(--space-3) var(--space-4) 0;
+  }
+
+  .list {
+    padding: var(--space-3) var(--space-4) var(--space-4);
+  }
+
+  .pager {
+    padding: 10px var(--space-4) 12px;
+  }
+
+  /* Mobile: the info line yields first — page control is the act of moving,
+     the range text is a nicety. */
+  .pagerInfo {
+    display: none;
+  }
+
+  .deleteBtn {
+    opacity: 0.7;
+  }
+}
