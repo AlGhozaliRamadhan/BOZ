@@ -44,7 +44,7 @@
   "type": "module",
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/plugin-updater": "2.13.1",
+    "@tauri-apps/plugin-updater": "2.14.0",
     "ajv": "^8.17.1",
     "axios": "^1.18.1",
     "dotenv": "^18.0.5",
