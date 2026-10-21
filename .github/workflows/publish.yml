@@ -8,7 +8,11 @@ on:
         required: true
         type: string
       release_pr_url:
-        description: Merged release pull request URL; this is the entire GitHub Release body
+        description: Merged release pull request URL (validated; also used as the updater manifest notes)
+        required: true
+        type: string
+      release_notes:
+        description: GitHub Release body; a changelog of what changed since the previous release, plus the release PR URL
         required: true
         type: string
 
@@ -116,6 +120,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_PR_URL: ${{ inputs.release_pr_url }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
           GITHUB_REPOSITORY_NAME: ${{ github.repository }}
         shell: pwsh
         run: |
@@ -126,6 +131,9 @@ jobs:
           }
           if ($env:RELEASE_PR_URL -notmatch '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/\d+$') {
             throw 'RELEASE_PR_URL must be a GitHub pull request URL.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_NOTES)) {
+            throw 'RELEASE_NOTES is required: the GitHub Release body must describe what changed since the previous release.'
           }
 
           $output = Resolve-Path 'artifacts/releases/${{ inputs.tag }}'
@@ -188,8 +196,12 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create "${{ inputs.tag }}" artifacts/releases/${{ inputs.tag }}/*
-          --title "BOZ ${{ inputs.tag }}"
-          --notes "${{ inputs.release_pr_url }}"
-          --verify-tag
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: |
+          notes_path="$RUNNER_TEMP/release-body.md"
+          printf '%s\n' "$RELEASE_NOTES" > "$notes_path"
+          gh release create "$RELEASE_TAG" artifacts/releases/"$RELEASE_TAG"/* \
+            --title "BOZ $RELEASE_TAG" \
+            --notes-file "$notes_path" \
+            --verify-tag

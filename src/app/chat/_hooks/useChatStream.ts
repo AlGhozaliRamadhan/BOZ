@@ -76,6 +76,12 @@ export function useChatStream({
   // Id minted for a fresh chat before the route updates to /chat/[id].
   // Lets stop + reattach logic target the right session during the gap.
   const pendingSessionRef = useRef<string | null>(null);
+  // The session the live-bubble state below belongs to. Every write into
+  // streamingContent/streamSteps/… must prove it belongs to THIS session
+  // before it lands, so one chat's cancelled or background generation can
+  // never paint its text, thoughts, or spinner into another chat's view —
+  // including shapes of the bug that have not reproduced yet.
+  const viewSessionRef = useRef<string | null>(null);
   // Mirrors `stopping` state for idempotent stop clicks without impure updaters.
   const stoppingRef = useRef(false);
   // Failsafe: if a stop press never produces a terminal snapshot (hung
@@ -130,8 +136,18 @@ export function useChatStream({
     setReasoningActive((prev) => (prev === false ? prev : false));
   }, []);
 
-  /** Mirrors a manager snapshot into local render state. */
-  const applySnapshot = useCallback((snapshot: StreamSnapshot | null) => {
+  /**
+   * The per-session wall around the live-bubble state.
+   *
+   * The hook renders one shared track of first-turn streaming variables, and
+   * generations live in the module-level manager keyed per session. A frame
+   * may drive this view's live bubble only when its session is the one this
+   * view is rendering; anything else (a late frame from a previous chat, a
+   * stray replay after a reroute) is dropped here. This is the guarantee that
+   * a cancelled turn in one chat can never show up as thinking in another.
+   */
+  const applySessionSnapshot = useCallback((sessionId: string | null, snapshot: StreamSnapshot | null) => {
+    if ((sessionId ?? null) !== (viewSessionRef.current ?? null)) return;
     if (!snapshot) {
       resetStreamingState();
       return;
@@ -243,6 +259,19 @@ export function useChatStream({
     const targetId = chatId ?? pendingSessionRef.current;
     if (typeof window === 'undefined') return undefined;
 
+    // Session switch flips the ownership wall FIRST, then clears every piece
+    // of state the previous session could have left: no streaming text, no
+    // thoughts, no tool rows, no retry countdown, no error toast, no
+    // "Stopping…" — and no live bubble without a live frame of this session.
+    // Switching chats must land the user in a clean view, since the manager
+    // keeps other sessions' generations alive and keyed on their own ids.
+    viewSessionRef.current = targetId ?? null;
+    resetStreamingState();
+    setError(null);
+    clearStopFallback();
+    stoppingRef.current = false;
+    setStopping(false);
+
     // Real app quits / reloads leave streaming rows with no live runner.
     // Reconcile is idempotent and skips every session with a live stream.
     try {
@@ -258,7 +287,7 @@ export function useChatStream({
 
     refreshMessages(targetId);
     const live = targetId ? getStreamSnapshot(targetId) : null;
-    applySnapshot(live);
+    applySessionSnapshot(targetId ?? null, live);
     setLoading(live?.status === 'streaming');
     if (live && live.status !== 'streaming') {
       refreshMessages(targetId);
@@ -278,7 +307,7 @@ export function useChatStream({
     document.addEventListener('visibilitychange', flushOnHide);
     const unsubscribe = subscribeToStream(observedId, (next) => {
       if (observedId !== (chatIdRef.current ?? pendingSessionRef.current)) return;
-      applySnapshot(next);
+      applySessionSnapshot(observedId, next);
       setLoading(next.status === 'streaming');
       if (next.status === 'streaming') return;
       refreshMessages(observedId);
@@ -291,7 +320,7 @@ export function useChatStream({
       document.removeEventListener('visibilitychange', flushOnHide);
       unsubscribe();
     };
-  }, [chatId, refreshMessages, applySnapshot, maybeGenerateMissingTitle]);
+  }, [chatId, refreshMessages, applySessionSnapshot, maybeGenerateMissingTitle, resetStreamingState]);
 
   // Only the stop button aborts a generation. Unmounting (dashboard
   // navigation, accidental exit) merely drops the UI subscription — the
@@ -336,7 +365,7 @@ export function useChatStream({
     const liveTarget = chatIdRef.current ?? pendingSessionRef.current;
     if (liveTarget && isStreamActive(liveTarget)) {
       const snapshot = getStreamSnapshot(liveTarget);
-      applySnapshot(snapshot);
+      applySessionSnapshot(liveTarget, snapshot);
       setLoading(snapshot?.status === 'streaming');
       return;
     }
@@ -369,6 +398,9 @@ export function useChatStream({
       if (!targetId) {
         targetId = createSessionId();
         pendingSessionRef.current = targetId;
+        // The minted id owns the live bubble from here — before the route
+        // catches up — so the reattach fallback below passes the wall.
+        viewSessionRef.current = targetId;
         persistSession(targetId, updatedMessages);
         router.replace('/chat/' + targetId);
       } else {
@@ -391,7 +423,7 @@ export function useChatStream({
       if (!started) {
         // A generation is already running for this session — just attach to it.
         const snapshot = getStreamSnapshot(targetId);
-        applySnapshot(snapshot);
+        applySessionSnapshot(targetId, snapshot);
         setLoading(snapshot?.status === 'streaming');
       }
     } catch (err) {
@@ -446,7 +478,7 @@ export function useChatStream({
       });
       if (!started) {
         const snapshot = getStreamSnapshot(targetId);
-        applySnapshot(snapshot);
+        applySessionSnapshot(targetId, snapshot);
         setLoading(snapshot?.status === 'streaming');
       } else {
         // The manager dropped the paused bubble and seeded the live one in its
@@ -458,7 +490,7 @@ export function useChatStream({
       console.error('Failed to retry chat generation', err);
       setLoading(false);
     }
-  }, [applySnapshot, refreshMessages, resetStreamingState]);
+  }, [applySessionSnapshot, refreshMessages, resetStreamingState]);
 
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
   const terminalAssistantReply =
@@ -510,7 +542,7 @@ export function useChatStream({
       });
       if (!started) {
         const snapshot = getStreamSnapshot(targetId);
-        applySnapshot(snapshot);
+        applySessionSnapshot(targetId, snapshot);
         setLoading(snapshot?.status === 'streaming');
       } else {
         // The manager dropped the truncated bubble and seeded the healed one
@@ -522,7 +554,7 @@ export function useChatStream({
       console.error('Failed to continue chat generation', err);
       setLoading(false);
     }
-  }, [applySnapshot, refreshMessages, resetStreamingState]);
+  }, [applySessionSnapshot, refreshMessages, resetStreamingState]);
 
   const showRetry = terminalAssistantReply;
   const showContinue = terminalAssistantReply && !!lastMessage?.partial?.trim();
