@@ -202,6 +202,14 @@ export function stopStream(sessionId: string): boolean {
   const handle = activeStreams.get(sessionId);
   if (!handle) return false;
   handle.controller.abort();
+  // A cancel must read as cancelled the moment it is pressed. The reader loop
+  // settles the same way — usually at once — but a hung read delays that until
+  // the force-cancel below, and meanwhile a reasoning flag or a retry
+  // countdown would keep this session's "Thinking…" bubble implying the model
+  // is still producing an answer it has already stopped producing.
+  handle.snapshot.retry = null;
+  handle.snapshot.reasoningActive = false;
+  notify(handle);
   if (!handle.stopFallbackTimer) {
     handle.stopFallbackTimer = setTimeout(() => {
       handle.stopFallbackTimer = null;
