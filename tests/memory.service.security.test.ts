@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MAX_MEMORY_ENTRIES, MemoryService } from '../src/services/memory.service';
 
-describe.sequential('memory persistence boundary', () => {
+describe('memory persistence boundary', { concurrent: false }, () => {
   const originalConfigDir = process.env.BOZ_CONFIG_DIR;
   const directories: string[] = [];
 

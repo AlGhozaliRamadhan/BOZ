@@ -23,7 +23,7 @@ const LIVE_CATALOG = [
   { id: 'openai/live-model-b', label: 'Live B' },
 ];
 
-describe.sequential('models route', () => {
+describe('models route', { concurrent: false }, () => {
   const original = {
     openaiModel: process.env.OPENAI_AI_MODEL,
     offlineModel: process.env.OFFLINE_AI_MODEL,

@@ -8,7 +8,7 @@ import { config } from '../src/config/config';
 // Setup-state truth for the chat UI: a fresh install (custom provider, no
 // model, no key anywhere) must surface "not set up — no model" instead of
 // implying a provider the first message would reject.
-describe.sequential('settings payload setup state', () => {
+describe('settings payload setup state', { concurrent: false }, () => {
   let configDirectory: string;
   const original = {
     configDir: process.env.BOZ_CONFIG_DIR,

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configEnvPath } from '../src/utils/env-dir';
 
-describe.sequential('config credential permissions', () => {
+describe('config credential permissions', { concurrent: false }, () => {
   const original = process.env.BOZ_CONFIG_DIR;
   let directory = '';
 
