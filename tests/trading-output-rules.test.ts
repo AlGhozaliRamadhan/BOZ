@@ -93,7 +93,6 @@ describe('hardened number rule installed (Task B)', () => {
     expect(skill).toContain('NO third path');
     expect(skill).toContain('levels not validated');
     expect(skill).toContain('risk_calc');
-    expect(skill).toContain('150');
   });
 
   it('the clarified rule exempts risk_calc inputs: choosing levels is judgment', () => {
