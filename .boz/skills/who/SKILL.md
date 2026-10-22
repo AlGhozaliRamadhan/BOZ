@@ -22,20 +22,21 @@ Answer "who is this ticker, should I trust it, and what just happened" — a res
 
 1. Call `fetch_price(symbol)` first. It proves the symbol resolves to a live, tradable instrument and gives the venue and currency. A symbol that returns nothing is not a company you can profile — say so in one line and stop.
 2. Call `fetch_ticker_dashboard(symbol)` for the quantitative baseline (price, volume, market cap, levels, correlations).
-3. Call `fetch_news` AND `web_search` for the qualitative half. Search decision-relevant questions, never a duplicate of one you already ran:
+3. Call `fetch_news` AND `web_search` for the qualitative half. Hunt what changes the profile: ownership and control, cash-flow durability, customer concentration, regulatory dependence. Founding story, awards and real-estate trivia are biography padding. Search decision-relevant questions, never a duplicate of one you already ran:
    - **What they do**: segments, products, geography, and how revenue is actually earned — not the tagline.
-   - **Disclosure depth**: what filings exist and how often (annual report, 10-K/20-F, quarterly), whether segments and geography are broken out, what the company itself does NOT split. Be blunt when it is thin.
+   - **Disclosure depth**: what filings exist and how often (annual report, 10-K/20-F, quarterly), whether segments and geography are broken out, what the company itself does NOT split. The filing is audited structure an auditor stands behind: financial statements, segment reporting, ownership structure. The press release is a pitch: financial targets, transformation language. Weight regulated structure first, narrative last. Be blunt when it is thin.
    - **Legitimacy**: listing venue, size and liquidity, filing history, auditor, whether the symbol resolves consistently across sources.
    - **Latest news**: the last few material developments, with dates.
-4. Legitimacy is an EVIDENCE verdict, never a vibe and never a bare reassurance. Weigh: established listing, real float and volume, a filing history you can actually see, a named auditor, consistency between sources. If the evidence is thin, absent, or contradictory, say exactly what is missing and do NOT clear it — an unresolved flag is a legitimate finding.
-5. Every claim traces to a tool result. A fact you could not verify is omitted, never softened into a maybe.
+4. A disclosure from three years ago is not current knowledge; if the last filing is old, say the picture may be stale rather than presenting it as current.
+5. Legitimacy is an EVIDENCE verdict. Weigh: established listing, real float and volume, a filing history you can actually see, a named auditor, consistency between sources. If the evidence is thin, absent, or contradictory, say exactly what is missing and do NOT clear it — an unresolved flag is a legitimate finding.
+6. Every claim traces to a tool result. What only the company itself says is the company's claim: attribute it ("the company says"), never state it as established fact. A fact you could not verify is omitted, never softened into a maybe.
 
 ## Output
 
-Four compact sections, in this order, each one tight paragraph or a short bullet list:
+Four compact sections, in this order:
 
 - **What they do** — segments, products, geography, where the money comes from.
-- **How much is knowable** — filing type and cadence, granularity of segment and geographic disclosure, and what stays opaque.
+- **How much is knowable** — filing type and cadence, how much of it is audited structure rather than narrative, granularity of segment and geographic disclosure, and what stays opaque.
 - **Legitimacy** — the verdict with the specific evidence behind it, and the gaps if any.
 - **Latest news** — the few developments that matter, each with its date and source.
 
@@ -43,4 +44,4 @@ Close with one line on what would change this read. No trade plan, no entry/stop
 
 ## Style
 
-Lead with the company in one sentence, then the sections. Scannable beats exhaustive: a reader deciding whether to dig further needs the verdict early, not a biography. Stay within the delivery word cap by cutting detail, never by dropping a section. If a section has nothing behind it, say "not disclosed" or "no recent material news" rather than padding.
+Lead with the company in one sentence, then the sections. Scannable beats exhaustive: a reader deciding whether to dig further needs the verdict early, not a biography. Cut detail when it crowds the verdict, and cut a section only if it truly does not apply. If a section has nothing behind it, say "not disclosed" or "no recent material news" rather than padding. Silence is substance: what a company keeps out of its filings says something about its size, its private structure, or how deliberately it stays opaque. State it once, plainly.

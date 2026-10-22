@@ -215,17 +215,29 @@ describe('Task C2 — one render: no delta rule, no delta vocabulary, internal-o
   });
 });
 
-describe('Task C3 — delivery: cap, conclusion, sources', () => {
-  it('350-word hard cap with conclusion-first is installed', () => {
+describe('Task C3 — delivery: no quoted-back cap, conclusion, sources', () => {
+  it('word cap and dash quota are gone from every surface the model reads', () => {
+    // "no em dash", "under 350 words" — the two rules the user watched the
+    // model recite in its visible thinking. They are deleted from the prompt
+    // stack entirely: anything numeric or quota-shaped gets recited, and
+    // neither was checkable in code. The complete-sentence rule survives,
+    // because answerCheck enforces that one.
+    for (const source of [
+      readRepo('.boz/skills/intraday/SKILL.md'),
+      readRepo('.boz/skills/who/SKILL.md'),
+      readRepo('src/shared/runtime-prompt.ts'),
+      readRepo('src/app/api/chat/route.ts'),
+      readRepo('src/services/ai/ai.service.ts'),
+      readRepo('src/app/api/chat/chat.engine.ts'),
+    ]) {
+      expect(source).not.toContain('em dash');
+      expect(source).not.toContain('word cap');
+    }
     const skill = readRepo('.boz/skills/intraday/SKILL.md');
-    expect(skill).toContain('350 words');
-    expect(skill).toContain('never cut the conclusion');
+    expect(skill).toContain('complete sentence');
     expect(skill).toContain('invalid if it does not contain the conclusion');
-    expect(RUNTIME_SYSTEM_PROMPT).toContain('350 words');
-    // Deliberately NOT in the pass prompt: the cap there was one of the rules
-    // the model quoted back at the user in its visible thinking ("word count
-    // ≤350"). The cap still lives where the analyst reads it, and the worked
-    // example demonstrates the length rather than demanding it.
+    expect(RUNTIME_SYSTEM_PROMPT).toContain('complete sentence');
+    // Deliberately NOT in the pass prompt either: it never carried them again.
     expect(getReasoningPassPrompt('Max')).not.toContain('350 words');
   });
 
@@ -236,10 +248,9 @@ describe('Task C3 — delivery: cap, conclusion, sources', () => {
     expect(RUNTIME_SYSTEM_PROMPT).toContain('per CNBC');
   });
 
-  it('worked example ends with a complete sentence and fits the cap', () => {
+  it('worked example ends with a complete sentence', () => {
     expect(WORKED_EXAMPLE.trim().endsWith('.')).toBe(true);
     expect(WORKED_EXAMPLE).toMatch(/^I'm leaning long/);
-    expect(WORKED_EXAMPLE.split(/\s+/).length).toBeLessThanOrEqual(350);
   });
 });
 
