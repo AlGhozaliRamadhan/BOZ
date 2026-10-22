@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { GET, PUT } from '../src/app/api/settings/route';
 import { config } from '../src/config/config';
 
-describe.sequential('settings route security boundary', () => {
+describe('settings route security boundary', { concurrent: false }, () => {
   let configDirectory: string;
   const original = {
     configDir: process.env.BOZ_CONFIG_DIR,

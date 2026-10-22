@@ -44,10 +44,10 @@
   "type": "module",
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/plugin-updater": "2.13.1",
+    "@tauri-apps/plugin-updater": "2.14.0",
     "ajv": "^8.17.1",
     "axios": "^1.18.1",
-    "dotenv": "^18.0.5",
+    "dotenv": "^18.0.8",
     "isomorphic-dompurify": "^4.4.0",
     "marked": "^18.0.5",
     "openai": "^7.28.0",
@@ -56,16 +56,16 @@
     "yahoo-finance2": "^4.0.2"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.11.4",
+    "@tauri-apps/cli": "^2.12.3",
     "@types/node": "^26.6.4",
     "@types/react": "19.3.0",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^5.0.5",
     "next": "16.3.8",
     "postcss": "^8.5.23",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.9"
+    "vitest": "^5.0.5"
   },
   "overrides": {
     "baseline-browser-mapping": "^2.11.0",
