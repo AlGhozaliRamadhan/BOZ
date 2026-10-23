@@ -387,6 +387,27 @@ export class NewsFetchService {
    * Fetch live, ticker-specific headlines from Google News RSS. Unlike the
    * broad market feed, this query is scoped to the dashboard's exact symbol.
    */
+  /** Shared Google-News-RSS → NewsItem mapping for every ticker-scoped fetch. */
+  private mapGoogleNewsFeed(feed: { items?: any[] }, cleanSymbol: string): NewsItem[] {
+    return (feed.items ?? [])
+      .map((entry) => {
+        const rawTitle = (entry.title ?? '').trim();
+        const sourceSeparator = rawTitle.lastIndexOf(' - ');
+        return {
+          category: 'stocks',
+          type: 'news',
+          impact: 'medium' as const,
+          title: sourceSeparator > 0 ? rawTitle.slice(0, sourceSeparator) : rawTitle,
+          details: (entry.contentSnippet ?? entry.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 500),
+          source: sourceSeparator > 0 ? rawTitle.slice(sourceSeparator + 3) : 'Google News',
+          url: entry.link,
+          timestamp: entry.isoDate ?? entry.pubDate ?? new Date().toISOString(),
+          assets: [cleanSymbol],
+        };
+      })
+      .filter((item) => item.title);
+  }
+
   public async fetchTickerNews(symbol: string): Promise<NewsItem[]> {
     const cleanSymbol = symbol.replace(/\.JK$/i, '').trim().toUpperCase();
     if (!cleanSymbol) return [];
@@ -395,26 +416,32 @@ export class NewsFetchService {
       const query = cleanSymbol + ' stock news earnings catalysts';
       const url = 'https://news.google.com/rss/search?q=' + encodeURIComponent(query) + '&hl=en-US&gl=US&ceid=US:en';
       const feed = await this.parseURLSafe(url);
-
-      return (feed.items ?? [])
-        .map((entry) => {
-          const rawTitle = (entry.title ?? '').trim();
-          const sourceSeparator = rawTitle.lastIndexOf(' - ');
-          return {
-            category: 'stocks',
-            type: 'news',
-            impact: 'medium' as const,
-            title: sourceSeparator > 0 ? rawTitle.slice(0, sourceSeparator) : rawTitle,
-            details: (entry.contentSnippet ?? entry.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 500),
-            source: sourceSeparator > 0 ? rawTitle.slice(sourceSeparator + 3) : 'Google News',
-            url: entry.link,
-            timestamp: entry.isoDate ?? entry.pubDate ?? new Date().toISOString(),
-            assets: [cleanSymbol],
-          };
-        })
-        .filter((item) => item.title)
-        .slice(0, 12);
+      return this.mapGoogleNewsFeed(feed, cleanSymbol).slice(0, 12);
     });
+  }
+
+  /**
+   * Day-bucketed companion to `fetchTickerNews` for the calendar day-view:
+   * the same Google News search widened with a `when:<days>d` window and a
+   * deep item cap, so a clicked day inside the window still has rows. It
+   * lives under its own cache key — the strip's fresh 12-item list and this
+   * deeper list must not overwrite each other's fetch.
+   */
+  public async fetchTickerNewsHistory(symbol: string, windowDays = 30): Promise<NewsItem[]> {
+    const cleanSymbol = symbol.replace(/\.JK$/i, '').trim().toUpperCase();
+    if (!cleanSymbol) return [];
+    const days = Math.max(1, Math.min(30, Math.round(windowDays)));
+
+    return this.getCached(
+      `ticker_news_history_${cleanSymbol}_${days}`,
+      async () => {
+        const query = `${cleanSymbol} stock news when:${days}d`;
+        const url = 'https://news.google.com/rss/search?q=' + encodeURIComponent(query) + '&hl=en-US&gl=US&ceid=US:en';
+        const feed = await this.parseURLSafe(url);
+        return this.mapGoogleNewsFeed(feed, cleanSymbol).slice(0, 80);
+      },
+      15 * 60,
+    );
   }
 
   public async fetchStockNews(): Promise<NewsItem[]> {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { useRouter } from 'next/navigation';
-import { getEffort, getThinkingEnabled } from '@/shared/chat-options';
+import { getEffort } from '@/shared/chat-options';
 import type { ToolResult } from '@/shared/chat-tool-results';
 import {
   flushStreamProgress,
@@ -413,7 +413,10 @@ export function useChatStream({
         command,
         history,
         effort: getEffort(),
-        thinking: getThinkingEnabled(),
+        // The Deep Think toggle was removed: the effort tier alone now governs
+        // verification passes (Low runs single-pass). Thinking itself stays on
+        // — it is what feeds the thinking panel.
+        thinking: true,
         model: activeModelRef.current || undefined,
         startedAt: sentAt,
         // A run that died mid-answer already paid for its research. Hand it to
@@ -470,7 +473,8 @@ export function useChatStream({
         command,
         history,
         effort: getEffort(),
-        thinking: getThinkingEnabled(),
+        // Same policy as a fresh send: effort tier governs the passes.
+        thinking: true,
         model: activeModelRef.current || undefined,
         startedAt: Date.now(),
         continueFrom: retryInPlace,
@@ -535,7 +539,8 @@ export function useChatStream({
         command,
         history,
         effort: getEffort(),
-        thinking: getThinkingEnabled(),
+        // Same policy as a fresh send: effort tier governs the passes.
+        thinking: true,
         model: activeModelRef.current || undefined,
         startedAt: Date.now(),
         continueFrom: { index: assistantIndex, content: partial },
