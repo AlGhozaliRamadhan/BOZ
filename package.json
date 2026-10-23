@@ -53,7 +53,7 @@
     "openai": "^7.28.0",
     "rss-parser": "^3.13.0",
     "technicalindicators": "^3.1.0",
-    "yahoo-finance2": "^4.0.2"
+    "yahoo-finance2": "^4.0.4"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.3",
