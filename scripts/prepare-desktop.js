@@ -35,6 +35,51 @@ export function assertBundledNode({ platform = process.platform, version = proce
   }
 }
 
+export const RUNTIME_CACHE_GUARD_MARKER = 'BOZ runtime cache guard';
+
+export const RUNTIME_CACHE_GUARD_SNIPPET = `// ${RUNTIME_CACHE_GUARD_MARKER}. In-place desktop updates replace only the files
+// this bundle declares, so Next's runtime route cache, stray public/_next assets,
+// and the fetch cache survive an update. Serving those makes the shell answer with
+// the previous build's pages until the caches rebuild. Purge the runtime caches
+// whenever the packaged BUILD_ID differs from the one the cache was written under.
+import { readFileSync as bozReadFileSync, rmSync as bozRmSync, writeFileSync as bozWriteFileSync } from 'node:fs';
+import { join as bozJoin } from 'node:path';
+import { fileURLToPath as bozFileURLToPath } from 'node:url';
+
+console.log('BOZ runtime cache guard: ' + (() => {
+  const serverDirectory = bozFileURLToPath(new URL('.', import.meta.url));
+  let buildId = '';
+  try {
+    buildId = bozReadFileSync(bozJoin(serverDirectory, '.next', 'BUILD_ID'), 'utf8').trim();
+  } catch {
+    return 'BUILD_ID unavailable; kept runtime caches';
+  }
+  const markerPath = bozJoin(serverDirectory, '.next', '.boz-cache-build-id');
+  let cachedBuildId = '';
+  try {
+    cachedBuildId = bozReadFileSync(markerPath, 'utf8').trim();
+  } catch {
+    // First boot after this build: the bundle ships without a runtime marker.
+  }
+  if (buildId === cachedBuildId) return 'build unchanged; kept runtime caches';
+  bozRmSync(bozJoin(serverDirectory, '.next', 'server', 'route-cache'), { recursive: true, force: true });
+  bozRmSync(bozJoin(serverDirectory, 'public', '_next'), { recursive: true, force: true });
+  bozRmSync(bozJoin(serverDirectory, '.next', 'cache'), { recursive: true, force: true });
+  bozWriteFileSync(markerPath, buildId + '\\n', 'utf8');
+  return 'purged runtime caches from build ' + cachedBuildId + ' to ' + buildId;
+})());
+`;
+
+export function injectStaleRuntimeCacheGuard(serverPath) {
+  if (!existsSync(serverPath)) {
+    throw new Error(`Missing server entry at ${serverPath}; the standalone stage is incomplete.`);
+  }
+  const existing = readFileSync(serverPath, 'utf8');
+  if (existing.includes(RUNTIME_CACHE_GUARD_MARKER)) return false;
+  writeFileSync(serverPath, `${RUNTIME_CACHE_GUARD_SNIPPET}\n${existing}`, 'utf8');
+  return true;
+}
+
 export function findForbiddenFiles(root) {
   if (!existsSync(root)) return [];
   const found = [];
@@ -87,6 +132,7 @@ export function prepareDesktopResources({
   mkdirSync(resourcesRoot, { recursive: true });
   cleanGeneratedResources();
   cpSync(standaloneSource, serverDestination, { recursive: true, force: true });
+  injectStaleRuntimeCacheGuard(join(serverDestination, 'server.js'));
   if (!usesBundledNodeInPlace) cpSync(nodeExecutable, nodeDestination, { force: true });
 
   const forbidden = findForbiddenFiles(resourcesRoot);
