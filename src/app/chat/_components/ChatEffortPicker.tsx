@@ -5,9 +5,7 @@ import {
   EFFORT_OPTIONS,
   type Effort,
   getEffort,
-  getThinkingEnabled,
   setEffort,
-  setThinkingEnabled,
   CHAT_OPTIONS_EVENT,
 } from '@/shared/chat-options';
 import type { ReasoningSupport } from '@/shared/reasoning-support';
@@ -24,16 +22,13 @@ const EFFORT_DESCRIPTIONS: Record<Effort, string> = {
 export default function ChatEffortPicker() {
   const [open, setOpen] = useState(false);
   const [effort, setEffortState] = useState<Effort>('Medium');
-  const [thinking, setThinkingState] = useState(true);
   const [support, setSupport] = useState<ReasoningSupport | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setEffortState(getEffort());
-    setThinkingState(getThinkingEnabled());
     const sync = () => {
       setEffortState(getEffort());
-      setThinkingState(getThinkingEnabled());
     };
     window.addEventListener(CHAT_OPTIONS_EVENT, sync);
     return () => window.removeEventListener(CHAT_OPTIONS_EVENT, sync);
@@ -79,12 +74,6 @@ export default function ChatEffortPicker() {
     setOpen(false);
   };
 
-  const toggleThinking = () => {
-    const next = !thinking;
-    setThinkingEnabled(next);
-    setThinkingState(next);
-  };
-
   return (
     <div className={styles['chat-effort-picker']} ref={rootRef}>
       <button
@@ -92,14 +81,14 @@ export default function ChatEffortPicker() {
         className={`${styles['chat-effort-trigger']} ${open ? 'active' : ''}`}
         onClick={() => setOpen(!open)}
         title="Thinking effort level"
-        aria-label={`Thinking effort: ${effort}${thinking ? '' : ' (deep think off)'}`}
+        aria-label={`Thinking effort: ${effort}`}
         aria-expanded={open}
       >
         {effort === 'Max' && (
           <i className="fa-solid fa-fire" style={{ fontSize: '11px', color: '#ff793f' }}></i>
         )}
         <span className={styles['chat-effort-label']}>
-          {thinking ? effort : 'Off'}
+          {effort}
         </span>
         <i className="fa-solid fa-chevron-up" style={{ fontSize: '8px', opacity: 0.4 }}></i>
       </button>
@@ -109,26 +98,6 @@ export default function ChatEffortPicker() {
           <div className={styles['chat-effort-menu-header']}>
             <span>Thinking Effort</span>
           </div>
-          <button
-            type="button"
-            className={`${styles['chat-effort-option']} ${thinking ? 'selected' : ''}`}
-            onClick={toggleThinking}
-            role="switch"
-            aria-checked={thinking}
-            title="Turn every verification pass off for a fast, single-shot answer"
-          >
-            <div className={styles['chat-effort-option-info']}>
-              <div className={styles['chat-effort-option-name']}>
-                <span>Deep Think</span>
-                <span className={styles['chat-effort-option-desc']} style={{ marginLeft: 'auto' }}>
-                  {thinking ? 'On' : 'Off'}
-                </span>
-              </div>
-              <div className={styles['chat-effort-option-desc']}>
-                Multiple verification passes over the same evidence.
-              </div>
-            </div>
-          </button>
           {EFFORT_OPTIONS.map((opt) => {
             const desc = EFFORT_DESCRIPTIONS[opt];
             const isSelected = opt === effort;

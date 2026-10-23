@@ -71,3 +71,27 @@ html[data-motion='reduced'] *::after {
     scroll-behavior: auto !important;
   }
 }
+
+/* ─── Progress spinners are exempt from the flattening above ────────────────
+   A loading indicator is functional motion: the rotation is the only signal
+   that work is in progress, and stilling it left the chat "Thinking..." row
+   and the sidebar "Generating" badge rendering as frozen circles that read
+   as a dead app. Under either source of the preference the spinner keeps
+   turning, just calmer — the same policy screener's stylesheet already used
+   for its own spinner (kill decorative animation; slow the spinner, don't
+   still it). */
+html[data-motion='reduced'] .spinner,
+html[data-motion='reduced'] .scn-spinner,
+html[data-motion='reduced'] .fa-spin {
+  animation-duration: 1.6s !important;
+  animation-iteration-count: infinite !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='reduced']) .spinner,
+  html:not([data-motion='reduced']) .scn-spinner,
+  html:not([data-motion='reduced']) .fa-spin {
+    animation-duration: 1.6s !important;
+    animation-iteration-count: infinite !important;
+  }
+}

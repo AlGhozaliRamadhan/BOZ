@@ -47,7 +47,7 @@ export function reviewRoleFor(effort: ThoughtEffort, pass: number): ReviewRole {
   return 'numbers';
 }
 
-/** Resolves the pass count for a run, honouring the Deep Think toggle. */
+/** Resolves the pass count for a run, honouring the thinking request parameter. */
 export function resolvePassCount(options: {
   effort: ThoughtEffort;
   thinkingEnabled: boolean;

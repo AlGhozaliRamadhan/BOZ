@@ -1313,6 +1313,603 @@
   color: #ffffff;
 }
 
+/* === DASHBOARD INTEL WIDGETS ================================================ */
+/* Separate dashboard pieces around the top-right calendar: the month grid is
+   a NORMAL calendar (weekday columns × week rows, 1:1 day squares). Squares
+   carry NO open/closed colour — green/red is reserved for news sentiment: a
+   day whose saved watchlist headlines net bullish is green, net bearish is
+   red, and every other day (closed days included) stays neutral. Session
+   cards are separate, word-driven surfaces; day news opens from the day
+   squares, straight from the saved per-day lists. */
+.mis-card {
+  position: relative;
+  padding: 14px;
+  background: linear-gradient(170deg, #1e1e21 0%, #17171a 100%);
+  border: 1px solid var(--border-glass);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  min-width: 0;
+  user-select: none;
+}
+
+.mis-card-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.mis-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* The calendar card stretches to the exact height of the watchlist chart
+   hero beside it (same row, align: stretch): it fills its column and pins
+   the global-sessions footer to the bottom, so the two cards always end on
+   the same line no matter which is naturally taller. */
+.mis-cal {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Mini month calendar ── */
+.mis-cal-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.mis-cal-month {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+}
+
+.mis-cal-schedule-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-glass);
+  border-radius: 8px;
+  padding: 5px 11px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.mis-cal-schedule-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-glass-hover, #414141);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mis-cal-schedule-btn:focus-visible,
+.mis-popover-close:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
+}
+
+/* Amber dot: the holiday feed is unreachable and squares fell back to the
+   weekend rule. Never silent — degraded data must be visible. */
+.mis-calendar-warn {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f0b429;
+  box-shadow: 0 0 6px rgba(240, 180, 41, 0.7);
+}
+
+.mis-cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.mis-cal-weekdays span {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.mis-cal-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.mis-blank { /* leading empty cells keep day 1 on its weekday column */ }
+
+/* ── Day tiles: no open/closed colour anywhere ──
+   Neutral by default. 'closed' days (weekend/holiday) are muted in pure
+   grayscale — that is a schedule fact, not a red claim. Sentiment tone (the
+   day's saved watchlist headlines net bullish/bearish) is the ONLY colour a
+   square carries: green = net bullish day, red = net bearish day. */
+.mis-cell {
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.035);
+  transition: background 0.15s ease, color 0.15s ease, filter 0.15s ease;
+}
+
+.mis-cell:hover {
+  background: rgba(255, 255, 255, 0.085);
+}
+
+.mis-cell:focus-visible,
+.mis-popover-close:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
+}
+
+.mis-cell-day {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* Closed (weekend/holiday): schedule fact, grayscale only — never red. */
+.mis-cell.is-closed {
+  background: transparent;
+}
+
+.mis-cell.is-closed .mis-cell-day {
+  color: #655f6f;
+}
+
+.mis-cell.is-closed:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Past entries sit dimmer than the present; tone fills keep their hue. */
+.mis-cell.is-past {
+  opacity: 0.72;
+}
+
+.mis-cell.is-past:hover {
+  opacity: 1;
+}
+
+/* Today: brighter neutral anchor — emphasis, not a state claim. */
+.mis-cell.is-today {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mis-cell.is-today .mis-cell-day {
+  color: #ffffff;
+  font-weight: 800;
+}
+
+/* Future days make no claim at all: neutral surface, still clickable (their
+   news shows up on the day it happens — then it is saved). */
+.mis-cell.is-future {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.mis-cell.is-future .mis-cell-day {
+  color: #8a8a92;
+}
+
+/* Sentiment tones — the only colours on the calendar. */
+.mis-cell.mis-tone-bull {
+  background: rgba(0, 200, 83, 0.2);
+}
+
+.mis-cell.mis-tone-bull:hover {
+  background: rgba(0, 200, 83, 0.28);
+}
+
+.mis-cell.mis-tone-bull .mis-cell-day {
+  color: #a9f2c8;
+  font-weight: 800;
+}
+
+.mis-cell.mis-tone-bear {
+  background: rgba(213, 0, 0, 0.22);
+}
+
+.mis-cell.mis-tone-bear:hover {
+  background: rgba(213, 0, 0, 0.3);
+}
+
+.mis-cell.mis-tone-bear .mis-cell-day {
+  color: #ffb4aa;
+  font-weight: 800;
+}
+
+/* A tinted today stays readable: tone fill, anchored number. */
+.mis-cell.is-today.mis-tone-bull .mis-cell-day,
+.mis-cell.is-today.mis-tone-bear .mis-cell-day {
+  color: #ffffff;
+}
+
+/* Schedule popover — opens below the calendar, anchored to its right edge */
+.mis-popover {
+  /* A real dropdown: JS sets top/left inline, right under its own trigger
+     (the schedule button or the clicked day square), clamped into the
+     viewport. No static offsets here — a lingering right:0 would fight the
+     inline left and stretch the panel. */
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 330px;
+  max-width: min(90vw, 350px);
+  background: #1d1d20;
+  border: 1px solid var(--border-glass);
+  border-radius: 14px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.6);
+  padding: 15px 16px;
+  z-index: 200;
+  user-select: text;
+}
+
+.mis-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mis-popover-heading {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.mis-popover-tag {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  border: 1px solid var(--border-glass);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.mis-popover-note {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin: 10px 0 11px;
+}
+
+.mis-popover-holidays {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 200px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #343434 transparent;
+}
+
+.mis-popover-row {
+  display: grid;
+  grid-template-columns: 32px 82px 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.mis-popover-market {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+.mis-popover-date {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.mis-popover-name {
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mis-popover-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.mis-popover-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.mis-popover-close:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ── Day-news popover (click a calendar day number) ──
+   The rows come straight from the saved list — no request on click. The dot
+   colour IS the sentiment: green = bullish headline, red = bearish, and a
+   muted dot = neutral. */
+.mis-day-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 12px;
+  max-height: 280px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #343434 transparent;
+}
+
+.mis-day-row {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px 9px 7px 20px;
+  border-radius: 9px;
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+
+.mis-day-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Tone dots — the only green/red rows carry. */
+.mis-day-impact {
+  position: absolute;
+  left: 7px;
+  top: 13px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #6e6e76;
+}
+
+.mis-day-impact.is-bullish {
+  background: var(--bull);
+  box-shadow: 0 0 6px rgba(0, 200, 83, 0.45);
+}
+
+.mis-day-impact.is-bearish {
+  background: var(--bear);
+  box-shadow: 0 0 6px rgba(213, 0, 0, 0.45);
+}
+
+.mis-day-row.tone-bullish:hover {
+  background: rgba(0, 200, 83, 0.07);
+}
+
+.mis-day-row.tone-bearish:hover {
+  background: rgba(213, 0, 0, 0.08);
+}
+
+.mis-day-time {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mis-day-ticker {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.mis-day-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mis-day-src {
+  flex-shrink: 0;
+  max-width: 76px;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mis-day-empty {
+  display: block;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  margin-top: 10px;
+}
+
+.mis-day-skel {
+  display: block;
+  height: 26px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mis-day-note {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ── Global sessions footer (inside the calendar card) ──
+   One muted row per exchange, identical treatment: the session window and
+   the open/pre/closed words carry the state. No green/red dot, no per-market
+   claim card — colour stays reserved for news sentiment. */
+.mis-cal-sessions {
+  margin-top: auto;
+  padding-top: 9px;
+  padding-bottom: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mis-global-session {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mis-global-session-name {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
+}
+
+.mis-global-session.is-open .mis-global-session-name,
+.mis-global-session.is-open .mis-global-session-detail {
+  color: var(--text-primary);
+}
+
+.mis-global-session-window {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.mis-global-session-detail {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Skeleton + honest-unavailable states: the calendar is never invented.
+   Gray 1:1 blocks wait for the feed; a note says when it is unreachable. */
+.mis-cell-skel {
+  background: rgba(255, 255, 255, 0.05);
+  cursor: default;
+}
+
+.mis-cal-month-skel {
+  display: inline-block;
+  width: 90px;
+  height: 14px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mis-cal-note {
+  display: block;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+/* Dashboard shortcut tiles — same card language as the intel widgets, with a
+   real hover/press affordance instead of dead flat buttons. */
+.home-shortcut-tile {
+  text-align: left;
+  padding: 13px 15px;
+  border-radius: 12px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.home-shortcut-tile:hover {
+  background: rgba(255, 255, 255, 0.045);
+  border-color: var(--border-glass-hover, #414141);
+  transform: translateY(-1px);
+}
+
+.home-shortcut-tile:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
+}
+
 /* === MARKET TICKER ========================================================= */
 .bbg-ticker {
   position: relative;
