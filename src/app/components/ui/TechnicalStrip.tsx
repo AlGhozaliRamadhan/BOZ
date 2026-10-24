@@ -212,11 +212,11 @@ function Cell({ def }: { def: CellDef }) {
   const color =
     def.tone === 'up' ? 'var(--success)' :
     def.tone === 'down' ? 'var(--danger)' :
-    def.tone === 'warn' ? '#fff' : '#fff';
+    def.tone === 'warn' ? '#ffffff' : '#ffffff';
   const subColor =
     def.subTone === 'up' ? 'var(--success)' :
     def.subTone === 'down' ? 'var(--danger)' :
-    def.subTone === 'warn' ? '#fff' : '#555';
+    def.subTone === 'warn' ? '#ffffff' : '#555564';
   return (
     <div style={{
       padding: '12px 14px',
@@ -226,7 +226,7 @@ function Cell({ def }: { def: CellDef }) {
       justifyContent: 'center',
       borderBottom: '1px solid var(--border-glass)'
     }}>
-      <div style={{ color: '#555', fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      <div style={{ color: '#555564', fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {def.label}
       </div>
       <div style={{ color, fontSize: '13px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -293,20 +293,20 @@ export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
       }}>
         {/* Left: Title + Timeframe dropdown */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
-          <span style={{ color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em' }}>
+          <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em' }}>
             TECHNICAL • {ticker} • 
           </span>
           <button
             type="button"
             onClick={() => setIntervalMenuOpen(o => !o)}
             style={{
-              background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', color: '#fff',
+              background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', color: '#ffffff',
               padding: '2px 8px', fontFamily: 'var(--font-mono)', fontSize: '10px',
               fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
             }}
           >
             {INTERVALS.find(i => i.id === interval)?.label || '1D'}
-            <span style={{ fontSize: '8px', color: '#888' }}>▼</span>
+            <span style={{ fontSize: '8px', color: '#888899' }}>▼</span>
           </button>
 
           {intervalMenuOpen && (
@@ -324,7 +324,7 @@ export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
                     onClick={() => { setIntervalState(int.id); setIntervalMenuOpen(false); }}
                     style={{
                       display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center',
-                      padding: '6px 10px', background: 'transparent', border: 'none', color: interval === int.id ? '#00c853' : '#fff',
+                      padding: '6px 10px', background: 'transparent', border: 'none', color: interval === int.id ? '#00c853' : '#ffffff',
                       fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 700, cursor: 'pointer', textAlign: 'left'
                     }}
                   >
@@ -346,8 +346,8 @@ export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
               onClick={() => setCat(k)}
               style={{
                 background: cat === k ? 'var(--bg-tertiary)' : 'transparent',
-                border: `1px solid ${cat === k ? '#fff' : 'var(--border-glass)'}`,
-                color: cat === k ? '#fff' : '#888',
+                border: `1px solid ${cat === k ? '#ffffff' : 'var(--border-glass)'}`,
+                color: cat === k ? '#ffffff' : '#888899',
                 padding: '2px 9px',
                 fontFamily: 'var(--font-mono)',
                 fontSize: '9px',
@@ -364,7 +364,7 @@ export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
 
         {/* Right: Count & Live state */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ color: '#555', fontSize: '9px', letterSpacing: '0.08em' }}>
+          <span style={{ color: '#555564', fontSize: '9px', letterSpacing: '0.08em' }}>
             {visible.length} INDICATORS
           </span>
           <span style={{ 

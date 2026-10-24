@@ -35,13 +35,13 @@
   text-align: left;
 }
 
-.discover-tape-card:hover { border-color: var(--border-glass-hover, #444); }
+.discover-tape-card:hover { border-color: var(--border-glass-hover, #444451); }
 
 .discover-tape-label {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
-  color: #888;
+  color: #888899;
 }
 
 .discover-tape-price {
@@ -49,7 +49,7 @@
   font-size: 16px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #fff;
+  color: #ffffff;
 }
 
 .discover-tape-change { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -78,8 +78,8 @@
   letter-spacing: 0.04em;
 }
 
-.discover-tab:hover { color: #fff; }
-.discover-tab:global(.is-active) { border-bottom-color: var(--accent-violet); color: #fff; }
+.discover-tab:hover { color: #ffffff; }
+.discover-tab:global(.is-active) { border-bottom-color: var(--accent-violet); color: #ffffff; }
 .discover-tab:disabled { cursor: wait; opacity: 0.6; }
 
 .discover-board-head {
@@ -97,10 +97,10 @@
   gap: 8px;
   height: 34px;
   padding: 0 10px;
-  border: 1px solid #3b3b3b;
+  border: 1px solid #3b3b47;
   border-radius: 7px;
   background: var(--bg-secondary);
-  color: #858585;
+  color: #858596;
   font-size: 11px;
 }
 
@@ -109,7 +109,7 @@
   border: 0;
   outline: 0;
   background: transparent;
-  color: #fff;
+  color: #ffffff;
   font-family: var(--font-mono);
   font-size: 11px;
 }
@@ -127,7 +127,7 @@
 
 .discover-thead {
   padding: 8px 4px;
-  color: #666;
+  color: #666678;
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 700;
@@ -152,14 +152,14 @@
 .discover-row-grid:hover { background: rgba(255, 255, 255, 0.02); }
 
 .discover-cell-id { min-width: 0; }
-.discover-cell-id strong { display: block; font-size: 13px; color: #fff; }
+.discover-cell-id strong { display: block; font-size: 13px; color: #ffffff; }
 .discover-cell-id span {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 10px;
-  color: #888;
+  color: #888899;
 }
 
 .discover-num { text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -176,10 +176,10 @@
 }
 .discover-signal:global(.is-buy) { color: var(--success); }
 .discover-signal:global(.is-sell) { color: var(--danger); }
-.discover-signal:global(.is-watch) { color: #888; }
+.discover-signal:global(.is-watch) { color: #888899; }
 
 .discover-setup {
-  color: #777;
+  color: #77778b;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -196,7 +196,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: #555;
+  color: #555564;
   cursor: pointer;
   font-size: 12px;
 }
@@ -205,7 +205,7 @@
 .discover-star:global(.is-saved) { color: #ffd700; }
 
 .discover-go { color: var(--text-muted); font-size: 10px; }
-.discover-row-grid:hover .discover-go { color: #fff; }
+.discover-row-grid:hover .discover-go { color: #ffffff; }
 
 /* ── Status / misc ──────────────────────────────────────────────── */
 .discover-status {
@@ -249,7 +249,7 @@
   flex-wrap: wrap;
   gap: 4px 12px;
   padding: 10px 4px 0;
-  color: #666;
+  color: #666678;
   font-family: var(--font-mono);
   font-size: 10px;
 }
@@ -317,14 +317,14 @@
   border: 1px solid var(--border-glass);
   border-radius: 8px;
   background: var(--bg-secondary);
-  color: #fff;
+  color: #ffffff;
   cursor: pointer;
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 700;
 }
 
-.discover-chip small { color: #888; font-weight: 400; }
+.discover-chip small { color: #888899; font-weight: 400; }
 
 @media (max-width: 760px) {
   .discover-thead { display: none; }

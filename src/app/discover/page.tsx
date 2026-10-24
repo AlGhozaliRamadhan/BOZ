@@ -347,7 +347,7 @@ export default function DiscoverPage() {
       <header className={`bbg-header ${searchStyles['ticker-page-header']}`}>
         <div>
           <h1 style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-violet)', fontSize: '14px', fontWeight: 700, margin: 0, letterSpacing: '0.05em' }}>DISCOVER</h1>
-          <p style={{ fontFamily: 'var(--font-mono)', color: '#555', fontSize: '10px', marginTop: '2px', textTransform: 'uppercase' }}>MARKETS · TICKERS · IDEAS</p>
+          <p style={{ fontFamily: 'var(--font-mono)', color: '#555564', fontSize: '10px', marginTop: '2px', textTransform: 'uppercase' }}>MARKETS · TICKERS · IDEAS</p>
         </div>
         <div className={searchStyles['ticker-search']}>
           <form

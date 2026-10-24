@@ -3,12 +3,10 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import DesktopUpdateControl, {
-  normalizeUpdateStatus,
-  type HostUpdateStatus,
-} from '../ui/DesktopUpdateControl';
-import { invoke, isTauri } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import DesktopUpdateControl from '../ui/DesktopUpdateControl';
+import UpdatePromptModal from '../ui/UpdatePromptModal';
+import { claimStartupPrompt, useHostUpdate } from '../ui/use-host-update';
+import { invoke } from '@tauri-apps/api/core';
 import {
   deleteSessionById,
   getSessionStatus,
@@ -63,6 +61,10 @@ const navItems: NavItem[] = [
   },
 ];
 
+// Key from the original popup: a full browser session is prompted once, a
+// reload within the same session stays quiet.
+const STARTUP_PROMPT_KEY = 'boz_update_prompted_session';
+
 export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProps) {
   const router = useRouter();
   interface RecentChatEntry {
@@ -73,11 +75,19 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
 
   const [chatSessions, setChatSessions] = useState<RecentChatEntry[]>([]);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
+  // The real update prompt: startup offer, popover entry, and the host's
+  // explicit open request all point here; only the About modal stays above.
+  const [isUpdatePromptOpen, setIsUpdatePromptOpen] = useState(false);
   const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
   // True while the desktop host reports an installable update the user has
   // not snoozed; drives the footer dot and the first-open popup.
   const [updateAvailable, setUpdateAvailable] = useState(false);
+  const { status, install, snooze, isDesktop } = useHostUpdate();
+  // Host "open the prompt" requests are handled once per request cycle: true
+  // right after this one was opened and cleared, reset when the host reports
+  // no request, ready for the next check.
+  const openRequestHandledRef = useRef(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
 
@@ -144,54 +154,51 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
   }, []);
 
   useEffect(() => {
-    const handleOpenAbout = () => setIsUpdateModalOpen(true);
+    const handleOpenAbout = () => setIsAboutOpen(true);
     window.addEventListener('boz_open_about', handleOpenAbout);
     return () => window.removeEventListener('boz_open_about', handleOpenAbout);
   }, []);
 
-  // Update availability + first-open popup.
+  // Update availability, the once-per-session startup prompt, and the host's
+  // open request, in one place.
   //
   // The desktop host checks silently once per launch and only publishes the
-  // status (the native dialog belongs to the manual path), so a fresh session
-  // with an installable update otherwise shows nothing. Host rules already
-  // folded in: a snoozed version arrives as an idle status, so `available`
-  // here means "not snoozed". The prompt opens at most once per browser
-  // session; afterwards only the dot speaks.
+  // status, so a fresh session with an installable update would otherwise
+  // show nothing. Host rules already folded in: a snoozed version arrives as
+  // an idle status, so `available` here means "not snoozed". The startup
+  // prompt opens the REAL update prompt (not the About modal) and runs at
+  // most once per browser session; afterwards only the dot and the popover
+  // entry speak.
   useEffect(() => {
-    if (!isTauri()) return undefined;
-    let cancelled = false;
-    const SESSION_KEY = 'boz_update_prompted_session';
+    const available = status.phase === 'available' && !status.snoozedVersion;
+    setUpdateAvailable(available);
 
-    const apply = (raw: unknown) => {
-      const status: HostUpdateStatus = normalizeUpdateStatus(raw);
-      const available = status.phase === 'available' && !status.snoozedVersion;
-      if (cancelled) return;
-      setUpdateAvailable(available);
-      if (available) {
-        let prompted = false;
-        try {
-          prompted = window.sessionStorage.getItem(SESSION_KEY) === 'true';
-          if (!prompted) window.sessionStorage.setItem(SESSION_KEY, 'true');
-        } catch {
-          // Storage unavailable: treat as already prompted so the popup only
-          // ever appears through an explicit host event.
-          prompted = true;
-        }
-        if (!prompted) setIsUpdateModalOpen(true);
+    if (status.openRequested) {
+      // The host asked the webview to surface the prompt now, e.g. a tray
+      // "Check for updates" that ran while the window was hidden. Act
+      // once per request cycle: open, then clear the flag; opening while the
+      // prompt is already up is a no-op.
+      if (!openRequestHandledRef.current) {
+        openRequestHandledRef.current = true;
+        setIsUpdatePromptOpen(true);
+        // Fire and forget: a failure only leaves a harmless stale flag.
+        void invoke('clear_update_open_request').catch(() => undefined);
       }
-    };
+    } else {
+      // Flag cleared (or never set): re-arm for the next cycle.
+      openRequestHandledRef.current = false;
+    }
 
-    // The host can finish its launch check before this mounts; read first.
-    void invoke<unknown>('update_status')
-      .then((raw) => apply(raw))
-      .catch(() => undefined);
-
-    const unlisten = listen<unknown>('boz://update-status', (event) => {
-      apply(event.payload);
-    }).then((off) => () => { cancelled = true; off(); }).catch(() => () => { cancelled = true; });
-
-    return () => { cancelled = true; void unlisten.then((off) => off()); };
-  }, []);
+    if (!available) return;
+    try {
+      if (claimStartupPrompt(window.sessionStorage, STARTUP_PROMPT_KEY)) {
+        setIsUpdatePromptOpen(true);
+      }
+    } catch {
+      // Storage unavailable: treat as already prompted so the popup only
+      // ever appears through an explicit event.
+    }
+  }, [status]);
 
   useEffect(() => {
     const syncProfile = () => {
@@ -356,11 +363,30 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
                 </div>
                 <div className="profile-popover-item-right">Ctrl+⇧+,</div>
               </button>
+              {/* Real prompt entry: shown only while an installable update is
+                  pending (never for a snoozed one, where the dot rests). */}
+              {updateAvailable && (
+                <button
+                  className="profile-popover-item"
+                  onClick={() => {
+                    setIsProfileMenuOpen(false);
+                    setIsUpdatePromptOpen(true);
+                  }}
+                >
+                  <div className="profile-popover-item-left">
+                    <i className="fa-solid fa-download"></i>
+                    <span>Install update</span>
+                  </div>
+                  {status.version && (
+                    <div className="profile-popover-item-right">v{status.version}</div>
+                  )}
+                </button>
+              )}
               <button 
                 className="profile-popover-item"
                 onClick={() => {
                   setIsProfileMenuOpen(false);
-                  setIsUpdateModalOpen(true);
+                  setIsAboutOpen(true);
                 }}
               >
                 <div className="profile-popover-item-left">
@@ -385,7 +411,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
           aria-expanded={isProfileMenuOpen}
           title={collapsed ? 'Open profile menu' : undefined}
         >
-          <div className="sidebar-profile-avatar" style={{ position: 'relative', background: profile.avatarColor, borderColor: 'transparent', color: '#fff' }} aria-hidden="true">
+          <div className="sidebar-profile-avatar" style={{ position: 'relative', background: profile.avatarColor, borderColor: 'transparent', color: '#ffffff' }} aria-hidden="true">
             {profileInitial(profile.displayName) || <i className="fa-solid fa-user" style={{ fontSize: '13px', opacity: 0.85 }}></i>}
             {updateAvailable && (
               <span className="sidebar-update-dot" title="BOZ update available" />
@@ -410,7 +436,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
             <button
               type="button"
               className="sidebar-version"
-              onClick={() => setIsUpdateModalOpen(true)}
+              onClick={() => setIsAboutOpen(true)}
               title="About BOZ"
             >
               v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.8.4'}
@@ -420,8 +446,8 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
       </div>
 
       {/* Desktop About Modal */}
-      {isUpdateModalOpen && (
-        <div className="update-modal-overlay" onClick={() => setIsUpdateModalOpen(false)}>
+      {isAboutOpen && (
+        <div className="update-modal-overlay" onClick={() => setIsAboutOpen(false)}>
           <div className="update-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="update-modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -432,7 +458,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
               </div>
               <button
                 type="button"
-                onClick={() => setIsUpdateModalOpen(false)}
+                onClick={() => setIsAboutOpen(false)}
                 style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '14px' }}
                 aria-label="Close"
               >
@@ -452,7 +478,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
               <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '12px', borderTop: '1px solid var(--border-glass)' }}>
                 <button
                   type="button"
-                  onClick={() => setIsUpdateModalOpen(false)}
+                  onClick={() => setIsAboutOpen(false)}
                   style={{ padding: '8px 16px', borderRadius: '6px', background: 'var(--text-primary)', color: 'var(--bg-primary)', border: 'none', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
                 >
                   Close
@@ -461,6 +487,18 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
             </div>
           </div>
         </div>
+      )}
+
+      {/* Desktop update prompt: the startup offer, the popover entry, and the
+          host's explicit open request all open THIS, never the About modal. */}
+      {isUpdatePromptOpen && (
+        <UpdatePromptModal
+          status={status}
+          isDesktop={isDesktop}
+          install={install}
+          snooze={snooze}
+          onClose={() => setIsUpdatePromptOpen(false)}
+        />
       )}
     </aside>
   );

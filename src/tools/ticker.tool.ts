@@ -134,9 +134,12 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
     // Recent Hourly Candles (Past 6-8 Hours)
     const recentHourlyFormatted = hourlyCandles.slice(-8).map(c => {
       const timeStr = c.date instanceof Date ? c.date.toISOString().replace('T', ' ').slice(11, 16) + ' UTC' : String(c.date);
-      const chg = c.open > 0 ? (((c.close - c.open) / c.open) * 100).toFixed(2) : '0.00';
-      const dir = c.close >= c.open ? 'UP' : 'DOWN';
-      return `    • [${timeStr}] Open: $${c.open.toFixed(2)} | High: $${c.high.toFixed(2)} | Low: $${c.low.toFixed(2)} | Close: $${c.close.toFixed(2)} | Vol: ${(c.volume / 1e3).toFixed(0)}k (${dir} ${chg}%)`;
+      // A zero-open candle is malformed: it carries no measurable change, so
+      // the direction label is dropped rather than faking (UP 0.00%).
+      const changeLabel = c.open > 0
+        ? ` (${c.close >= c.open ? 'UP' : 'DOWN'} ${(((c.close - c.open) / c.open) * 100).toFixed(2)}%)`
+        : '';
+      return `    • [${timeStr}] Open: $${c.open.toFixed(2)} | High: $${c.high.toFixed(2)} | Low: $${c.low.toFixed(2)} | Close: $${c.close.toFixed(2)} | Vol: ${(c.volume / 1e3).toFixed(0)}k${changeLabel}`;
     }).join('\n');
 
     // News scoring
@@ -150,7 +153,7 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
       `=== ${symbol} DASHBOARD OVERVIEW ===\n` +
       `Company: ${quote.name || symbol} · Exchange: ${quote.exchange || 'MARKET'} · Type: ${quote.quoteType || 'EQUITY'} · Currency: ${quote.currency || 'USD'}\n` +
       `Market State: ${quote.marketState || 'CLOSED'} | Trailing P/E: ${q?.trailingPE ? q.trailingPE.toFixed(1) + 'x' : 'N/A'} | Forward P/E: ${q?.forwardPE ? q.forwardPE.toFixed(1) + 'x' : 'N/A'}\n` +
-      `Last Price: $${analysis.structure.price.toFixed(2)} | Change: ${q?.regularMarketChange != null ? (q.regularMarketChange >= 0 ? '+' : '') + q.regularMarketChange.toFixed(2) : '--'} (${q?.regularMarketChangePercent != null ? (q.regularMarketChangePercent >= 0 ? '+' : '') + q.regularMarketChangePercent.toFixed(2) + '%' : '0%'})\n` +
+      `Last Price: $${analysis.structure.price.toFixed(2)} | Change: ${q?.regularMarketChange != null ? (q.regularMarketChange >= 0 ? '+' : '') + q.regularMarketChange.toFixed(2) : '--'} (${q?.regularMarketChangePercent != null ? (q.regularMarketChangePercent >= 0 ? '+' : '') + q.regularMarketChangePercent.toFixed(2) + '%' : '--%'})\n` +
       `Day Range: Low $${q?.regularMarketDayLow?.toFixed(2) || '--'} – High $${q?.regularMarketDayHigh?.toFixed(2) || '--'} | Open: $${q?.regularMarketOpen?.toFixed(2) || '--'} | Prev Close: $${quote.previousClose?.toFixed(2) || '--'}\n` +
       `Day Volume: ${q?.regularMarketVolume ? (q.regularMarketVolume / 1e6).toFixed(2) + 'M' : '--'} (20D Avg: ${quote.averageVolume ? (quote.averageVolume / 1e6).toFixed(2) + 'M' : '--'}, Vol Ratio: ${analysis.structure.volumeRatio?.toFixed(2) || '--'}x)\n` +
       `Market Cap: ${quote.marketCap ? '$' + (quote.marketCap / 1e12 >= 1 ? (quote.marketCap / 1e12).toFixed(2) + 'T' : (quote.marketCap / 1e9).toFixed(2) + 'B') : '--'} | 52W Range: $${analysis.structure.low52w?.toFixed(2) || '--'} – $${analysis.structure.high52w?.toFixed(2) || '--'} (${analysis.structure.from52wHighPct?.toFixed(1) || '--'}% from ATH, +${analysis.structure.from52wLowPct?.toFixed(1) || '--'}% from 52w low, Range Pos: ${analysis.structure.range52wPos?.toFixed(0) || '--'}%)`
@@ -203,7 +206,7 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
       `Action: ${analysis.plan.action} (Status: ${analysis.plan.status})\n` +
       `Setup: ${analysis.plan.setup}\n` +
       `Optimal Entry Zone: $${analysis.plan.entry?.toFixed(2) || '--'} (${analysis.plan.entryLabel || 'Reaction Zone'})\n` +
-      `Stop Loss: $${analysis.plan.stop?.toFixed(2) || '--'} (ATR Buffer Rule: Stops tighter than ${analysis.structure.atrPercent?.toFixed(1) || '2.5'}% get shaken out in normal market noise)\n` +
+      `Stop Loss: $${analysis.plan.stop?.toFixed(2) || '--'} (${analysis.structure.atrPercent != null ? `ATR Buffer Rule: Stops tighter than ${analysis.structure.atrPercent.toFixed(1)}% get shaken out in normal market noise` : 'ATR Buffer Rule: size the stop from the ATR reading once it is available'})\n` +
       `Target 1: $${analysis.plan.target1?.toFixed(2) || '--'} | Target 2: $${analysis.plan.target2?.toFixed(2) || '--'} | R:R to Target 1: ${analysis.plan.riskReward || '--'}\n` +
       `Execution Trigger & Conditions: ${analysis.plan.notes || 'Wait for a close that reclaims moving average or breaks nearby level with volume.'}`
     );

@@ -1,36 +1,41 @@
 /* ═══════════════════════════════════════════════════════════════════════════════
    BOZ — Design System
-   Professional Dark Mode Theme · Black & White Monochrome
+   Professional Dark Mode Theme · Violet-Graphite Monochrome
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 /* === LIGHT THEME OVERRIDES ================================================== */
-/* Dark is the default (values below). Light flips the monochrome surfaces. */
+/* Dark is the default (values below). Light flips the surfaces, keeping the
+   same violet-grey cast. */
 html[data-theme='light'] {
-  --bg-primary:       #f4f4f4;
-  --bg-secondary:     #ffffff;
-  --bg-tertiary:      #ececec;
+  --bg-primary:       #f4f4fa;
+  --bg-secondary:     var(--surface-gradient);
+  --bg-tertiary:      #ececf2;
   --bg-elevated:      #ffffff;
 
-  --surface-glass:        #ffffff;
-  --surface-glass-hover:  #f0f0f0;
-  --surface-glass-active: #e4e4e4;
-  --border-glass:         #dcdcdc;
-  --border-glass-hover:   #c2c2c2;
-  --border-glass-accent:  #000000;
+  /* Same card-surface treatment, light variant: a white → pale violet-grey wash. */
+  --surface-gradient:       linear-gradient(170deg, #ffffff 0%, #f0f0f6 100%);
+  --surface-gradient-hover: linear-gradient(170deg, #f8f8fe 0%, #eaeaf0 100%);
+
+  --surface-glass:        var(--surface-gradient);
+  --surface-glass-hover:  var(--surface-gradient-hover);
+  --surface-glass-active: var(--surface-gradient-hover);
+  --border-glass:         #dcdce2;
+  --border-glass-hover:   #c2c2c8;
+  --border-glass-accent:  #0b0b12;
 
   --term-bg:           #ffffff;
-  --term-bg-elevated:  #f4f4f4;
-  --term-bg-row:       #fafafa;
-  --term-bg-row-alt:   #f0f0f0;
-  --term-border:       #dcdcdc;
-  --term-border-bold:  #c2c2c2;
-  --term-text:         #000000;
-  --term-text-dim:     #555555;
-  --term-text-mute:    #8a8a8a;
+  --term-bg-elevated:  #f4f4fa;
+  --term-bg-row:       #fafaff;
+  --term-bg-row-alt:   #f0f0f6;
+  --term-border:       #dcdce2;
+  --term-border-bold:  #c2c2c8;
+  --term-text:         #0b0b12;
+  --term-text-dim:     #555564;
+  --term-text-mute:    #8a8a9a;
 
-  --text-primary:   #000000;
-  --text-secondary: #444444;
-  --text-muted:     #737373;
+  --text-primary:   #0b0b12;
+  --text-secondary: #444451;
+  --text-muted:     #737387;
   --text-accent:    #ffffff;
   --text-inverse:   #ffffff;
 }
@@ -40,20 +45,34 @@ html[data-theme='light'] {
 /* === DESIGN TOKENS ========================================================= */
 :root {
   /* ── Backgrounds ─────────────────────────────────────────────────────────── */
-  --bg-primary:       #181818;
-  --bg-secondary:     #1f1f1f;
-  --bg-tertiary:      #252525;
-  --bg-elevated:      #2b2b2b;
+  --bg-primary:       #18181e;
+  --bg-secondary:     var(--surface-gradient);
+  --bg-tertiary:      #25252d;
+  --bg-elevated:      #2b2b34;
 
-  /* ── Glass Surfaces (Removed for Terminal Look) ──────────────────────────── */
-  --surface-glass:        #202020;
-  --surface-glass-hover:  #292929;
-  --surface-glass-active: #333333;
-  --border-glass:         #2d2d2d;
-  --border-glass-hover:   #414141;
+  /* ── Card Surfaces (the watchlist/calendar card treatment, app-wide) ─────── */
+  /* One dark 170deg surface wash for every panel: the dashboard's mis-card
+     look (#1e1e21 → #17171a + 1px border + inset top highlight). Hover/active
+     nudge the wash. Consumed through `background:` (shorthand) only —
+     longhand background-color cannot hold a gradient, and --bg-elevated /
+     --bg-tertiary deliberately stay solid because shimmer skeletons nest
+     them inside their own linear-gradient(). These two anchors set the hue
+     of the whole ramp: every neutral in this file (backgrounds, borders,
+     text greys) carries the same ~240° blue-violet undertone, tinted from
+     the card wash rather than flat black/grey. */
+  --surface-gradient:       linear-gradient(170deg, #1e1e21 0%, #17171a 100%);
+  --surface-gradient-hover: linear-gradient(170deg, #26262a 0%, #1c1c20 100%);
+
+  --surface-glass:        var(--surface-gradient);
+  --surface-glass-hover:  var(--surface-gradient-hover);
+  --surface-glass-active: var(--surface-gradient-hover);
+  --border-glass:         #2d2d37;
+  --border-glass-hover:   #41414d;
   --border-glass-accent:  #ffffff;
 
   /* ── Accent Colors ──────────────────────────────────────────────────────── */
+  /* Monochrome chrome: accents stay white; colour is data only — green
+     (#00c853, up) and red (#d50000, down) speak for the market. */
   --accent-cyan:    #ffffff;
   --accent-violet:  #ffffff;
   --accent-blue:    #ffffff;
@@ -67,18 +86,18 @@ html[data-theme='light'] {
   --info:     #ffffff;
   --bull:     #00c853;
   --bear:     #d50000;
-  --neutral:  #888888;
+  --neutral:  #888899;
 
   /* ── Terminal Palette (Bloomberg-style) ─────────────────────────────────── */
-  --term-bg:           #000000;
-  --term-bg-elevated:  #0a0a0a;
-  --term-bg-row:       #0d0d0d;
-  --term-bg-row-alt:   #111111;
-  --term-border:       #1f1f1f;
-  --term-border-bold:  #2a2a2a;
+  --term-bg:           #0b0b12;
+  --term-bg-elevated:  #0a0a10;
+  --term-bg-row:       #0d0d13;
+  --term-bg-row-alt:   #111117;
+  --term-border:       #1f1f26;
+  --term-border-bold:  #2a2a33;
   --term-text:         #ffffff;
-  --term-text-dim:     #8a8a8a;
-  --term-text-mute:    #555555;
+  --term-text-dim:     #8a8a9a;
+  --term-text-mute:    #555564;
   --term-up:           #00c853;
   --term-down:         #d50000;
   --term-amber:        #ffffff;
@@ -88,10 +107,10 @@ html[data-theme='light'] {
 
   /* ── Text ────────────────────────────────────────────────────────────────── */
   --text-primary:   #ffffff;
-  --text-secondary: #a3a3a3;
-  --text-muted:     #737373;
-  --text-accent:    #000000;
-  --text-inverse:   #000000;
+  --text-secondary: #a3a3b0;
+  --text-muted:     #737387;
+  --text-accent:    #0b0b12;
+  --text-inverse:   #0b0b12;
 
   /* ── Typography ──────────────────────────────────────────────────────────── */
   --font-sans: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;

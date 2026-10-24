@@ -1,104 +1,30 @@
 'use client';
 
-import { invoke } from '@tauri-apps/api/core';
-import { isTauri } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import styles from './DesktopUpdateControl.module.css';
+import { useHostUpdate } from './use-host-update';
 
-/**
- * Phase reported by the desktop host.
- *
- * The host owns the update flow, not this component. It used to run its own
- * independent `check()` from here while Rust ALSO prompted with a native
- * dialog, so the two UIs could disagree and the user got no download progress
- * at all (the Rust progress callback was a no-op). Now the host is the single
- * source of truth: it publishes status, this renders it.
- */
-export type HostUpdatePhase =
-  | 'idle'
-  | 'available'
-  | 'downloading'
-  | 'installing'
-  | 'error';
-
-export interface HostUpdateStatus {
-  phase: HostUpdatePhase;
-  version: string | null;
-  percent: number | null;
-  message: string | null;
-  snoozedVersion: string | null;
-}
-
-const UPDATE_EVENT = 'boz://update-status';
-
-export const IDLE_UPDATE_STATUS: HostUpdateStatus = {
-  phase: 'idle',
-  version: null,
-  percent: null,
-  message: null,
-  snoozedVersion: null,
-};
-
-/** Drops anything the host has not reported so a stale payload can't render. */
-export function normalizeUpdateStatus(raw: unknown): HostUpdateStatus {
-  if (!raw || typeof raw !== 'object') return IDLE_UPDATE_STATUS;
-  const candidate = raw as Partial<HostUpdateStatus>;
-  const phases: HostUpdatePhase[] = ['idle', 'available', 'downloading', 'installing', 'error'];
-  const phase = phases.includes(candidate.phase as HostUpdatePhase)
-    ? (candidate.phase as HostUpdatePhase)
-    : 'idle';
-  const percent = typeof candidate.percent === 'number' && Number.isFinite(candidate.percent)
-    ? Math.max(0, Math.min(100, Math.round(candidate.percent)))
-    : null;
-  return {
-    phase,
-    version: typeof candidate.version === 'string' && candidate.version ? candidate.version : null,
-    percent,
-    message: typeof candidate.message === 'string' && candidate.message ? candidate.message : null,
-    snoozedVersion:
-      typeof candidate.snoozedVersion === 'string' && candidate.snoozedVersion
-        ? candidate.snoozedVersion
-        : null,
-  };
-}
+// The status shape and its normalization moved into the shared hook; these
+// re-exports keep every existing importer (tests, sidebar) working from here.
+export { IDLE_UPDATE_STATUS, normalizeUpdateStatus } from './use-host-update';
+export type { HostUpdatePhase, HostUpdateStatus } from './use-host-update';
 
 export default function DesktopUpdateControl({ version }: { version: string }) {
-  const [isDesktop, setIsDesktop] = useState(false);
-  const [status, setStatus] = useState<HostUpdateStatus>(IDLE_UPDATE_STATUS);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const { status, install, snooze, isDesktop } = useHostUpdate();
   const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const desktop = isTauri();
-    setIsDesktop(desktop);
-    if (!desktop) return undefined;
-
-    let cancelled = false;
-    // Read the current state first: the host can finish a check while the app
-    // is still booting, and that offer must survive the UI mounting late.
-    void invoke<unknown>('update_status')
-      .then((raw) => { if (!cancelled) setStatus(normalizeUpdateStatus(raw)); })
-      .catch(() => undefined);
-
-    const unlisten = listen<unknown>(UPDATE_EVENT, (event) => {
-      if (!cancelled) setStatus(normalizeUpdateStatus(event.payload));
-    }).then((off) => () => { cancelled = true; off(); }).catch(() => () => { cancelled = true; });
-
-    return () => { cancelled = true; void unlisten.then((off) => off()); };
-  }, []);
-
-  const install = useCallback(async () => {
+  const installUpdate = useCallback(async () => {
     setBusy(true);
     setActionError(null);
     try {
-      await invoke('install_available_update');
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'The update could not start.');
+      // The hook hands back a display-ready error string, or null on success.
+      const problem = await install();
+      if (problem) setActionError(problem);
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [install]);
 
   const remindLater = useCallback(async () => {
     const target = status.version;
@@ -106,13 +32,12 @@ export default function DesktopUpdateControl({ version }: { version: string }) {
     setBusy(true);
     setActionError(null);
     try {
-      await invoke('snooze_update', { version: target });
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Could not save your choice.');
+      const problem = await snooze(target);
+      if (problem) setActionError(problem);
     } finally {
       setBusy(false);
     }
-  }, [status.version]);
+  }, [snooze, status.version]);
 
   const percentage = status.percent;
   const updateRunning = status.phase === 'downloading' || status.phase === 'installing';
@@ -141,9 +66,13 @@ export default function DesktopUpdateControl({ version }: { version: string }) {
           ? 'Applying the update. BOZ will restart on its own.'
           : status.phase === 'error'
             ? status.message ?? 'The update service could not be reached.'
-            : status.snoozedVersion
-              ? `You are on the latest version. BOZ v${status.snoozedVersion} was set aside. Check for updates any time from here.`
-              : 'BOZ checks for updates once per launch. Nothing to do right now.';
+            // The host reports what a finished manual check found. Prefer it
+            // over the generic idle copy so the user is not told twice.
+            : status.message
+              ? status.message
+              : status.snoozedVersion
+                ? `You are on the latest version. BOZ v${status.snoozedVersion} was set aside. Check for updates any time from here.`
+                : 'BOZ checks for updates once per launch. Nothing to do right now.';
 
   return (
     <section className={styles['desktop-update-control']} aria-live="polite">
@@ -182,7 +111,7 @@ export default function DesktopUpdateControl({ version }: { version: string }) {
           <button
             type="button"
             className={styles['desktop-update-control__button']}
-            onClick={() => void install()}
+            onClick={() => void installUpdate()}
             disabled={busy}
           >
             Install update

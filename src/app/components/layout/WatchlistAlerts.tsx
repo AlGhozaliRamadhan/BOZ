@@ -137,7 +137,7 @@ export function WatchlistAlerts({ movers, quotes, onSelect }: WatchlistAlertsPro
                     borderRadius: '8px',
                     border: 0,
                     background: 'transparent',
-                    color: '#fff',
+                    color: '#ffffff',
                     fontFamily: 'var(--font-mono)',
                     fontSize: '12px',
                     fontWeight: 700,

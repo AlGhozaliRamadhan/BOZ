@@ -12,6 +12,7 @@ import { getRandomGreeting, MARKET_QUOTES } from '../_lib/greetings';
 import { takeChatPrefill } from '@/shared/discover';
 import type { MarketQuote } from '../_lib/chat-types';
 import { NEW_CHAT_EVENT } from '../_lib/chat-storage';
+import { DEFAULT_PROFILE, PROFILE_EVENT, readProfile } from '@/app/components/layout/profile-state';
 
 export default function ChatComponent({ chatId }: { chatId?: string }) {
   const { messages, setMessages, persistSession, requestSessionTitle, resetSignal } =
@@ -56,8 +57,31 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
     resetSignal,
   });
 
+  // The greeting persona follows the profile display name, mirroring the
+  // Sidebar's profile-state subscription. The ref keeps the random picks
+  // fresh without coupling them to re-renders; a rename re-greets in place.
+  const displayNameRef = useRef<string>('');
   useEffect(() => {
-    setGreeting(getRandomGreeting());
+    const syncGreetingName = () => {
+      let next: string;
+      try {
+        next = readProfile(window.localStorage).displayName;
+      } catch {
+        next = DEFAULT_PROFILE.displayName;
+      }
+      const previous = displayNameRef.current;
+      displayNameRef.current = next;
+      if (previous !== '' && previous !== next) {
+        setGreeting(getRandomGreeting(next));
+      }
+    };
+    syncGreetingName();
+    window.addEventListener(PROFILE_EVENT, syncGreetingName);
+    return () => window.removeEventListener(PROFILE_EVENT, syncGreetingName);
+  }, []);
+
+  useEffect(() => {
+    setGreeting(getRandomGreeting(displayNameRef.current));
     setCurrentQuote(MARKET_QUOTES[Math.floor(Math.random() * MARKET_QUOTES.length)]);
     // Discover's agent strip stashes a one-shot prompt in sessionStorage.
     // Pick it up on fresh /chat so the user lands with their question ready.
@@ -74,7 +98,7 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
   useEffect(() => {
     const handleNewChat = () => {
       setInput('');
-      setGreeting(getRandomGreeting());
+      setGreeting(getRandomGreeting(displayNameRef.current));
       setCurrentQuote(MARKET_QUOTES[Math.floor(Math.random() * MARKET_QUOTES.length)]);
       textareaRef.current?.focus();
     };

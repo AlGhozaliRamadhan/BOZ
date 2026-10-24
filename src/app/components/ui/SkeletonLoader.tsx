@@ -3,6 +3,8 @@
 interface SkeletonLoaderProps {
   type: 'text' | 'title' | 'card' | 'circle';
   width?: string;
+  /** Overrides the type's fixed height — for `circle` the width/height stay square. */
+  height?: string;
   count?: number;
 }
 
@@ -13,7 +15,7 @@ const typeClassMap: Record<string, string> = {
   circle: 'skeleton skeleton-circle',
 };
 
-export default function SkeletonLoader({ type, width, count = 1 }: SkeletonLoaderProps) {
+export default function SkeletonLoader({ type, width, height, count = 1 }: SkeletonLoaderProps) {
   const items = Array.from({ length: count }, (_, i) => i);
   const circleSize = width ?? '40px';
 
@@ -26,8 +28,8 @@ export default function SkeletonLoader({ type, width, count = 1 }: SkeletonLoade
           style={
             type === 'circle'
               ? { width: circleSize, height: circleSize }
-              : width
-                ? { width }
+              : width || height
+                ? { width, height }
                 : undefined
           }
         />

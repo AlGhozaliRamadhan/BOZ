@@ -1,6 +1,6 @@
 ﻿/* === SCREENERS ================================================================
    Professional list workspace: underline tabs + filter bar + table rows.
-   No cards, no multi-column card grids â€” dividers and rows only.
+   No cards, no multi-column card grids — dividers and rows only.
    Verdict color lives on the rail + action word; everything else monochrome.
    ========================================================================== */
 
@@ -54,7 +54,7 @@
   white-space: nowrap;
 }
 
-/* Market tabs â€” underline list, no cards */
+/* Market tabs — underline list, no cards */
 .scn-tabs {
   display: flex;
   gap: 4px;
@@ -79,7 +79,7 @@
 .scn-tab.is-active { border-bottom-color: var(--text-primary); color: var(--text-primary); }
 .scn-tab:disabled { opacity: 0.5; cursor: default; }
 
-/* Controls â€” flat stacked filter bar separated by dividers */
+/* Controls — flat stacked filter bar separated by dividers */
 .scn-controls {
   display: flex;
   flex-direction: column;
@@ -99,7 +99,7 @@
 
 .scn-label label { color: inherit; font: inherit; }
 
-/* Screens â€” one dropdown instead of a pill list */
+/* Screens — one dropdown instead of a pill list */
 .scn-screenrow { position: relative; max-width: 420px; }
 
 .scn-screenrow__icon {
@@ -135,7 +135,7 @@
   animation: scn-fade var(--duration-fast) var(--ease-out);
 }
 
-/* Light motion â€” press feedback, tab slide, row entrance, detail expand */
+/* Light motion — press feedback, tab slide, row entrance, detail expand */
 .scn-tab { transition: color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out); }
 .scn-tab:active:not(:disabled) { transform: translateY(1px); }
 
@@ -248,7 +248,7 @@
   padding: 0 9px;
 }
 
-.scn-select:focus { border-color: #6f6f6f; }
+.scn-select:focus { border-color: #6f6f82; }
 .scn-select--compact { width: auto; min-width: 130px; }
 
 .scn-actions {
@@ -275,7 +275,7 @@
   padding: 0 18px;
 }
 
-.scn-run:hover { background: #e2e2e2; }
+.scn-run:hover { background: #e2e2e8; }
 .scn-run.is-cancel { background: transparent; border-color: var(--border-glass-hover); color: var(--text-primary); }
 
 .scn-reset {
@@ -304,7 +304,7 @@
 /* Results */
 .scn-results { min-width: 0; }
 
-/* Summary â€” one line, not cards */
+/* Summary — one line, not cards */
 .scn-strip {
   display: flex;
   flex-wrap: wrap;
@@ -388,7 +388,7 @@
 
 .scn-sortdir:hover { border-color: var(--border-glass-hover); color: var(--text-primary); }
 
-/* Result table â€” divider-separated rows */
+/* Result table — divider-separated rows */
 .scn-table { border-bottom: 1px solid var(--border-glass); }
 
 .scn-thead,
@@ -500,7 +500,7 @@
 .scn-chevron:hover,
 .scn-open:hover { background: var(--surface-glass-active); color: var(--text-primary); }
 
-/* Expanded detail â€” stacked sections with dividers, never side-by-side cards */
+/* Expanded detail — stacked sections with dividers, never side-by-side cards */
 .scn-detail {
   border-top: 1px dashed var(--border-glass-hover);
   margin: 0 8px 0 14px;
@@ -569,9 +569,9 @@
   padding: 0 16px;
 }
 
-.scn-brief:hover { background: #e2e2e2; }
+.scn-brief:hover { background: #e2e2e8; }
 
-/* Status / empty â€” flat, no card chrome */
+/* Status / empty — flat, no card chrome */
 .scn-status {
   display: flex;
   align-items: center;

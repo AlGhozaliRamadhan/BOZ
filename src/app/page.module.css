@@ -1,0 +1,245 @@
+/* Dashboard chrome (src/app/page.tsx) — the dashboard's own in-content
+ * navbar and the watchlist folder bar. Chrome is transparent (the page's own
+ * colour) with a single bottom separator — no card, no brand: the logo and
+ * title live on the shell side. Chrome is monochrome: accents are white, and
+ * green (#00c853) / red (#d50000) stay reserved for market data. Dropdown
+ * surfaces wear the app card gradient (--surface-gradient). No glows.
+ * State words (.is-active/.is-armed/.is-end/.is-set/.is-up/.is-down) are
+ * module-local classes composed from TSX with the base class. */
+
+/* ── In-content navbar ───────────────────────────────────────────────────── */
+.dash-nav {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 2px 10px;
+  /* No card: the bar IS the page colour. The bottom separator is the whole
+     frame it needs — content slides away beneath it while pinned. */
+  background: var(--bg-primary);
+  border: 0;
+  border-bottom: 1px solid var(--border-glass);
+  margin-bottom: 14px;
+  user-select: none;
+}
+
+/* The instrument strip: charted symbol + its price + today's change. */
+.dash-quote {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+}
+
+.dash-symbol {
+  background: var(--bg-primary);
+  color: #ffffff;
+  border: 1px solid var(--border-glass);
+  border-radius: 7px;
+  font: 700 12px var(--font-mono);
+  padding: 5px 8px;
+  cursor: pointer;
+  max-width: 100%;
+  transition: border-color 0.15s ease;
+}
+
+.dash-symbol:hover { border-color: var(--border-glass-hover, #41414d); }
+.dash-symbol:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+
+.dash-price {
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.dash-change {
+  font: 700 10px var(--font-mono);
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.is-up { color: var(--success); }
+.is-down { color: var(--danger); }
+
+.dash-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-shrink: 0; }
+
+/* ── Watchlist folder bar ────────────────────────────────────────────────── */
+.folder-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin: 12px 0 2px;
+}
+
+.folder-chip-group { display: inline-flex; align-items: center; gap: 1px; min-width: 0; }
+
+.chip {
+  padding: 4px 12px;
+  border: 1px solid var(--border-glass);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: 700 10px var(--font-mono);
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.chip:hover,
+.chip:focus-visible { color: #ffffff; border-color: var(--border-glass-hover, #41414d); }
+.chip:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+/* Active folder: solid white — the app's monochrome accent (btn-primary). */
+.chip.is-active {
+  color: #080808;
+  background: #ffffff;
+  border-color: #ffffff;
+}
+
+/* Manage controls ride beside the chip; they surface with hover/select. */
+.chip-ghost {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 9px;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.folder-chip-group:hover .chip-ghost,
+.folder-chip-group.is-active .chip-ghost,
+.chip-ghost:focus-visible { opacity: 1; }
+.chip-ghost:hover { color: #ffffff; background: rgba(255, 255, 255, 0.08); }
+.chip-ghost:focus-visible { outline: 2px solid var(--text-primary); outline-offset: -1px; }
+/* Armed delete — the two-step confirm keeps the destructive red. */
+.chip-ghost.is-armed { color: var(--danger); opacity: 1; }
+
+.chip-rename {
+  width: 116px;
+  padding: 4px 10px;
+  border: 1px solid var(--text-muted);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: #ffffff;
+  font: 700 10px var(--font-mono);
+  outline: none;
+}
+
+/* ── Assign/create dropdowns ─────────────────────────────────────────────── */
+.picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 220;
+  width: 250px;
+  max-width: min(90vw, 270px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--surface-gradient);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 14px 40px rgba(0, 0, 0, 0.6);
+}
+
+.picker.is-end { left: auto; right: 0; }
+
+.picker-title {
+  font: 800 9px var(--font-mono);
+  letter-spacing: 0.14em;
+  color: var(--text-secondary);
+}
+
+.picker-note { font: 700 11px var(--font-mono); color: var(--text-muted); }
+
+.picker-hint {
+  margin: -2px 0 0;
+  font: 700 10px/1.5 var(--font-mono);
+  color: var(--text-muted);
+}
+
+.picker-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-glass);
+  border-radius: 7px;
+  color: #ffffff;
+  font: 700 12px var(--font-mono);
+  padding: 7px 9px;
+  outline: none;
+}
+
+.picker-input:focus { border-color: var(--text-muted); }
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  margin: 0 -4px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #ffffff;
+  font: 700 11px var(--font-mono);
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+
+.option:hover { background: rgba(255, 255, 255, 0.06); }
+.option.is-active { background: rgba(255, 255, 255, 0.08); }
+.option.is-active i { color: #ffffff; }
+.option i { flex-shrink: 0; }
+
+.picker-create {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #080808;
+  font: 800 10px var(--font-mono);
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.picker-create:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.row-chip {
+  max-width: 96px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-glass);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: 700 10px var(--font-mono);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.row-chip:hover { color: #ffffff; border-color: var(--border-glass-hover, #41414d); }
+.row-chip.is-set { color: var(--text-primary); border-color: var(--border-glass-hover, #41414d); }

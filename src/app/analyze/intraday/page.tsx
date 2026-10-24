@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { ThoughtAccordion } from '@/app/components/ui/ThoughtAccordion';
 import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
+import SkeletonLoader from '@/app/components/ui/SkeletonLoader';
 import ExternalAiBriefButton from '@/app/components/ui/ExternalAiBriefButton';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -112,10 +113,18 @@ export default function IntradayAnalysisPage() {
         </div>
       </div>
 
-      {/* Loading Overlay */}
+      {/* Loading state: a document skeleton crawling into place while the
+          rotating step message keeps the wait honest. No spinner. */}
       {loading && (
-        <div className="loading-overlay">
-          <div className="spinner spinner-lg" style={{ marginBottom: 'var(--space-4)' }}></div>
+        <div className="loading-overlay" role="status">
+          <div aria-hidden="true" style={{ width: 'min(100%, 560px)' }}>
+            <SkeletonLoader type="title" width="55%" />
+            <SkeletonLoader type="text" count={3} />
+            <div style={{ marginBottom: 'var(--space-3)' }}>
+              <SkeletonLoader type="card" />
+            </div>
+            <SkeletonLoader type="text" count={2} />
+          </div>
           <p style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-2)' }}>
             Analyzing {ticker}…
           </p>

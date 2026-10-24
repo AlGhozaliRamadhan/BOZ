@@ -1,19 +1,23 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import styles from './ticker/[ticker]/TickerPage.module.css';
+import db from './page.module.css';
 import { MiniCalendarWidget } from '@/app/components/layout/MarketStatusStrip';
 import { WatchlistAlerts } from '@/app/components/layout/WatchlistAlerts';
 import AreaChart from '@/app/components/ui/AreaChart';
 import { findBigMovers, loadRecentTickers } from '@/shared/discover';
 import {
   assignWatchlistGroup,
+  createFolder,
+  deleteFolder,
   dropTickerFromGroups,
-  groupNamesInUse,
+  foldersInUse,
   normalizeGroupName,
+  parseWatchlistFolders,
   parseWatchlistGroups,
+  renameFolder,
   tickersForGroup,
   MAX_GROUP_NAME_LENGTH,
   MAX_GROUPS,
@@ -29,77 +33,16 @@ interface Quote {
 /** Watchlist-driven hero: last charted symbol is remembered here. */
 const DASHBOARD_SYMBOL_KEY = 'boz_dashboard_symbol';
 const DASHBOARD_CHART_HEIGHT = 250;
-/** Groups live BESIDE the flat watchlist: `ticker â†’ group name`, so every
+/** Groups live BESIDE the flat watchlist: `ticker → group name`, so every
  *  other consumer of the flat `boz_favorites` array stays untouched. */
 const GROUPS_KEY = 'boz_watchlist_groups';
+/** Folder names persist as their own ordered list beside the map: a folder
+ *  exists from the moment it is created — empty ones included — until it is
+ *  deleted. */
+const FOLDERS_KEY = 'boz_watchlist_folders';
 const GROUPS_EVENT = 'boz_watchlist_groups_changed';
-/** Marks the hosts of the group assign/create dropdowns for outside-click. */
+/** Marks the hosts of the folder assign/create dropdowns for outside-click. */
 const GROUP_PICKER_CLASS = 'boz-group-picker';
-
-// â”€â”€â”€ Group chip + assign-dropdown styling (this page writes styles inline) â”€â”€
-const chipStyle = (selected: boolean): CSSProperties => ({
-  padding: '4px 12px',
-  borderRadius: '999px',
-  border: `1px solid ${selected ? 'var(--accent-violet)' : 'var(--border-glass)'}`,
-  background: selected ? 'rgba(139, 92, 246, 0.12)' : 'transparent',
-  color: selected ? '#fff' : 'var(--text-muted)',
-  fontFamily: 'var(--font-mono)',
-  fontSize: '10px',
-  fontWeight: 700,
-  letterSpacing: '0.08em',
-  cursor: 'pointer',
-  whiteSpace: 'nowrap',
-});
-
-const optionStyle = (selected: boolean): CSSProperties => ({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-  padding: '6px 8px',
-  margin: '0 -4px',
-  borderRadius: '7px',
-  border: 0,
-  background: selected ? 'rgba(255, 255, 255, 0.07)' : 'transparent',
-  color: '#fff',
-  fontFamily: 'var(--font-mono)',
-  fontSize: '11px',
-  fontWeight: 700,
-  cursor: 'pointer',
-  textAlign: 'left',
-  minWidth: 0,
-});
-
-const pickerDropdownStyle: CSSProperties = {
-  position: 'absolute',
-  top: 'calc(100% + 6px)',
-  width: '232px',
-  maxWidth: 'min(90vw, 260px)',
-  background: '#1d1d20',
-  border: '1px solid var(--border-glass)',
-  borderRadius: '12px',
-  boxShadow: '0 14px 40px rgba(0, 0, 0, 0.6)',
-  padding: '10px 12px',
-  zIndex: 220,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '6px',
-};
-
-const rowChipStyle: CSSProperties = {
-  maxWidth: '96px',
-  padding: '3px 10px',
-  borderRadius: '999px',
-  border: '1px solid var(--border-glass)',
-  background: 'transparent',
-  fontFamily: 'var(--font-mono)',
-  fontSize: '10px',
-  fontWeight: 700,
-  cursor: 'pointer',
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  flexShrink: 0,
-};
 
 export default function HomePage() {
   const router = useRouter();
@@ -125,7 +68,7 @@ export default function HomePage() {
         delete rest[ticker];
         return rest;
       });
-      // Its group goes with it â€” groups only exist through their tickers.
+      // Its assignment goes with it — the folder itself stays on the bar.
       const storedGroups = readGroups();
       const groupNext = dropTickerFromGroups(storedGroups, ticker);
       if (groupNext !== storedGroups) {
@@ -169,14 +112,19 @@ export default function HomePage() {
     return () => window.removeEventListener('boz_favorites_changed', handleFavsChange);
   }, []);
 
-  // â”€â”€ Watchlist groups â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // A ticker carries at most one group; a group exists only through the
-  // tickers that carry it. Groups are optional â€” the watchlist renders and
-  // behaves identically when none are assigned.
+  // ── Watchlist folders ──────────────────────────────────────────────────────
+  // A ticker carries at most one group. The bar renders the persistent folder
+  // list merged with any in-use group names from before folders existed, so
+  // nothing a user assigned earlier can vanish below them. Groups are always
+  // optional — the watchlist renders identically with none.
   const [groups, setGroups] = useState<WatchlistGroups>({});
+  const [folders, setFolders] = useState<string[]>([]);
   const [groupFilter, setGroupFilter] = useState<string | null>(null); // null = ALL
   const [groupPicker, setGroupPicker] = useState<string | null>(null); // ticker | 'composer'
-  const [pendingGroupName, setPendingGroupName] = useState('');
+  const [pendingFolderName, setPendingFolderName] = useState('');
+  const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<string | null>(null);
   const composerRef = useRef<HTMLInputElement>(null);
 
   const readGroups = (): WatchlistGroups => {
@@ -187,9 +135,21 @@ export default function HomePage() {
     }
   };
 
+  const readFolders = (): string[] => {
+    try {
+      return parseWatchlistFolders(JSON.parse(localStorage.getItem(FOLDERS_KEY) ?? '[]'));
+    } catch {
+      return []; // corrupted/absent list degrades to no folders, never a crash
+    }
+  };
+
   useEffect(() => {
     setGroups(readGroups());
-    const reload = () => setGroups(readGroups());
+    setFolders(readFolders());
+    const reload = () => {
+      setGroups(readGroups());
+      setFolders(readFolders());
+    };
     window.addEventListener(GROUPS_EVENT, reload);
     return () => window.removeEventListener(GROUPS_EVENT, reload);
   }, []);
@@ -199,7 +159,21 @@ export default function HomePage() {
     try {
       localStorage.setItem(GROUPS_KEY, JSON.stringify(next));
     } catch {
-      // Storage optional â€” assignments survive as session state.
+      // Storage optional — assignments survive as session state.
+    }
+    window.dispatchEvent(new Event(GROUPS_EVENT));
+  };
+
+  /** Writes the folder list (and optionally the ticker map) in one go, then
+   *  re-broadcasts — one event, one consistent state. */
+  const persistFolders = (nextFolders: string[], nextGroups?: WatchlistGroups) => {
+    setFolders(nextFolders);
+    if (nextGroups) setGroups(nextGroups);
+    try {
+      localStorage.setItem(FOLDERS_KEY, JSON.stringify(nextFolders));
+      if (nextGroups) localStorage.setItem(GROUPS_KEY, JSON.stringify(nextGroups));
+    } catch {
+      // Storage optional — the bar survives as session state.
     }
     window.dispatchEvent(new Event(GROUPS_EVENT));
   };
@@ -208,26 +182,72 @@ export default function HomePage() {
     try {
       persistGroups(assignWatchlistGroup(readGroups(), ticker, name));
     } catch {
-      // localStorage unavailable â€” still update the visible state.
+      // localStorage unavailable — still update the visible state.
       setGroups(assignWatchlistGroup(groups, ticker, name));
     }
     setGroupPicker(null);
-    setPendingGroupName('');
+    setPendingFolderName('');
   };
 
-  // One assign/create dropdown open at a time; Enter commits the typed name,
-  // the composer also jumps the filter onto the fresh group so it's visible.
-  const commitPendingGroup = () => {
-    const name = normalizeGroupName(pendingGroupName);
+  // One dropdown open at a time. The composer creates a REAL folder — it lands
+  // next to ALL even before any ticker is assigned. The row composer also
+  // materializes a typed name before assigning, so the chip exists everywhere.
+  const commitPendingFolder = (mode: 'composer' | 'row') => {
+    const name = normalizeGroupName(pendingFolderName);
     if (!name) return;
-    if (groupPicker === 'composer') {
-      setGroupFilter(name);
+    const created = createFolder(folders, name);
+    if (mode === 'composer') {
+      persistFolders(created.folders);
+      setGroupFilter(name); // jump onto the fresh (or existing) folder
       setGroupPicker(null);
-      setPendingGroupName('');
+      setPendingFolderName('');
     } else if (groupPicker) {
-      setTickerGroup(groupPicker, name);
+      const exists = created.created || created.folders.includes(name);
+      if (exists) {
+        persistFolders(created.folders);
+        setTickerGroup(groupPicker, name);
+      }
+      // A cap-blocked fresh name is refused silently: the dropdown stays open.
     }
   };
+
+  const startFolderRename = (name: string) => {
+    setRenamingFolder(name);
+    setRenameDraft(name);
+  };
+
+  // Enter commits; blur follows through (a second call re-renames with the
+  // same names — an idempotent no-op). Escape drops the draft untouched.
+  const commitFolderRename = () => {
+    const target = renamingFolder;
+    const next = normalizeGroupName(renameDraft);
+    if (!target) return;
+    setRenamingFolder(null);
+    setRenameDraft('');
+    if (!next) return;
+    const result = renameFolder(folders, groups, target, next);
+    if (result.renamed) {
+      persistFolders(result.folders, result.groups);
+      if (groupFilter === target) setGroupFilter(next);
+    }
+  };
+
+  const requestFolderDelete = (name: string) => {
+    if (confirmDeleteFolder !== name) {
+      setConfirmDeleteFolder(name);
+      return;
+    }
+    const result = deleteFolder(folders, groups, name);
+    persistFolders(result.folders, result.groups);
+    if (groupFilter === name) setGroupFilter(null);
+    setConfirmDeleteFolder(null);
+  };
+
+  useEffect(() => {
+    if (!confirmDeleteFolder) return;
+    const timer = setTimeout(() => setConfirmDeleteFolder(null), 4000);
+    return () => clearTimeout(timer);
+  }, [confirmDeleteFolder]);
 
   useEffect(() => {
     if (!groupPicker) return;
@@ -236,12 +256,12 @@ export default function HomePage() {
       const target = event.target as HTMLElement | null;
       if (target?.closest?.(`.${GROUP_PICKER_CLASS}`)) return;
       setGroupPicker(null);
-      setPendingGroupName('');
+      setPendingFolderName('');
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setGroupPicker(null);
-        setPendingGroupName('');
+        setPendingFolderName('');
       }
     };
     document.addEventListener('mousedown', onPointerDown);
@@ -252,22 +272,32 @@ export default function HomePage() {
     };
   }, [groupPicker]);
 
-  const groupNames = useMemo(() => groupNamesInUse(groups), [groups]);
+  const folderNames = useMemo(() => foldersInUse(folders, groups), [folders, groups]);
+  const folderCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const name of folderNames) counts[name] = 0;
+    for (const ticker of favorites) {
+      const name = groups[ticker];
+      if (name && name in counts) counts[name] += 1;
+    }
+    return counts;
+  }, [folderNames, favorites, groups]);
+
   const visibleFavorites = useMemo(
     () => tickersForGroup(favorites, groups, groupFilter),
     [favorites, groups, groupFilter],
   );
-  // ALL stays a peek of the first five; a chosen group shows all its rows.
+  // ALL stays a peek of the first five; a chosen folder shows all its rows.
   const shownFavorites = groupFilter ? visibleFavorites : visibleFavorites.slice(0, 5);
 
-  // Remembered chart symbol â€” read once on the client; SSR cannot touch
+  // Remembered chart symbol — read once on the client; SSR cannot touch
   // localStorage, so this stays a mount effect.
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(DASHBOARD_SYMBOL_KEY);
       setLastPicked(typeof raw === 'string' && raw.trim() ? raw : null);
     } catch {
-      // Storage optional â€” the first favourite charts by default.
+      // Storage optional — the first favourite charts by default.
     }
   }, []);
 
@@ -289,8 +319,8 @@ export default function HomePage() {
     }
   };
 
-  // Watchlist quotes with a light refresh while visible (the chart card and
-  // the watchlist rows share them â€” no hardcoded basket anywhere).
+  // Watchlist quotes with a light refresh while visible (the chart strip and
+  // the watchlist rows share them — no hardcoded basket anywhere).
   useEffect(() => {
     let cancelled = false;
     const fetchFavs = () => {
@@ -314,7 +344,7 @@ export default function HomePage() {
     };
   }, [favorites]);
 
-  // In-app move alerts: watchlist names moving Â±3% today. No browser notify.
+  // In-app move alerts: watchlist names moving ±3% today. No browser notify.
   const movers = useMemo(
     () =>
       findBigMovers(
@@ -330,30 +360,56 @@ export default function HomePage() {
 
   return (
     <div className={styles['bbg-page']} style={{ padding: '0 var(--space-4) var(--space-6)', background: 'var(--bg-primary)' }}>
-      <header className={`bbg-header ${styles['ticker-page-header']}`}>
-        <div>
-          <h1 style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-violet)', fontSize: '14px', fontWeight: 700, margin: 0, letterSpacing: '0.05em' }}>DASHBOARD</h1>
-          <p style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', fontSize: '10px', marginTop: '2px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>REAL-TIME MARKET OVERVIEW</p>
+      {/* In-content navbar: a flat instrument strip in the page's own colour
+          with one bottom separator — the charted symbol, its price and today's
+          spoken change on the left, the alert bell on the right. Colour is
+          data only: green/red says what the market is doing. */}
+      <nav aria-label="Charted instrument" className={db['dash-nav']}>
+        <div className={db['dash-quote']}>
+          {selectedSymbol ? (
+            <>
+              <select
+                aria-label="Watchlist symbol to chart"
+                className={db['dash-symbol']}
+                value={selectedSymbol}
+                onChange={(e) => pickSymbol(e.target.value)}
+              >
+                {favorites.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+              <span className={db['dash-price']}>
+                {typeof selectedQuote?.price === 'number' ? (
+                  `$${selectedQuote.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                ) : (
+                  <span className={styles['skel']} style={{ width: '86px', height: '14px' }}></span>
+                )}
+              </span>
+              <span
+                className={`${db['dash-change']}${typeof selectedChange === 'number' ? (selectedUp ? ` ${db['is-up']}` : ` ${db['is-down']}`) : ''}`}
+              >
+                {typeof selectedChange === 'number'
+                  ? `${selectedUp ? '+' : ''}${selectedChange.toFixed(2)}% TODAY`
+                  : <span className={styles['skel']} style={{ width: '74px', height: '11px' }}></span>}
+              </span>
+            </>
+          ) : (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: '#888899' }}>
+              NO FAVOURITE YET — STAR A TICKER TO CHART IT
+            </span>
+          )}
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div className={db['dash-actions']}>
           <WatchlistAlerts
             movers={movers}
             quotes={favoriteQuotes}
             onSelect={(ticker) => router.push(`/ticker/${encodeURIComponent(ticker)}`)}
           />
-          <button
-            type="button"
-            onClick={() => router.push('/discover')}
-            style={{ padding: '0 14px', height: '38px', borderRadius: '7px', border: 0, background: 'var(--accent-violet)', color: '#080808', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
-          >
-            <i className="fa-solid fa-magnifying-glass" aria-hidden="true" style={{ marginRight: '6px' }}></i>
-            SEARCH TICKERS
-          </button>
         </div>
-      </header>
+      </nav>
 
       {/* Top row: the watchlist chart hero on the left, and on the RIGHT one
-          GLOBAL mini-month calendar (its own widget â€” sessions and closures
+          GLOBAL mini-month calendar (its own widget — sessions and closures
           spoken inside it, never a market-specific card). No hardcoded quote
           basket: the chart always follows the user's favourites. */}
       <div style={{ display: 'flex', gap: '12px', alignItems: 'stretch', flexWrap: 'wrap', marginBottom: '20px' }}>
@@ -362,67 +418,21 @@ export default function HomePage() {
           className="mis-card"
           style={{ flex: '1 1 420px', minWidth: 0 }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '6px' }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', minWidth: 0 }}>
-              <span className="mis-card-label" style={{ marginBottom: 0 }}>WATCHLIST CHART</span>
-              {selectedSymbol ? (
-                <select
-                  aria-label="Watchlist symbol to chart"
-                  value={selectedSymbol}
-                  onChange={(e) => pickSymbol(e.target.value)}
-                  style={{
-                    background: 'var(--bg-primary)',
-                    color: '#fff',
-                    border: '1px solid var(--border-glass)',
-                    borderRadius: '7px',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    padding: '5px 8px',
-                    cursor: 'pointer',
-                    maxWidth: '100%',
-                  }}
-                >
-                  {favorites.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              ) : (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: '#888' }}>NO FAVOURITE YET</span>
-              )}
-            </div>
-            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              <div style={{ color: '#fff', fontSize: '15px', fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 }}>
-                {typeof selectedQuote?.price === 'number' ? (
-                  `$${selectedQuote.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-                ) : selectedSymbol ? (
-                  <span className={styles['skel']} style={{ width: '74px', height: '15px' }}></span>
-                ) : (
-                  'â€”'
-                )}
-              </div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 700, color: typeof selectedChange === 'number' ? (selectedUp ? 'var(--success)' : 'var(--danger)') : '#666' }}>
-                {typeof selectedChange === 'number'
-                  ? `${selectedUp ? '+' : ''}${selectedChange.toFixed(2)}% TODAY`
-                  : <span className={styles['skel']} style={{ width: '68px', height: '11px' }}></span>}
-              </div>
-            </div>
-          </div>
           {selectedSymbol ? (
             <AreaChart symbol={selectedSymbol} height={DASHBOARD_CHART_HEIGHT} rangeLabel="90D" />
           ) : (
             <div style={{ height: '220px', display: 'grid', placeItems: 'center', border: '1px dashed var(--border-glass)', borderRadius: 10 }}>
               <div style={{ textAlign: 'center', padding: '0 16px' }}>
-                <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: '#fff', margin: 0 }}>NO SYMBOLS YET</h2>
-                <p style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: '#888', margin: '6px 0 0' }}>
+                <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: '#ffffff', margin: 0 }}>NO SYMBOLS YET</h2>
+                <p style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: '#888899', margin: '6px 0 0' }}>
                   Star a ticker and its chart lives here.
                 </p>
                 <button
                   type="button"
                   onClick={() => router.push('/discover')}
-                  style={{ marginTop: '10px', padding: '8px 14px', borderRadius: '7px', border: 0, background: 'var(--accent-violet)', color: '#080808', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
+                  style={{ marginTop: '10px', padding: '8px 14px', borderRadius: '7px', border: 0, background: '#ffffff', color: '#080808', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
                 >
-                  DISCOVER TICKERS â†—
+                  DISCOVER TICKERS ↗
                 </button>
               </div>
             </div>
@@ -437,100 +447,145 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* In-app alerts live as a compact bell notification in the header â€”
-          the wide "MOVING TODAY" banner is gone. */}
-
       {/* Watchlist summary */}
       <section className={styles['home-watchlist']} style={{ marginTop: 0, maxWidth: 'none' }} aria-label="Watchlist summary">
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px' }}>
-          <h2>YOUR WATCHLIST{favorites.length > 0 ? ` Â· ${favorites.length}` : ''}</h2>
+          <h2>YOUR WATCHLIST{favorites.length > 0 ? ` · ${favorites.length}` : ''}</h2>
           {favorites.length > 5 && (
             <button
               type="button"
               onClick={() => router.push('/discover')}
-              style={{ background: 'transparent', border: 0, color: 'var(--accent-cyan)', fontFamily: 'var(--font-mono)', fontSize: '11px', cursor: 'pointer' }}
+              style={{ background: 'transparent', border: 0, color: '#ffffff', fontFamily: 'var(--font-mono)', fontSize: '11px', cursor: 'pointer' }}
             >
-              View all in Discover â†’
+              View all in Discover →
             </button>
           )}
         </div>
 
-        {/* Groups: optional tags over the flat watchlist. ALL is the plain
-            list; a group chip shows only its tickers, in watchlist order. */}
-        {favorites.length > 0 && (
-          <div aria-label="Watchlist groups" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', margin: '12px 0 2px' }}>
+        {/* Folders: persistent chips beside ALL. A folder exists from the
+            moment it is created — empty included — and every row carries it
+            or stays ungrouped. Selected folders grow manage controls. */}
+        {favorites.length > 0 || folderNames.length > 0 ? (
+          <div className={db['folder-bar']} aria-label="Watchlist folders">
             <button
               type="button"
-              style={chipStyle(groupFilter === null)}
+              className={`${db.chip}${groupFilter === null ? ` ${db['is-active']}` : ''}`}
               onClick={() => setGroupFilter(null)}
               aria-pressed={groupFilter === null}
+              title="Show the whole watchlist"
             >
-              ALL Â· {favorites.length}
+              ALL · {favorites.length}
             </button>
-            {groupNames.map((name) => (
-              <button
-                key={name}
-                type="button"
-                style={chipStyle(groupFilter === name)}
-                onClick={() => setGroupFilter(name)}
-                aria-pressed={groupFilter === name}
-                title={`Filter watchlist: ${name}`}
-              >
-                {name} Â· {favorites.filter((t) => groups[t] === name).length}
-              </button>
-            ))}
-            {groupNames.length < MAX_GROUPS && (
-              <div className={GROUP_PICKER_CLASS} style={{ position: 'relative' }}>
-                <button
-                  type="button"
-                  style={chipStyle(false)}
-                  aria-expanded={groupPicker === 'composer'}
-                  aria-haspopup="dialog"
-                  title="Create a group"
-                  onClick={() => {
-                    const next = groupPicker === 'composer' ? null : 'composer';
-                    setGroupPicker(next);
-                    setPendingGroupName('');
-                  }}
-                >
-                  + GROUP
-                </button>
-                {groupPicker === 'composer' && (
-                  <div style={{ ...pickerDropdownStyle, left: 0 }}>
+            {folderNames.map((name) => {
+              const active = groupFilter === name;
+              return (
+                <span key={name} className={`${db['folder-chip-group']}${active ? ` ${db['is-active']}` : ''}`}>
+                  {renamingFolder === name ? (
                     <input
-                      ref={composerRef}
-                      value={pendingGroupName}
+                      className={db['chip-rename']}
+                      value={renameDraft}
                       maxLength={MAX_GROUP_NAME_LENGTH}
-                      placeholder="Group nameâ€¦"
-                      aria-label="New group name"
-                      onChange={(e) => setPendingGroupName(e.target.value)}
+                      aria-label={`Rename folder ${name}`}
+                      onChange={(e) => setRenameDraft(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
-                          commitPendingGroup();
+                          commitFolderRename();
+                        }
+                        if (e.key === 'Escape') {
+                          e.preventDefault();
+                          setRenamingFolder(null);
                         }
                       }}
-                      style={{ width: '100%', boxSizing: 'border-box', background: 'var(--bg-primary)', border: '1px solid var(--border-glass)', borderRadius: '7px', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '12px', padding: '7px 9px' }}
+                      onBlur={commitFolderRename}
+                      autoFocus
+                    />
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className={`${db.chip}${active ? ` ${db['is-active']}` : ''}`}
+                        onClick={() => setGroupFilter(name)}
+                        aria-pressed={active}
+                        title={`Filter watchlist: ${name}`}
+                      >
+                        {name} · {folderCounts[name] ?? 0}
+                      </button>
+                      <button
+                        type="button"
+                        className={db['chip-ghost']}
+                        title="Rename folder"
+                        aria-label={`Rename folder ${name}`}
+                        onClick={() => startFolderRename(name)}
+                      >
+                        <i className="fa-solid fa-pen" aria-hidden="true"></i>
+                      </button>
+                      <button
+                        type="button"
+                        className={`${db['chip-ghost']}${confirmDeleteFolder === name ? ` ${db['is-armed']}` : ''}`}
+                        title={confirmDeleteFolder === name ? 'Click again to delete the folder' : 'Delete folder (keeps its tickers)'}
+                        aria-label={confirmDeleteFolder === name ? `Confirm delete folder ${name}` : `Delete folder ${name}`}
+                        onClick={() => requestFolderDelete(name)}
+                      >
+                        <i className="fa-solid fa-trash" aria-hidden="true"></i>
+                      </button>
+                    </>
+                  )}
+                </span>
+              );
+            })}
+            {folderNames.length < MAX_GROUPS && (
+              <div className={GROUP_PICKER_CLASS} style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  className={db.chip}
+                  aria-expanded={groupPicker === 'composer'}
+                  aria-haspopup="dialog"
+                  title="Create a folder"
+                  onClick={() => {
+                    const next = groupPicker === 'composer' ? null : 'composer';
+                    setGroupPicker(next);
+                    setPendingFolderName('');
+                  }}
+                >
+                  + FOLDER
+                </button>
+                {groupPicker === 'composer' && (
+                  <div className={db.picker}>
+                    <input
+                      ref={composerRef}
+                      className={db['picker-input']}
+                      value={pendingFolderName}
+                      maxLength={MAX_GROUP_NAME_LENGTH}
+                      placeholder="Folder name…"
+                      aria-label="New folder name"
+                      onChange={(e) => setPendingFolderName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          commitPendingFolder('composer');
+                        }
+                      }}
                     />
                     <div style={{ display: 'flex', gap: '6px' }}>
                       <button
                         type="button"
-                        onClick={commitPendingGroup}
-                        disabled={!normalizeGroupName(pendingGroupName)}
-                        style={{ padding: '7px 10px', borderRadius: '7px', border: 0, background: 'var(--accent-violet)', color: '#080808', fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em', cursor: 'pointer', opacity: pendingGroupName.trim() ? 1 : 0.4 }}
+                        className={db['picker-create']}
+                        onClick={() => commitPendingFolder('composer')}
+                        disabled={!normalizeGroupName(pendingFolderName)}
                       >
                         CREATE
                       </button>
                     </div>
-                    <p style={{ margin: '-2px 0 0', fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)' }}>
-                      Starred tickers stay ungrouped until assigned here.
+                    <p className={db['picker-hint']}>
+                      Folders stay next to ALL — empty ones included — until deleted. Put tickers in with a row&apos;s + folder chip.
                     </p>
                   </div>
                 )}
               </div>
             )}
           </div>
-        )}
+        ) : null}
 
         {favorites.length > 0 ? (
           shownFavorites.length > 0 ? (
@@ -559,70 +614,72 @@ export default function HomePage() {
                   <div className={GROUP_PICKER_CLASS} style={{ position: 'relative' }}>
                     <button
                       type="button"
-                      style={{ ...rowChipStyle, color: groups[t] ? 'var(--text-primary)' : 'var(--text-muted)' }}
+                      className={`${db['row-chip']}${groups[t] ? ` ${db['is-set']}` : ''}`}
                       aria-expanded={groupPicker === t}
                       aria-haspopup="dialog"
-                      title={groups[t] ? `Group: ${groups[t]}` : 'Assign to a group'}
+                      title={groups[t] ? `Folder: ${groups[t]}` : 'Assign to a folder'}
                       onClick={() => {
                         setGroupPicker(groupPicker === t ? null : t);
-                        setPendingGroupName('');
+                        setPendingFolderName('');
                       }}
                     >
-                      {groups[t] ?? '+ group'}
+                      {groups[t] ?? '+ folder'}
                     </button>
                     {groupPicker === t && (
-                      <div style={{ ...pickerDropdownStyle, right: 0 }}>
-                        <span style={{ font: '800 9px var(--font-mono)', letterSpacing: '0.12em', color: 'var(--text-secondary)' }}>
-                          ASSIGN GROUP
+                      <div className={`${db.picker} ${db['is-end']}`}>
+                        <span className={db['picker-title']}>
+                          ASSIGN FOLDER
                         </span>
-                        {groupNames.length === 0 ? (
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)' }}>
-                            No groups yet â€” create one below.
+                        {folderNames.length === 0 ? (
+                          <span className={db['picker-note']}>
+                            No folders yet — create one below.
                           </span>
                         ) : (
-                          groupNames.map((name) => (
+                          folderNames.map((name) => (
                             <button
                               key={name}
                               type="button"
-                              style={optionStyle(groups[t] === name)}
+                              className={`${db.option}${groups[t] === name ? ` ${db['is-active']}` : ''}`}
                               onClick={() => setTickerGroup(t, name)}
                             >
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
                               {groups[t] === name && (
-                                <i className="fa-solid fa-check" aria-hidden="true" style={{ marginLeft: 'auto', fontSize: '9px', color: 'var(--accent-violet)' }}></i>
+                                <i className="fa-solid fa-check" aria-hidden="true"></i>
                               )}
                             </button>
                           ))
                         )}
                         {groups[t] && (
-                          <button type="button" style={optionStyle(false)} onClick={() => setTickerGroup(t, '')}>
-                            No group
+                          <button type="button" className={db.option} onClick={() => setTickerGroup(t, '')}>
+                            No folder
                           </button>
                         )}
                         <div style={{ display: 'flex', gap: '6px' }}>
                           <input
                             ref={composerRef}
-                            value={pendingGroupName}
+                            className={db['picker-input']}
+                            style={{ flex: 1, minWidth: 0, fontSize: '11px', padding: '6px 8px' }}
+                            value={pendingFolderName}
                             maxLength={MAX_GROUP_NAME_LENGTH}
-                            placeholder="New groupâ€¦"
-                            aria-label="New group name"
-                            onChange={(e) => setPendingGroupName(e.target.value)}
+                            placeholder="New folder…"
+                            aria-label="New folder name"
+                            onChange={(e) => setPendingFolderName(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
-                                commitPendingGroup();
+                                commitPendingFolder('row');
                               }
                             }}
-                            style={{ flex: 1, minWidth: 0, background: 'var(--bg-primary)', border: '1px solid var(--border-glass)', borderRadius: '7px', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '6px 8px', boxSizing: 'border-box' }}
                           />
                           <button
                             type="button"
                             aria-label="Create and assign"
-                            onClick={commitPendingGroup}
-                            disabled={!normalizeGroupName(pendingGroupName)}
-                            style={{ padding: '0 10px', borderRadius: '7px', border: 0, background: 'var(--accent-violet)', color: '#080808', fontFamily: 'var(--font-mono)', fontSize: '12px', fontWeight: 800, cursor: pendingGroupName.trim() ? 'pointer' : 'not-allowed', opacity: pendingGroupName.trim() ? 1 : 0.4 }}
+                            onClick={() => commitPendingFolder('row')}
+                            disabled={!normalizeGroupName(pendingFolderName)}
+                            style={{ padding: '0 10px' }}
+                            className={db['picker-create']}
                           >
-                            ï¼‹
+                            ＋
                           </button>
                         </div>
                       </div>
@@ -645,23 +702,23 @@ export default function HomePage() {
             </div>
           ) : (
             <div style={{ padding: '18px 0', textAlign: 'center', border: '1px dashed var(--border-glass)', borderRadius: '10px', marginTop: '10px' }}>
-              <p style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#888', margin: 0 }}>
-                No tickers in {groupFilter} yet â€” assign one via a row's + group chip.
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#888899', margin: 0 }}>
+                No tickers in {groupFilter} yet — assign one via a row&apos;s + folder chip.
               </p>
             </div>
           )
         ) : (
           <div style={{ padding: '28px 0', textAlign: 'center', border: '1px dashed var(--border-glass)', borderRadius: '10px' }}>
-            <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: '#fff' }}>NO SYMBOLS YET</h2>
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#888', marginTop: '8px' }}>
-              Star any ticker to pin it here{recentCount > 0 ? ' â€” or jump back into one you recently viewed' : ''}.
+            <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: '14px', color: '#ffffff' }}>NO SYMBOLS YET</h2>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#888899', marginTop: '8px' }}>
+              Star any ticker to pin it here{recentCount > 0 ? ' — or jump back into one you recently viewed' : ''}.
             </p>
             <button
               type="button"
               onClick={() => router.push('/discover')}
-              style={{ marginTop: '12px', padding: '10px 16px', borderRadius: '7px', border: 0, background: 'var(--accent-violet)', color: '#080808', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
+              style={{ marginTop: '12px', padding: '10px 16px', borderRadius: '7px', border: 0, background: '#ffffff', color: '#080808', fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}
             >
-              DISCOVER TICKERS â†—
+              DISCOVER TICKERS ↗
             </button>
           </div>
         )}
@@ -681,8 +738,8 @@ export default function HomePage() {
             className="home-shortcut-tile"
             onClick={() => router.push(s.href)}
           >
-            <div style={{ color: '#fff', fontSize: '12px', fontWeight: 700 }}>{s.label} â†’</div>
-            <div style={{ color: '#888', fontSize: '11px', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>{s.desc}</div>
+            <div style={{ color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>{s.label} →</div>
+            <div style={{ color: '#888899', fontSize: '11px', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>{s.desc}</div>
           </button>
         ))}
       </section>
