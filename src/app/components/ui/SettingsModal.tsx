@@ -361,7 +361,7 @@ function ShellDropdown({ value, options, onChange, ariaLabel }: {
           aria-label={ariaLabel}
           style={{
             position: 'absolute', top: 'calc(100% + 6px)', left: 0, minWidth: '100%',
-            background: 'var(--bg-elevated)', border: '1px solid rgba(255,255,255,0.14)',
+            background: 'var(--surface-gradient)', border: '1px solid rgba(255,255,255,0.14)',
             borderRadius: '10px', padding: '4px', overflow: 'hidden', zIndex: 60,
             boxShadow: '0 14px 34px -10px rgba(0,0,0,0.6)',
           }}
@@ -782,7 +782,7 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
 
       {/* Main Modal Window */}
       <div style={{
-        background: 'var(--bg-elevated)', width: '100%', maxWidth: '900px', height: '85vh', minHeight: '680px',
+        background: 'var(--surface-gradient)', width: '100%', maxWidth: '900px', height: '85vh', minHeight: '680px',
         borderRadius: 'var(--radius-xl)', display: 'flex', overflow: 'hidden',
         border: '1px solid rgba(255, 255, 255, 0.05)',
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
@@ -790,7 +790,7 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
         
         {/* Sidebar */}
         <div style={{
-          width: '240px', background: 'var(--bg-secondary)',
+          width: '240px', background: 'var(--surface-gradient)',
           borderRight: '1px solid rgba(255, 255, 255, 0.05)',
           display: 'flex', flexDirection: 'column'
         }}>
@@ -883,7 +883,7 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
                       </p>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', marginBottom: '20px' }}>
-                        <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: avatarColor, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '18px', fontWeight: 700, flexShrink: 0 }}>
+                        <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: avatarColor, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '18px', fontWeight: 700, flexShrink: 0 }}>
                           {profileInitial(displayName) || <i className="fa-solid fa-user" style={{ fontSize: '16px' }}></i>}
                         </div>
                         <div style={{ minWidth: 0 }}>

@@ -4,6 +4,11 @@
 // `ticker → group name` map, so adding/grouping/removing stays fully local
 // and every consumer that doesn't care about groups is untouched.
 //
+// A folder bar rides on top: folder names persist in their own ordered list,
+// so a folder is born the moment it is created — even with zero tickers —
+// and lasts until it is deleted. The ticker map is unchanged for every
+// existing consumer; an in-use name that predates the list renders anyway.
+//
 // Pure data: no DOM, no storage I/O — callers own persistence (localStorage)
 // and only hand maps in, get new maps out. Immutability is deliberate: one
 // bad assignment can never mutate the state a React tree is rendering.
@@ -58,8 +63,8 @@ export function assignWatchlistGroup(
   return { ...map, [ticker]: name };
 }
 
-/** When a ticker leaves the watchlist, its (possibly empty) group goes too —
- *  groups only exist through the tickers that carry them. */
+/** When a ticker leaves the watchlist, its assignment leaves with it —
+ *  the folder itself stays on the bar until it is deleted. */
 export function dropTickerFromGroups(map: WatchlistGroups, ticker: string): WatchlistGroups {
   if (!(ticker in map)) return map;
   const next = { ...map };
@@ -90,4 +95,115 @@ export function tickersForGroup(
 ): string[] {
   if (!group) return [...tickers];
   return tickers.filter((ticker) => map[ticker] === group);
+}
+
+// ── Folders: the persistent group bar ────────────────────────────────────────
+// Groups started as tags that existed only through their tickers: a freshly
+// typed group vanished until its first ticker arrived, so a create made no
+// folder at all. Folders now persist as their own ordered name list beside
+// the ticker map, and the map keeps working exactly as before.
+
+/** Ordered folder names, as persisted (folder list key) and rendered. */
+export type WatchlistFolders = string[];
+
+/** Validate a parsed-JSON folder list: strings only, normalized,
+ *  de-duplicated (first occurrence wins), capped at MAX_GROUPS — a corrupted
+ *  entry degrades to fewer folders, never a crash. */
+export function parseWatchlistFolders(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== 'string') continue;
+    const name = normalizeGroupName(entry);
+    if (!name || out.includes(name)) continue;
+    out.push(name);
+    if (out.length >= MAX_GROUPS) break;
+  }
+  return out;
+}
+
+/** The names the bar renders: the persisted list first, then any in-use group
+ *  names recorded before folders existed — they migrate in without loss. */
+export function foldersInUse(
+  folders: readonly string[],
+  map: WatchlistGroups,
+): string[] {
+  const out = [...folders];
+  for (const name of groupNamesInUse(map)) {
+    if (!out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+export interface CreateFolderResult {
+  folders: string[];
+  /** The normalized name ('' when nothing usable was typed). */
+  name: string;
+  /** False for empty names, duplicates, or a bar already at the cap. */
+  created: boolean;
+}
+
+/** Create a folder if the name is fresh and the bar is under the cap.
+ *  The folder exists — next to ALL — even with zero tickers assigned. */
+export function createFolder(
+  folders: readonly string[],
+  raw: string,
+): CreateFolderResult {
+  const name = normalizeGroupName(raw);
+  if (!name || folders.includes(name) || folders.length >= MAX_GROUPS) {
+    return { folders: [...folders], name, created: false };
+  }
+  return { folders: [...folders, name], name, created: true };
+}
+
+export interface RenameFolderResult {
+  folders: string[];
+  groups: WatchlistGroups;
+  renamed: boolean;
+}
+
+/** Rename a folder and re-point its tickers. Renaming onto an existing
+ *  folder merges: every ticker moves onto the target and the emptied name
+ *  leaves the bar. A legacy name (in the map but not the list) joins the
+ *  list under its new name. An unknown folder is refused without inventing
+ *  anything. */
+export function renameFolder(
+  folders: readonly string[],
+  map: WatchlistGroups,
+  oldName: string,
+  raw: string,
+): RenameFolderResult {
+  const nextName = normalizeGroupName(raw);
+  const unchanged = { folders: [...folders], groups: { ...map }, renamed: false };
+  if (!oldName || !nextName || nextName === oldName) return unchanged;
+  // A rename must meet an existing folder somewhere: the bar or the map.
+  if (!folders.includes(oldName) && !Object.values(map).includes(oldName)) {
+    return unchanged;
+  }
+  const groups: WatchlistGroups = {};
+  for (const [ticker, group] of Object.entries(map)) {
+    groups[ticker] = group === oldName ? nextName : group;
+  }
+  const merged = folders.includes(oldName)
+    ? folders.map((name) => (name === oldName ? nextName : name))
+    : [...folders, nextName];
+  const foldersNext: string[] = [];
+  for (const name of merged) {
+    if (!foldersNext.includes(name)) foldersNext.push(name);
+  }
+  return { folders: foldersNext, groups, renamed: true };
+}
+
+/** Delete a folder: it leaves the bar and releases its tickers — they stay
+ *  starred, just ungrouped. */
+export function deleteFolder(
+  folders: readonly string[],
+  map: WatchlistGroups,
+  name: string,
+): { folders: string[]; groups: WatchlistGroups } {
+  const groups: WatchlistGroups = {};
+  for (const [ticker, group] of Object.entries(map)) {
+    if (group !== name) groups[ticker] = group;
+  }
+  return { folders: folders.filter((folder) => folder !== name), groups };
 }

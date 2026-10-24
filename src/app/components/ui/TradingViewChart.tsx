@@ -74,16 +74,16 @@ function TradingViewChart({
     link.href = href;
     link.rel = 'noopener nofollow';
     link.target = '_blank';
-    link.style.color = '#555';
+    link.style.color = '#555564';
     link.style.textDecoration = 'none';
 
     const symbolLabel = document.createElement('span');
-    symbolLabel.style.color = '#888';
+    symbolLabel.style.color = '#888899';
     symbolLabel.textContent = tvSymbol.replace(':', ' · ');
     link.appendChild(symbolLabel);
 
     const attribution = document.createElement('span');
-    attribution.style.color = '#444';
+    attribution.style.color = '#444451';
     attribution.style.marginLeft = '6px';
     attribution.textContent = 'chart by TradingView';
     credit.append(link, attribution);
@@ -102,7 +102,7 @@ function TradingViewChart({
       style,
       locale: 'en',
       backgroundColor: isLight ? '#ffffff' : '#000000',
-      gridColor: isLight ? '#e4e4e4' : '#1a1a1a',
+      gridColor: isLight ? '#e4e4ea' : '#1a1a21',
       hide_top_toolbar: false,
       hide_legend: false,
       hide_side_toolbar: false,

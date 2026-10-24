@@ -50,7 +50,7 @@
 .thought-label {
   font-size: 12.5px;
   font-weight: 500;
-  color: var(--text-secondary, #b3b3b3);
+  color: var(--text-secondary, #b3b3be);
   white-space: nowrap;
   letter-spacing: -0.01em;
 }
@@ -62,14 +62,14 @@
 .thought-markdown-text {
   font-size: 12.5px;
   line-height: 1.6;
-  color: var(--text-secondary, #c8c8c8);
+  color: var(--text-secondary, #c8c8ce);
   overflow-wrap: anywhere;
 }
 
 .thought-step-badge {
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-muted, #777777);
+  color: var(--text-muted, #77778b);
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.08);
   padding: 1px 6px;
@@ -79,13 +79,13 @@
 .thought-duration {
   font-family: var(--font-mono, monospace);
   font-size: 10.5px;
-  color: var(--text-muted, #737373);
+  color: var(--text-muted, #737387);
 }
 
 .thought-chevron {
   width: 12px;
   height: 12px;
-  color: var(--text-muted, #737373);
+  color: var(--text-muted, #737387);
   flex-shrink: 0;
   transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -118,7 +118,7 @@
   justify-content: center;
   background: transparent;
   border: none;
-  color: var(--text-muted, #737373);
+  color: var(--text-muted, #737387);
   padding: 2px 4px;
   border-radius: 4px;
   font-size: 11px;
@@ -181,23 +181,23 @@
   align-items: center;
   justify-content: center;
   z-index: 2;
-  background: var(--bg-primary, #000000);
+  background: var(--bg-primary, #0b0b12);
   border-radius: 50%;
-  box-shadow: 0 0 0 3px var(--bg-primary, #000000);
+  box-shadow: 0 0 0 3px var(--bg-primary, #0b0b12);
 }
 
 .thought-node-clock {
-  color: var(--text-muted, #8a8a8a);
+  color: var(--text-muted, #8a8a9a);
   flex-shrink: 0;
-  background: var(--bg-primary, #000000);
+  background: var(--bg-primary, #0b0b12);
   border-radius: 50%;
 }
 
 .thought-node-dot {
   font-size: 13px;
-  color: var(--text-muted, #8a8a8a);
+  color: var(--text-muted, #8a8a9a);
   line-height: 1;
-  background: var(--bg-primary, #000000);
+  background: var(--bg-primary, #0b0b12);
   border-radius: 50%;
 }
 
@@ -256,13 +256,13 @@
 .thought-tool-name {
   font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--text-muted, #8a8a8a);
+  color: var(--text-muted, #8a8a9a);
   flex-shrink: 0;
 }
 
 .thought-tool-summary {
   font-size: 12px;
-  color: var(--text-secondary, #b3b3b3);
+  color: var(--text-secondary, #b3b3be);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -273,7 +273,7 @@
 .thought-tool-toggle {
   flex-shrink: 0;
   font-size: 10.5px;
-  color: var(--text-muted, #737373);
+  color: var(--text-muted, #737387);
   white-space: nowrap;
 }
 
@@ -289,7 +289,7 @@
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   line-height: 1.45;
-  color: var(--text-muted, #8a8a8a);
+  color: var(--text-muted, #8a8a9a);
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 6px;
@@ -360,7 +360,7 @@
 }
 
 .web-search-source-title {
-  color: var(--text-secondary, #cccccc);
+  color: var(--text-secondary, #ccccd2);
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   line-height: 1.3;
@@ -371,7 +371,7 @@
 }
 
 .web-search-source-publisher {
-  color: var(--text-muted, #808080);
+  color: var(--text-muted, #808092);
   font-size: 10px;
   line-height: 1.25;
 }
@@ -403,7 +403,7 @@
 
 .thought-meta {
   font-size: 10px;
-  color: var(--text-muted, #737373);
+  color: var(--text-muted, #737387);
   margin-top: 8px;
   font-family: var(--font-mono, monospace);
 }

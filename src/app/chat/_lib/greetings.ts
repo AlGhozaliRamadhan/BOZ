@@ -63,40 +63,60 @@ export const MARKET_QUOTES: MarketQuote[] = [
   { text: "Spend each day trying to be a little wiser than you were when you woke up.", author: "Charlie Munger" }
 ];
 
-export const getRandomGreeting = (): string => {
-  const hour = new Date().getHours();
+// Greeting templates carry a `{name}` placeholder that is filled with the
+// profile display name. With no configured name (or the "User" placeholder
+// persona) it falls back to the canned persona, matching DEFAULT_PROFILE.
+export const GREETING_NAME_TOKEN = '{name}';
+export const GREETING_FALLBACK_NAME = 'User';
 
-  if (hour >= 5 && hour < 12) {
-    const morning = [
-      'Good morning, User',
-      'Ready for the opening bell?',
-      'Rise and analyze, User',
-      'Good morning! Let\'s check the tape'
-    ];
-    return morning[Math.floor(Math.random() * morning.length)];
-  } else if (hour >= 12 && hour < 17) {
-    const noon = [
-      'Good afternoon, User',
-      'Midday market check-in',
-      'Active session underway, User',
-      'Good afternoon! What are we scanning?'
-    ];
-    return noon[Math.floor(Math.random() * noon.length)];
-  } else if (hour >= 17 && hour < 22) {
-    const evening = [
-      'Good evening, User',
-      'Evening debrief & analysis',
-      'Good evening! Reviewing today\'s action',
-      'Market wrap & research session'
-    ];
-    return evening[Math.floor(Math.random() * evening.length)];
-  } else {
-    const night = [
-      'Burning the midnight oil?',
-      'Late night research mode, User',
-      'Good night, User',
-      'Overnight global market scan'
-    ];
-    return night[Math.floor(Math.random() * night.length)];
-  }
+export const resolveGreetingName = (displayName?: string): string => {
+  const trimmed = (displayName ?? '').trim();
+  if (!trimmed || trimmed.toLowerCase() === 'user') return GREETING_FALLBACK_NAME;
+  return trimmed;
 };
+
+// A replacer function keeps `$` sequences inside a custom name literal.
+const fillGreetingName = (template: string, name: string): string =>
+  template.replace(/\{name\}/g, () => name);
+
+const MORNING_GREETINGS = [
+  `Good morning, ${GREETING_NAME_TOKEN}`,
+  'Ready for the opening bell?',
+  `Rise and analyze, ${GREETING_NAME_TOKEN}`,
+  'Good morning! Let\'s check the tape'
+];
+
+const NOON_GREETINGS = [
+  `Good afternoon, ${GREETING_NAME_TOKEN}`,
+  'Midday market check-in',
+  `Active session underway, ${GREETING_NAME_TOKEN}`,
+  'Good afternoon! What are we scanning?'
+];
+
+const EVENING_GREETINGS = [
+  `Good evening, ${GREETING_NAME_TOKEN}`,
+  'Evening debrief & analysis',
+  'Good evening! Reviewing today\'s action',
+  'Market wrap & research session'
+];
+
+const NIGHT_GREETINGS = [
+  'Burning the midnight oil?',
+  `Late night research mode, ${GREETING_NAME_TOKEN}`,
+  `Good night, ${GREETING_NAME_TOKEN}`,
+  'Overnight global market scan'
+];
+
+export const greetingForHour = (hour: number, displayName?: string): string => {
+  const name = resolveGreetingName(displayName);
+  const pick = (slot: string[]): string =>
+    fillGreetingName(slot[Math.floor(Math.random() * slot.length)], name);
+
+  if (hour >= 5 && hour < 12) return pick(MORNING_GREETINGS);
+  if (hour >= 12 && hour < 17) return pick(NOON_GREETINGS);
+  if (hour >= 17 && hour < 22) return pick(EVENING_GREETINGS);
+  return pick(NIGHT_GREETINGS);
+};
+
+export const getRandomGreeting = (displayName?: string): string =>
+  greetingForHour(new Date().getHours(), displayName);

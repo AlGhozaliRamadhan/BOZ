@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import TradingViewChart from '@/app/components/ui/TradingViewChart';
 import TechnicalStrip from '@/app/components/ui/TechnicalStrip';
+import SkeletonLoader from '@/app/components/ui/SkeletonLoader';
 import { buildStocktwitsPulse, stocktwitsContrarianNote } from '@/shared/crowd-pulse';
 import ExternalAiBriefButton from '@/app/components/ui/ExternalAiBriefButton';
 import { recordRecentTicker } from '@/shared/discover';
@@ -14,14 +15,14 @@ import styles from './TickerPage.module.css';
 interface QuoteData {
   ticker: string;
   name?: string;
-  price: number;
-  change: number;
-  changePercent: number;
-  volume: number;
+  price: number | null;
+  change: number | null;
+  changePercent: number | null;
+  volume: number | null;
   averageVolume: number | null;
-  high: number;
-  low: number;
-  open: number;
+  high: number | null;
+  low: number | null;
+  open: number | null;
   previousClose: number | null;
   marketCap: number | null;
   fiftyTwoWeekHigh: number | null;
@@ -151,8 +152,16 @@ function getVixColor(level: string): string {
     case 'moderate': return '#ffffff';
     case 'high': return '#d50000';
     case 'extreme': return '#d50000';
-    default: return '#555555';
+    default: return '#555564';
   }
+}
+
+// Formats a delta from one finite-number guard, so the sign and the number are
+// trusted together and absent values render the dash convention (never a
+// dangling "+--" or a fabricated "0.00").
+function formatSignedDelta(num: number | null | undefined, format: (n: number) => string): string {
+  if (num == null || !Number.isFinite(num)) return '—';
+  return `${num >= 0 ? '+' : ''}${format(num)}`;
 }
 
 export default function DashboardPage() {
@@ -312,14 +321,14 @@ export default function DashboardPage() {
       const quoteData: QuoteData = {
         ticker: rawQuote.symbol || t,
         name: rawQuote.name || rawQuote.symbol || t,
-        price: rawQuote.price ?? 0,
-        change: rawQuote.change ?? 0,
-        changePercent: rawQuote.changePercent ?? 0,
-        volume: rawQuote.volume ?? 0,
+        price: rawQuote.price ?? null,
+        change: rawQuote.change ?? null,
+        changePercent: rawQuote.changePercent ?? null,
+        volume: rawQuote.volume ?? null,
         averageVolume: rawQuote.averageVolume ?? null,
-        high: rawQuote.dayHigh ?? 0,
-        low: rawQuote.dayLow ?? 0,
-        open: rawQuote.open ?? 0,
+        high: rawQuote.dayHigh ?? null,
+        low: rawQuote.dayLow ?? null,
+        open: rawQuote.open ?? null,
         previousClose: rawQuote.previousClose ?? null,
         marketCap: rawQuote.marketCap ?? null,
         fiftyTwoWeekHigh: rawQuote.fiftyTwoWeekHigh ?? null,
@@ -382,7 +391,7 @@ export default function DashboardPage() {
       setAnalysis(payload.analysis || null);
       setNews(payload.news || null);
       setBriefingData(payload);
-      setAsOf(payload.timestamp ? new Date(payload.timestamp) : new Date());
+      setAsOf(payload.timestamp ? new Date(payload.timestamp) : null);
     } catch (err) {
       if (!background) {
         setError(err instanceof Error ? err.message : 'An error occurred');
@@ -408,7 +417,7 @@ export default function DashboardPage() {
     return () => clearInterval(intervalId);
   }, [ticker, fetchData]);
 
-  // Audited crowd pulse � one shared read for bull/bear split, sample depth, and contrarian note.
+  // Audited crowd pulse — one shared read for bull/bear split, sample depth, and contrarian note.
   const pulse = useMemo(() => buildStocktwitsPulse(sentiment?.stocktwits ? {
     bullish: sentiment.stocktwits.bullish,
     bearish: sentiment.stocktwits.bearish,
@@ -468,11 +477,11 @@ export default function DashboardPage() {
 
   const getPnlColor = (val: number) => val >= 0 ? 'var(--success)' : 'var(--danger)';
   const biasColor = (bias?: string) => {
-    if (!bias) return '#888888';
+    if (!bias) return '#888899';
     const b = bias.toUpperCase();
     if (b.includes('BULL') || b.includes('GREED') || b.includes('POSITIVE') || b.includes('BUY') || b.includes('UP')) return '#00c853';
     if (b.includes('BEAR') || b.includes('FEAR') || b.includes('NEGATIVE') || b.includes('SELL') || b.includes('DOWN')) return '#d50000';
-    return '#888888';
+    return '#888899';
   };
   const dash = '—';
 
@@ -483,7 +492,7 @@ export default function DashboardPage() {
       <header className={`bbg-header ${styles['ticker-page-header']}`}>
         <div>
           <h1 style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-violet)', fontSize: '14px', fontWeight: 700, margin: 0, letterSpacing: '0.05em' }}>INTELLIGENCE DASHBOARD</h1>
-          <p style={{ fontFamily: 'var(--font-mono)', color: '#555', fontSize: '10px', marginTop: '2px', textTransform: 'uppercase' }}>REAL-TIME MARKET OVERVIEW</p>
+          <p style={{ fontFamily: 'var(--font-mono)', color: '#555564', fontSize: '10px', marginTop: '2px', textTransform: 'uppercase' }}>REAL-TIME MARKET OVERVIEW</p>
         </div>
         <div className={styles['ticker-toolbar']}>
           <div className={styles['ticker-search']}>
@@ -567,18 +576,65 @@ export default function DashboardPage() {
 
       {!ticker ? (
         <div style={{ padding: '60px 0', textAlign: 'center' }}>
-          <h2 style={{ fontSize: '18px', color: '#fff', marginBottom: '8px', fontFamily: 'var(--font-mono)' }}>[ SEARCH ASSET ]</h2>
-          <p style={{ color: '#888', fontSize: '12px', fontFamily: 'var(--font-mono)' }}>{'>'} TYPE A STOCK SYMBOL, CRYPTO, OR INDEX TO GENERATE A REAL-TIME INTELLIGENCE DASHBOARD.</p>
+          <h2 style={{ fontSize: '18px', color: '#ffffff', marginBottom: '8px', fontFamily: 'var(--font-mono)' }}>[ SEARCH ASSET ]</h2>
+          <p style={{ color: '#888899', fontSize: '12px', fontFamily: 'var(--font-mono)' }}>{'>'} TYPE A STOCK SYMBOL, CRYPTO, OR INDEX TO GENERATE A REAL-TIME INTELLIGENCE DASHBOARD.</p>
         </div>
       ) : loading ? (
-        <div className="loading-overlay" style={{ padding: '120px 0' }}>
-          <div className="spinner spinner-lg" style={{ marginBottom: 'var(--space-4)' }}></div>
-          <p style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 'var(--space-2)' }}>
-            Loading {ticker}…
-          </p>
-          <p className="page-subtitle" style={{ margin: 0 }}>
-            Fetching quotes, macro, and sentiment data
-          </p>
+        /* Skeleton stand-in, not a spinner: it mirrors the dashboard's real
+           structure, so the loaded content swaps into place with no jump. */
+        <div className="animate-fadeIn" role="status" aria-busy="true" style={{ fontFamily: 'var(--font-mono)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <span className="mis-visually-hidden">Loading {ticker}…</span>
+          <div aria-hidden="true" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            {/* Quote overview */}
+            <section className={styles['ticker-overview']}>
+              <div className={styles['ticker-overview__main']}>
+                <div className={styles['ticker-overview__identity']}>
+                  <div className={styles['ticker-overview__symbol-line']}>
+                    <SkeletonLoader type="text" width="150px" height="34px" />
+                  </div>
+                  <div style={{ margin: '8px 0' }}>
+                    <SkeletonLoader type="text" width="240px" height="12px" />
+                  </div>
+                  <div style={{ margin: '8px 0' }}>
+                    <SkeletonLoader type="text" width="150px" height="10px" />
+                  </div>
+                </div>
+                <div className={styles['ticker-overview__price']}>
+                  <SkeletonLoader type="text" width="72px" height="10px" />
+                  <SkeletonLoader type="text" width="190px" height="34px" />
+                  <SkeletonLoader type="text" width="140px" height="15px" />
+                </div>
+              </div>
+              <dl className={styles['ticker-overview__stats']}>
+                {['VOLUME', 'DAY RANGE', '52W RANGE', 'MARKET CAP'].map((stat) => (
+                  <div key={stat}>
+                    <dt><SkeletonLoader type="text" width="78px" height="10px" /></dt>
+                    <dd><SkeletonLoader type="text" width="100px" height="14px" /></dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+
+            {/* Chart block */}
+            <div style={{ background: 'transparent', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+              <div style={{ height: `${DASHBOARD_CHART_HEIGHT}px` }}>
+                <SkeletonLoader type="card" width="100%" height="100%" />
+              </div>
+            </div>
+
+            {/* Intelligence grid */}
+            <div className={`${styles['ticker-intel']} ${styles['ticker-intel--three']}`}>
+              {['VERDICT', 'TRADING PLAN', 'SIGNALS'].map((card) => (
+                <section key={card} className={styles['ticker-intel__section']}>
+                  <SkeletonLoader type="text" width="46%" height="11px" />
+                  <SkeletonLoader type="text" width="30%" height="22px" />
+                  <SkeletonLoader type="text" />
+                  <SkeletonLoader type="text" width="92%" />
+                  <SkeletonLoader type="text" width="68%" />
+                </section>
+              ))}
+            </div>
+          </div>
         </div>
       ) : error ? (
         <div style={{ padding: '20px', border: '1px solid #d50000', color: '#d50000', marginTop: '20px', fontSize: '12px', fontFamily: 'var(--font-mono)' }}>
@@ -614,8 +670,10 @@ export default function DashboardPage() {
                 <span className={styles['ticker-overview__label']}>LAST PRICE</span>
                 <strong>{quote?.currency && quote.currency !== 'USD' ? `${quote.currency} ` : '$'}{formatPx(quote?.price)}</strong>
                 <span className={styles['ticker-overview__change']} style={{ color: getPnlColor(quote?.change ?? 0) }}>
-                  {(quote?.change ?? 0) >= 0 ? '+' : ''}{formatPx(quote?.change)}
-                  <span>({(quote?.changePercent ?? 0) >= 0 ? '+' : ''}{quote?.changePercent?.toFixed(2)}%)</span>
+                  {formatSignedDelta(quote?.change, formatPx)}
+                  {quote?.changePercent != null && Number.isFinite(quote.changePercent) && (
+                    <span>({formatSignedDelta(quote.changePercent, (n) => `${n.toFixed(2)}%`)})</span>
+                  )}
                 </span>
               </div>
             </div>
@@ -634,7 +692,7 @@ export default function DashboardPage() {
               <small>{macro?.vixLevel?.toUpperCase() || 'UNAVAILABLE'}</small>
             </div>
             <div className={styles['ticker-market__item']}>
-              <span>FEAR & GREED</span><strong style={{ color: sentiment?.fearGreedIndex == null ? '#888' : (sentiment.fearGreedIndex > 60 ? '#00c853' : sentiment.fearGreedIndex < 40 ? '#d50000' : '#fff') }}>{sentiment?.fearGreedIndex ?? dash}</strong>
+              <span>FEAR & GREED</span><strong style={{ color: sentiment?.fearGreedIndex == null ? '#888899' : (sentiment.fearGreedIndex > 60 ? '#00c853' : sentiment.fearGreedIndex < 40 ? '#d50000' : '#ffffff') }}>{sentiment?.fearGreedIndex ?? dash}</strong>
               <small>{sentiment?.fearGreedLabel?.toUpperCase() || 'MARKET-WIDE'}</small>
             </div>
             <div className={styles['ticker-market__item']}>
@@ -656,23 +714,6 @@ export default function DashboardPage() {
 
             {/* 1. Chart Section */}
             <div style={{ background: 'transparent', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-              {/* Chart Header */}
-              <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border-glass)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ color: '#00c853', fontSize: '8px' }}>●</span>
-                  <span style={{ color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em' }}>MARKET ANALYSIS</span>
-                  <span style={{ color: '#444', fontSize: '10px' }}>•</span>
-                  <span style={{ color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em' }}>{quote?.ticker}</span>
-                  {quote?.exchange && (
-                    <span style={{ color: '#555', fontSize: '9px', fontWeight: 600 }}>({quote.exchange})</span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span style={{ color: '#555', fontSize: '9px', letterSpacing: '0.05em' }}>TRADINGVIEW INTERACTIVE</span>
-                </div>
-              </div>
-
-              {/* Chart Container */}
               <div style={{ height: `${DASHBOARD_CHART_HEIGHT}px`, position: 'relative' }}>
                 <TradingViewChart symbol={quote?.ticker || 'AAPL'} style={chartStyle} height={DASHBOARD_CHART_HEIGHT} />
               </div>
@@ -686,7 +727,7 @@ export default function DashboardPage() {
               {/* Card 1: Ticker Verdict & Structure */}
               <section className={styles['ticker-intel__section']} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
-                  <div style={{ color: '#fff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ color: '#ffffff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>{quote?.ticker} VERDICT</span>
                     <span style={{ 
                       color: biasColor(analysis?.bias), 
@@ -702,33 +743,33 @@ export default function DashboardPage() {
                     <span style={{ color: biasColor(analysis?.bias), fontSize: '24px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
                       {analysis ? `${analysis.score >= 0 ? '+' : ''}${analysis.score}` : dash}
                     </span>
-                    <span style={{ color: '#888', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em' }}>
+                    <span style={{ color: '#888899', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em' }}>
                       {analysis?.bias || 'NEUTRAL'} · {analysis?.conviction || 'LOW'} CONVICTION
                     </span>
                   </div>
-                  <div style={{ color: '#888', fontSize: '11px', lineHeight: 1.6, marginBottom: '16px' }}>
+                  <div style={{ color: '#888899', fontSize: '11px', lineHeight: 1.6, marginBottom: '16px' }}>
                     {analysis?.insights?.[0] || `${quote?.name || quote?.ticker} analysis is still loading.`}
                   </div>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', paddingTop: '12px', borderTop: '1px solid var(--border-glass)' }}>
                   <div>
-                    <div style={{ color: '#555', fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em' }}>52W HIGH</div>
-                    <div style={{ color: '#fff', fontSize: '12px', fontWeight: 700 }}>{formatPx(analysis?.structure.high52w ?? quote?.fiftyTwoWeekHigh)}</div>
-                    <div style={{ color: '#555', fontSize: '9px' }}>{analysis?.structure.from52wHighPct != null ? `${analysis.structure.from52wHighPct.toFixed(1)}%` : dash}</div>
+                    <div style={{ color: '#555564', fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em' }}>52W HIGH</div>
+                    <div style={{ color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>{formatPx(analysis?.structure.high52w ?? quote?.fiftyTwoWeekHigh)}</div>
+                    <div style={{ color: '#555564', fontSize: '9px' }}>{analysis?.structure.from52wHighPct != null ? `${analysis.structure.from52wHighPct.toFixed(1)}%` : dash}</div>
                   </div>
                   <div>
-                    <div style={{ color: '#555', fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em' }}>52W LOW</div>
-                    <div style={{ color: '#fff', fontSize: '12px', fontWeight: 700 }}>{formatPx(analysis?.structure.low52w ?? quote?.fiftyTwoWeekLow)}</div>
-                    <div style={{ color: '#555', fontSize: '9px' }}>{analysis?.structure.from52wLowPct != null ? `+${analysis.structure.from52wLowPct.toFixed(1)}%` : dash}</div>
+                    <div style={{ color: '#555564', fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em' }}>52W LOW</div>
+                    <div style={{ color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>{formatPx(analysis?.structure.low52w ?? quote?.fiftyTwoWeekLow)}</div>
+                    <div style={{ color: '#555564', fontSize: '9px' }}>{analysis?.structure.from52wLowPct != null ? `+${analysis.structure.from52wLowPct.toFixed(1)}%` : dash}</div>
                   </div>
                   <div>
-                    <div style={{ color: '#555', fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em' }}>MKT CAP</div>
-                    <div style={{ color: '#fff', fontSize: '12px', fontWeight: 700 }}>{formatNum(quote?.marketCap)}</div>
+                    <div style={{ color: '#555564', fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em' }}>MKT CAP</div>
+                    <div style={{ color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>{formatNum(quote?.marketCap)}</div>
                   </div>
                   <div>
-                    <div style={{ color: '#555', fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em' }}>AVG VOL</div>
-                    <div style={{ color: '#fff', fontSize: '12px', fontWeight: 700 }}>{formatNum(quote?.averageVolume)}</div>
+                    <div style={{ color: '#555564', fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em' }}>AVG VOL</div>
+                    <div style={{ color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>{formatNum(quote?.averageVolume)}</div>
                   </div>
                 </div>
               </section>
@@ -736,64 +777,64 @@ export default function DashboardPage() {
               {/* Card 2: Trading Plan */}
               <section className={styles['ticker-intel__section']} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
-                  <div style={{ color: '#fff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ color: '#ffffff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>TRADING PLAN</span>
                     <span style={{ 
-                      color: analysis?.plan.status === 'SETUP' ? '#00c853' : '#888',
+                      color: analysis?.plan.status === 'SETUP' ? '#00c853' : '#888899',
                       fontSize: '9px',
                       padding: '2px 6px',
-                      border: `1px solid ${analysis?.plan.status === 'SETUP' ? '#00c853' : '#333'}`,
+                      border: `1px solid ${analysis?.plan.status === 'SETUP' ? '#00c853' : '#33333d'}`,
                       letterSpacing: '0.05em'
                     }}>
                       {analysis?.plan.status || 'WATCH'}
                     </span>
                   </div>
-                  <div style={{ color: '#888', fontSize: '10px', marginBottom: '12px', lineHeight: 1.5 }}>
+                  <div style={{ color: '#888899', fontSize: '10px', marginBottom: '12px', lineHeight: 1.5 }}>
                     {analysis?.plan.setup || 'Waiting for a defined setup.'}
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '1px solid var(--border-glass)' }}>
-                      <span style={{ fontSize: '10px', color: '#555', fontWeight: 700, letterSpacing: '0.05em' }}>ACTION</span>
+                      <span style={{ fontSize: '10px', color: '#555564', fontWeight: 700, letterSpacing: '0.05em' }}>ACTION</span>
                       <span style={{ fontSize: '12px', color: biasColor(analysis?.plan.action === 'BUY' ? 'BULL' : analysis?.plan.action === 'SELL' ? 'BEAR' : 'NEUTRAL'), fontWeight: 700 }}>
                         {analysis?.plan.action || 'WATCH'}
                       </span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '1px solid var(--border-glass)' }}>
-                      <span style={{ fontSize: '10px', color: '#555', fontWeight: 700, letterSpacing: '0.05em' }}>ENTRY</span>
-                      <span style={{ fontSize: '12px', color: '#fff', fontWeight: 700 }}>{analysis?.plan.entryLabel || dash}</span>
+                      <span style={{ fontSize: '10px', color: '#555564', fontWeight: 700, letterSpacing: '0.05em' }}>ENTRY</span>
+                      <span style={{ fontSize: '12px', color: '#ffffff', fontWeight: 700 }}>{analysis?.plan.entryLabel || dash}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '1px solid var(--border-glass)' }}>
-                      <span style={{ fontSize: '10px', color: '#555', fontWeight: 700, letterSpacing: '0.05em' }}>STOP LOSS</span>
+                      <span style={{ fontSize: '10px', color: '#555564', fontWeight: 700, letterSpacing: '0.05em' }}>STOP LOSS</span>
                       <span style={{ fontSize: '12px', color: '#d50000', fontWeight: 700 }}>{formatPx(analysis?.plan.stop)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '1px solid var(--border-glass)' }}>
-                      <span style={{ fontSize: '10px', color: '#555', fontWeight: 700, letterSpacing: '0.05em' }}>TARGET 1</span>
+                      <span style={{ fontSize: '10px', color: '#555564', fontWeight: 700, letterSpacing: '0.05em' }}>TARGET 1</span>
                       <span style={{ fontSize: '12px', color: '#00c853', fontWeight: 700 }}>{formatPx(analysis?.plan.target1)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '1px solid var(--border-glass)' }}>
-                      <span style={{ fontSize: '10px', color: '#555', fontWeight: 700, letterSpacing: '0.05em' }}>TARGET 2</span>
+                      <span style={{ fontSize: '10px', color: '#555564', fontWeight: 700, letterSpacing: '0.05em' }}>TARGET 2</span>
                       <span style={{ fontSize: '12px', color: '#00c853', fontWeight: 700 }}>{formatPx(analysis?.plan.target2)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '10px', color: '#555', fontWeight: 700, letterSpacing: '0.05em' }}>R/R TO T1</span>
-                      <span style={{ fontSize: '12px', color: '#fff', fontWeight: 700 }}>
+                      <span style={{ fontSize: '10px', color: '#555564', fontWeight: 700, letterSpacing: '0.05em' }}>R/R TO T1</span>
+                      <span style={{ fontSize: '12px', color: '#ffffff', fontWeight: 700 }}>
                         {analysis?.plan.riskReward != null ? `${analysis.plan.riskReward.toFixed(2)}R` : dash}
                       </span>
                     </div>
                   </div>
                 </div>
 
-                <div style={{ marginTop: '12px', color: '#555', fontSize: '9px', lineHeight: 1.4, borderTop: '1px solid var(--border-glass)', paddingTop: '8px' }}>
+                <div style={{ marginTop: '12px', color: '#555564', fontSize: '9px', lineHeight: 1.4, borderTop: '1px solid var(--border-glass)', paddingTop: '8px' }}>
                   {analysis?.plan.notes || 'Levels are derived from ATR and nearby structure.'}
                 </div>
               </section>
 
               {/* Card 3: Confluence Signals */}
               <section className={styles['ticker-intel__section']}>
-                <div style={{ color: '#fff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ color: '#ffffff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>CONFLUENCE SIGNALS</span>
-                  <span style={{ color: '#555', fontSize: '9px', letterSpacing: '0.05em' }}>
+                  <span style={{ color: '#555564', fontSize: '9px', letterSpacing: '0.05em' }}>
                     {analysis?.signals?.length || 0} FACTORS
                   </span>
                 </div>
@@ -801,8 +842,8 @@ export default function DashboardPage() {
                   {(analysis?.signals || []).slice(0, 8).map(sig => (
                     <div key={sig.key} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', paddingBottom: '6px', borderBottom: '1px solid var(--border-glass)' }}>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ color: '#fff', fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em' }}>{sig.label}</div>
-                        <div style={{ color: '#888', fontSize: '10px', lineHeight: 1.4, marginTop: '2px' }}>{sig.detail}</div>
+                        <div style={{ color: '#ffffff', fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em' }}>{sig.label}</div>
+                        <div style={{ color: '#888899', fontSize: '10px', lineHeight: 1.4, marginTop: '2px' }}>{sig.detail}</div>
                       </div>
                       <span style={{ 
                         color: biasColor(sig.bias), 
@@ -818,7 +859,7 @@ export default function DashboardPage() {
                     </div>
                   ))}
                   {(!analysis?.signals || analysis.signals.length === 0) && (
-                    <div style={{ color: '#555', fontSize: '11px' }}>No confluence signals yet.</div>
+                    <div style={{ color: '#555564', fontSize: '11px' }}>No confluence signals yet.</div>
                   )}
                 </div>
               </section>
@@ -830,7 +871,7 @@ export default function DashboardPage() {
               <section className={styles['ticker-intel__section']} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
                   {/* Card Header */}
-                  <div style={{ color: '#fff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ color: '#ffffff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>CROWD & SOCIAL SENTIMENT</span>
                     <span style={{ 
                       color: biasColor(sentiment?.overallSignal), 
@@ -846,8 +887,8 @@ export default function DashboardPage() {
                   {/* ── 1. Stocktwits Section ────────────────────── */}
                   <div style={{ marginBottom: '16px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                      <span style={{ fontSize: '10px', color: '#888', fontWeight: 700, letterSpacing: '0.05em' }}>STOCKTWITS PULSE</span>
-                      <span style={{ fontSize: '9px', color: '#555', fontWeight: 700 }}>
+                      <span style={{ fontSize: '10px', color: '#888899', fontWeight: 700, letterSpacing: '0.05em' }}>STOCKTWITS PULSE</span>
+                      <span style={{ fontSize: '9px', color: '#555564', fontWeight: 700 }}>
                         {sentiment?.stocktwits?.watchlistCount ? `${formatNum(sentiment.stocktwits.watchlistCount)} WATCHERS · ` : ''}
                         {pulse.totalMessages != null
                           ? `${pulse.totalMessages} POSTS · ${pulse.labelled} LABELED`
@@ -880,7 +921,7 @@ export default function DashboardPage() {
                           />
                         </>
                       ) : (
-                        <div style={{ width: '100%', background: '#222' }} />
+                        <div style={{ width: '100%', background: '#22222a' }} />
                       )}
                     </div>
 
@@ -897,7 +938,7 @@ export default function DashboardPage() {
                     </div>
 
                     {/* Audited read: sample depth + contrarian note */}
-                    <div style={{ marginTop: '6px', fontSize: '9px', color: '#888', lineHeight: 1.5 }}>
+                    <div style={{ marginTop: '6px', fontSize: '9px', color: '#888899', lineHeight: 1.5 }}>
                       <div title={pulse.confidenceNote}>
                         {pulse.labelled > 0
                           ? `${pulse.labelled} LABELLED OF ${pulse.totalMessages ?? pulse.labelled} SAMPLED`
@@ -906,14 +947,16 @@ export default function DashboardPage() {
                           ? ` · ${Math.round(pulse.neutralShare)}% UNLABELLED`
                           : ''}
                       </div>
-                      <div style={{ color: '#aaa' }}>{contrarianNote}</div>
+                      <div style={{ color: '#aaaab6' }}>{contrarianNote}</div>
                     </div>
 
                     {/* Concrete StockTwits Message Snippet */}
                     {sentiment?.stocktwits?.sampleMessages && sentiment.stocktwits.sampleMessages.length > 0 && (
-                      <div style={{ marginTop: '8px', padding: '6px 10px', background: 'var(--bg-tertiary)', borderLeft: '2px solid var(--border-glass-hover)', fontSize: '9px', color: '#aaa', lineHeight: 1.35 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#666', fontSize: '8px', fontWeight: 700, marginBottom: '2px' }}>
-                          <span>@{sentiment.stocktwits.sampleMessages[0].username || 'trader'}</span>
+                      <div style={{ marginTop: '8px', padding: '6px 10px', background: 'var(--bg-tertiary)', borderLeft: '2px solid var(--border-glass-hover)', fontSize: '9px', color: '#aaaab6', lineHeight: 1.35 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#666678', fontSize: '8px', fontWeight: 700, marginBottom: '2px' }}>
+                          {sentiment.stocktwits.sampleMessages[0].username && (
+                            <span>@{sentiment.stocktwits.sampleMessages[0].username}</span>
+                          )}
                           <span style={{ color: biasColor(sentiment.stocktwits.sampleMessages[0].sentiment || '') }}>
                             {sentiment.stocktwits.sampleMessages[0].sentiment ? sentiment.stocktwits.sampleMessages[0].sentiment.toUpperCase() : 'COMMUNITY'}
                           </span>
@@ -928,8 +971,8 @@ export default function DashboardPage() {
                   {/* ── 2. Reddit Community Discussions ────────────── */}
                   <div style={{ marginBottom: '14px', paddingTop: '10px', borderTop: '1px solid var(--border-glass)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                      <span style={{ fontSize: '10px', color: '#888', fontWeight: 700, letterSpacing: '0.05em' }}>REDDIT DISCUSSIONS</span>
-                      <span style={{ fontSize: '9px', color: sentiment?.reddit?.buzzCount && sentiment.reddit.buzzCount >= 50 ? '#00c853' : '#888', fontWeight: 700 }}>
+                      <span style={{ fontSize: '10px', color: '#888899', fontWeight: 700, letterSpacing: '0.05em' }}>REDDIT DISCUSSIONS</span>
+                      <span style={{ fontSize: '9px', color: sentiment?.reddit?.buzzCount && sentiment.reddit.buzzCount >= 50 ? '#00c853' : '#888899', fontWeight: 700 }}>
                         {sentiment?.reddit?.buzzCount ? `${sentiment.reddit.buzzCount}${sentiment.reddit.capped ? '+' : ''} THREADS` : 'TRACKING'}
                         {sentiment?.reddit?.buzzCount && sentiment.reddit.buzzCount >= 50 ? ' · HIGH BUZZ' : ''}
                       </span>
@@ -938,14 +981,14 @@ export default function DashboardPage() {
                     {sentiment?.reddit?.topPosts && sentiment.reddit.topPosts.length > 0 ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         {sentiment.reddit.topPosts.slice(0, 2).map((post, idx) => (
-                          <div key={idx} style={{ color: '#aaa', fontSize: '9.5px', lineHeight: 1.35, display: 'flex', gap: '6px' }}>
-                            <span style={{ color: '#555', flexShrink: 0 }}>›</span>
+                          <div key={idx} style={{ color: '#aaaab6', fontSize: '9.5px', lineHeight: 1.35, display: 'flex', gap: '6px' }}>
+                            <span style={{ color: '#555564', flexShrink: 0 }}>›</span>
                             <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post}</span>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <div style={{ color: '#555', fontSize: '9px', lineHeight: 1.4 }}>
+                      <div style={{ color: '#555564', fontSize: '9px', lineHeight: 1.4 }}>
                         {sentiment?.reddit?.buzzCount ? `${sentiment.reddit.buzzCount} active discussions tracked across market subreddits.` : 'Scanning retail discussion boards.'}
                       </div>
                     )}
@@ -953,7 +996,7 @@ export default function DashboardPage() {
 
                   {/* ── 3. News Tone ─────────────────────────────── */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid var(--border-glass)' }}>
-                    <span style={{ fontSize: '10px', color: '#888', fontWeight: 700, letterSpacing: '0.05em' }}>NEWS SENTIMENT</span>
+                    <span style={{ fontSize: '10px', color: '#888899', fontWeight: 700, letterSpacing: '0.05em' }}>NEWS SENTIMENT</span>
                     <span style={{
                       fontSize: '10px', fontWeight: 700, padding: '2px 8px', border: '1px solid currentColor',
                       color: biasColor(news?.sentiment)
@@ -965,7 +1008,7 @@ export default function DashboardPage() {
 
                 {/* Fear & Greed Context Footer */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', borderTop: '1px solid var(--border-glass)', marginTop: '12px' }}>
-                  <span style={{ fontSize: '9px', color: '#555', fontWeight: 700, letterSpacing: '0.05em' }}>FEAR & GREED INDEX</span>
+                  <span style={{ fontSize: '9px', color: '#555564', fontWeight: 700, letterSpacing: '0.05em' }}>FEAR & GREED INDEX</span>
                   <span style={{ fontSize: '10px', color: biasColor(sentiment?.fearGreedLabel || ''), fontWeight: 700 }}>
                     {sentiment?.fearGreedIndex != null ? `${sentiment.fearGreedIndex} · ${sentiment?.fearGreedLabel?.toUpperCase() || ''}` : dash}
                   </span>
@@ -974,18 +1017,18 @@ export default function DashboardPage() {
 
               {/* Card 5: What Ticker Is Doing & News Catalysts */}
               <section className={styles['ticker-intel__section']}>
-                <div style={{ color: '#fff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '14px' }}>
+                <div style={{ color: '#ffffff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '14px' }}>
                   WHAT {quote?.ticker} IS DOING & CATALYSTS
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {(analysis?.insights || []).slice(1).map((line, i) => (
-                    <div key={i} style={{ color: '#aaa', fontSize: '11px', lineHeight: 1.55, display: 'flex', gap: '8px' }}>
-                      <span style={{ color: '#555' }}>›</span>
+                    <div key={i} style={{ color: '#aaaab6', fontSize: '11px', lineHeight: 1.55, display: 'flex', gap: '8px' }}>
+                      <span style={{ color: '#555564' }}>›</span>
                       <span>{line}</span>
                     </div>
                   ))}
                   {news?.headlines?.filter(h => h && !h.startsWith('No significant')).slice(0, 3).map((h, i) => (
-                    <div key={`n-${i}`} style={{ color: '#888', fontSize: '11px', lineHeight: 1.45, padding: '4px 0', borderTop: '1px solid var(--border-glass)' }}>
+                    <div key={`n-${i}`} style={{ color: '#888899', fontSize: '11px', lineHeight: 1.45, padding: '4px 0', borderTop: '1px solid var(--border-glass)' }}>
                       <span style={{ color: '#00c853', fontWeight: 700, marginRight: '6px', fontSize: '9px', border: '1px solid #00c853', padding: '1px 4px' }}>NEWS</span>
                       {h}
                     </div>

@@ -586,18 +586,25 @@ export class NewsFetchService {
         );
         const data = res.data?.data ?? [];
         if (data.length > 0) {
-          const latest = data[0];
-          const values: number[] = data.map((d: any) => parseInt(d.value ?? '50', 10));
-          const avg7d = values.reduce((a, b) => a + b, 0) / values.length;
-          crowd.fear_greed = {
-            value:    parseInt(latest.value ?? '50', 10),
-            label:    latest.value_classification ?? 'Neutral',
-            avg_7d:   Math.round(avg7d * 10) / 10,
-            trend_7d: values,
-            momentum:
-              values[0] > avg7d + 5 ? 'RISING_GREED' :
-              values[0] < avg7d - 5 ? 'RISING_FEAR'  : 'STABLE',
-          };
+          // A vendor row without a value must not become a fabricated 50: the
+          // index only exists when the payload actually carries one, so
+          // malformed rows are dropped and an unusable payload is skipped.
+          const latestValue = parseInt(data[0].value, 10);
+          const values: number[] = data
+            .map((d: any) => parseInt(d.value, 10))
+            .filter((v: number) => !Number.isNaN(v));
+          if (!Number.isNaN(latestValue) && values.length > 0) {
+            const avg7d = values.reduce((a, b) => a + b, 0) / values.length;
+            crowd.fear_greed = {
+              value:    latestValue,
+              label:    data[0].value_classification ?? 'Neutral',
+              avg_7d:   Math.round(avg7d * 10) / 10,
+              trend_7d: values,
+              momentum:
+                values[0] > avg7d + 5 ? 'RISING_GREED' :
+                values[0] < avg7d - 5 ? 'RISING_FEAR'  : 'STABLE',
+            };
+          }
         }
       } catch (e: any) { log.warn('news', `Fear & Greed alt.me: ${e.message}`); }
 

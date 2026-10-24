@@ -610,6 +610,10 @@ struct UpdateStatus {
     message: Option<String>,
     /// The version the user asked not to be reminded about again.
     snoozed_version: Option<String>,
+    /// True only when a manual check finished and the webview should open the
+    /// update modal now. The automatic launch check never sets it; the webview
+    /// clears it via `clear_update_open_request` once the modal is up.
+    open_requested: bool,
 }
 
 impl Default for UpdateStatus {
@@ -620,6 +624,7 @@ impl Default for UpdateStatus {
             percent: None,
             message: None,
             snoozed_version: None,
+            open_requested: false,
         }
     }
 }
@@ -634,6 +639,7 @@ impl UpdateStatus {
             "percent": self.percent,
             "message": self.message,
             "snoozedVersion": self.snoozed_version,
+            "openRequested": self.open_requested,
         })
     }
 }
@@ -712,6 +718,8 @@ fn snooze_update<R: Runtime>(app: AppHandle<R>, version: String) -> Result<(), S
     status.version = None;
     status.percent = None;
     status.message = None;
+    // The user acted on the offer; do not keep asking the webview to open.
+    status.open_requested = false;
     *update_status_slot(&app.state::<DesktopRuntime>()) = status;
     publish_update_status(&app);
     Ok(())
@@ -770,6 +778,18 @@ fn install_available_update<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
     Ok(())
 }
 
+/// Marks that the webview has opened the update modal, so a later event or an
+/// on-mount status read does not ask it to open again. Mutates the slot
+/// silently on purpose: publishing again is itself a reason to re-open.
+#[tauri::command]
+fn clear_update_open_request<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let mut status = update_status_slot(&app.state::<DesktopRuntime>()).clone();
+    status.open_requested = false;
+    *update_status_slot(&app.state::<DesktopRuntime>()) = status;
+    desktop_log(&app, "Update modal acknowledged; open request cleared");
+    Ok(())
+}
+
 fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
     let state = app.state::<DesktopRuntime>();
 
@@ -800,14 +820,18 @@ fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
         {
             Ok(updater) => updater,
             Err(error) => {
+                // The manual path lands in the webview (error modal); the
+                // silent launch path publishes the same status without ever
+                // opening a native dialog.
                 if manual {
-                    show_error(&app, "Update check failed", error.to_string());
+                    show_main_window(&app);
                 }
                 set_update_status(
                     &app,
                     UpdateStatus {
                         phase: "error",
                         message: Some(error.to_string()),
+                        open_requested: manual,
                         ..Default::default()
                     },
                 );
@@ -821,67 +845,73 @@ fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
                 let snoozed = read_snoozed_version(&app);
                 if snoozed.as_deref() == Some(version.as_str()) {
                     desktop_log(&app, "Update already offered and snoozed; staying quiet");
+                    // A manual check surfaces the snooze state in the modal so
+                    // the user is not left wondering where the offer went; the
+                    // automatic path stays quiet.
+                    if manual {
+                        show_main_window(&app);
+                    }
                     set_update_status(
                         &app,
                         UpdateStatus {
                             phase: "idle",
                             snoozed_version: snoozed,
+                            open_requested: manual,
                             ..Default::default()
                         },
                     );
                     return;
                 }
-                let prompt_version = version.clone();
-
+                // The webview renders the offer itself: the modal shows the
+                // Install and Later buttons, so the host never opens a native
+                // dialog here and never installs from inside one. A manual
+                // check surfaces the window so the offer is actually seen.
+                if manual {
+                    show_main_window(&app);
+                }
                 set_update_status(
                     &app,
                     UpdateStatus {
                         phase: "available",
                         version: Some(version),
+                        open_requested: manual,
                         ..Default::default()
                     },
                 );
-
-                // A manual check with nothing to install says so out loud; the
-                // automatic path stays silent.
-                if !manual {
-                    return;
-                }
-
-                let install_app = app.clone();
-                let prompt_version = prompt_version.clone();
-                let prompt_message =
-                    format!("BOZ {prompt_version} is available. Download and install it now?");
-                app.dialog()
-                    .message(prompt_message)
-                    .title("BOZ update available")
-                    .buttons(MessageDialogButtons::OkCancelCustom(
-                        "Install".to_string(),
-                        "Later".to_string(),
-                    ))
-                    .show(move |install| {
-                        if !install {
-                            let _ = snooze_update(install_app.clone(), prompt_version);
-                            return;
-                        }
-                        install_update(install_app, update);
-                    });
             }
             Ok(None) => {
+                // A manual check with nothing to install says so out loud; the
+                // automatic path stays silent.
                 if manual {
-                    app.dialog()
-                        .message("You are running the latest version of BOZ.")
-                        .title("No update available")
-                        .show(|_| {});
+                    show_main_window(&app);
+                    set_update_status(
+                        &app,
+                        UpdateStatus {
+                            message: Some("You are running the latest version of BOZ.".to_string()),
+                            open_requested: true,
+                            ..Default::default()
+                        },
+                    );
+                } else {
+                    set_update_status(&app, UpdateStatus::default());
                 }
-                set_update_status(&app, UpdateStatus::default());
             }
             Err(error) => {
                 desktop_log(&app, &format!("Update check failed: {error}"));
                 if manual {
-                    show_error(&app, "Update check failed", error.to_string());
+                    show_main_window(&app);
+                    set_update_status(
+                        &app,
+                        UpdateStatus {
+                            phase: "error",
+                            message: Some(error.to_string()),
+                            open_requested: true,
+                            ..Default::default()
+                        },
+                    );
+                } else {
+                    set_update_status(&app, UpdateStatus::default());
                 }
-                set_update_status(&app, UpdateStatus::default());
             }
         }
     });
@@ -963,7 +993,6 @@ fn install_update<R: Runtime>(app: AppHandle<R>, update: tauri_plugin_updater::U
             }
             Err(error) => {
                 desktop_log(&app, &format!("Update failed: {error}"));
-                show_error(&app, "Update failed", error.to_string());
                 set_update_status(
                     &app,
                     UpdateStatus {
@@ -1171,7 +1200,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             update_status,
             snooze_update,
-            install_available_update
+            install_available_update,
+            clear_update_open_request
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -1256,13 +1286,16 @@ mod tests {
             percent: Some(42),
             message: None,
             snoozed_version: Some("2.8.1".to_string()),
+            open_requested: true,
         };
         let json = status.to_json();
         assert_eq!(json["phase"], "downloading");
         assert_eq!(json["version"], "2.9.0");
         assert_eq!(json["percent"], 42);
         assert_eq!(json["snoozedVersion"], "2.8.1");
+        assert_eq!(json["openRequested"], true);
         assert!(json.get("snoozed_version").is_none());
+        assert!(json.get("open_requested").is_none());
     }
 
     #[test]
@@ -1272,6 +1305,8 @@ mod tests {
         assert!(json["version"].is_null());
         assert!(json["percent"].is_null());
         assert!(json["snoozedVersion"].is_null());
+        // Only a manual check ever asks the webview to open the modal.
+        assert_eq!(json["openRequested"], false);
     }
 
     #[test]

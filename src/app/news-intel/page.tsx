@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { ThoughtAccordion } from '@/app/components/ui/ThoughtAccordion';
 import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
+import SkeletonLoader from '@/app/components/ui/SkeletonLoader';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -89,9 +90,21 @@ export default function NewsIntelPage() {
         )}
       </div>
 
+      {/* Loading state: shimmering result cards instead of a spinner. */}
       {loading && (
-        <div className="loading-overlay">
-          <div className="spinner spinner-lg"></div>
+        <div className="loading-overlay" role="status">
+          <div aria-hidden="true" style={{ width: '100%', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--space-4)' }}>
+            {Array.from({ length: 6 }, (_, i) => (
+              <div key={i} className="glass-card">
+                <SkeletonLoader type="text" width="42%" height="11px" />
+                <SkeletonLoader type="text" count={3} />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                  <SkeletonLoader type="card" width="72px" height="24px" />
+                  <SkeletonLoader type="card" width="72px" height="24px" />
+                </div>
+              </div>
+            ))}
+          </div>
           <p>Scanning global news sources…</p>
           <p className="page-subtitle">Analyzing sentiment across markets, crypto, and commodities</p>
         </div>

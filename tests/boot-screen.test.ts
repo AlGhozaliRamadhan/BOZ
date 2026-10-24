@@ -63,7 +63,7 @@ describe('boot screen branding', () => {
     // (html[data-theme='light']) and the dark palette in the base :root after
     // it — dark is the default, so the base block is the one that matters.
     const tokens = readFileSync('src/app/styles/tokens.css', 'utf8');
-    expect(tokens).toMatch(/Black & White Monochrome/);
+    expect(tokens).toMatch(/Violet-Graphite Monochrome/);
 
     const base = tokens.slice(tokens.lastIndexOf(':root {'));
     const token = (name: string) => {

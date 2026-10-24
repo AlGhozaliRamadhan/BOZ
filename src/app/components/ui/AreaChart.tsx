@@ -96,6 +96,8 @@ function AreaChart({ symbol, height = 250, rangeLabel = '90D' }: AreaChartProps)
     if (points.length < 2) return UP_COLOR;
     return points[points.length - 1].close >= points[0].close ? UP_COLOR : DOWN_COLOR;
   }, [points]);
+  // The trend colour breathes behind the plot (see .is-up/.is-down in the CSS
+  // module): the chart's own wash, only ever carried by DATA direction.
 
   const changePct = useMemo(() => {
     if (points.length < 2) return null;
@@ -119,13 +121,16 @@ function AreaChart({ symbol, height = 250, rangeLabel = '90D' }: AreaChartProps)
   const handlePointerLeave = () => setHoverIndex(null);
 
   const renderSvg = points.length > 0;
+  const plotTrendClass = points.length >= 2
+    ? trendColor === UP_COLOR ? ` ${styles['is-up']}` : ` ${styles['is-down']}`
+    : '';
   const firstLabel = renderSvg ? shortMonthDay(points[0].date) : '';
   const lastLabel = renderSvg ? shortMonthDay(points[points.length - 1].date) : '';
 
   return (
     <div className={styles['area-root']} style={{ height }}>
       <div
-        className={styles['area-plot']}
+        className={`${styles['area-plot']}${plotTrendClass}`}
         onPointerMove={renderSvg ? handlePointerMove : undefined}
         onPointerLeave={renderSvg ? handlePointerLeave : undefined}
         aria-hidden={!renderSvg}

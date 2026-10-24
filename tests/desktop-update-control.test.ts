@@ -6,23 +6,28 @@ import {
 } from '../src/app/components/ui/DesktopUpdateControl';
 
 // The webview no longer drives its own `check()`: the desktop host owns the
-// update flow and publishes status, because the Rust side used to prompt with a
-// native dialog while this component ran a second, independent check. These
-// tests pin the boundary — the UI renders what the host reports and nothing
-// more.
+// update flow and publishes status. These tests pin the boundary — the UI
+// renders what the host reports and nothing more.
+
+// Every file that speaks for the app's update voice; the shared hook holds
+// the action fallbacks and the prompt modal holds the prompt copy.
+const UPDATE_UI_SOURCES = [
+  'src/app/components/ui/DesktopUpdateControl.tsx',
+  'src/app/components/ui/use-host-update.ts',
+  'src/app/components/ui/UpdatePromptModal.tsx',
+];
 
 describe('update copy style', () => {
   it('uses no em dashes or en dashes', () => {
     // BOZ's own style rule, enforced on the chat answers, has to hold for the
     // app's own voice too: commas and periods, never a stacked dash.
-    const source = readFileSync(
-      'src/app/components/ui/DesktopUpdateControl.tsx',
-      'utf8',
-    );
-    // Strip comments so prose about the rule is not mistaken for the copy.
-    const copy = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-    for (const dash of ['—', '–']) {
-      expect(copy, `update copy contains a ${dash}`).not.toContain(dash);
+    for (const path of UPDATE_UI_SOURCES) {
+      const source = readFileSync(path, 'utf8');
+      // Strip comments so prose about the rule is not mistaken for the copy.
+      const copy = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+      for (const dash of ['—', '–']) {
+        expect(copy, `${path} copy contains a ${dash}`).not.toContain(dash);
+      }
     }
   });
 
@@ -45,6 +50,7 @@ describe('normalizeUpdateStatus', () => {
         percent: 42,
         message: null,
         snoozedVersion: null,
+        openRequested: false,
       }),
     ).toEqual({
       phase: 'downloading',
@@ -52,7 +58,36 @@ describe('normalizeUpdateStatus', () => {
       percent: 42,
       message: null,
       snoozedVersion: null,
+      openRequested: false,
     });
+  });
+
+  it('passes an open request through so the host can surface the prompt', () => {
+    // The tray "Check for updates" path sets this while the window is hidden;
+    // dropping it here would lose that request.
+    expect(
+      normalizeUpdateStatus({
+        phase: 'available',
+        version: '2.9.0',
+        percent: null,
+        message: null,
+        snoozedVersion: null,
+        openRequested: true,
+      }).openRequested,
+    ).toBe(true);
+  });
+
+  it('defaults an absent or malformed open request to false', () => {
+    // Only a literal true may open the prompt UI; anything the host did not
+    // clearly ask for must stay quiet.
+    for (const raw of [
+      { phase: 'available' },
+      { phase: 'available', openRequested: false },
+      { phase: 'available', openRequested: 'yes' },
+      { phase: 'available', openRequested: 1 },
+    ]) {
+      expect(normalizeUpdateStatus(raw).openRequested, JSON.stringify(raw)).toBe(false);
+    }
   });
 
   it('falls back to idle for a missing or malformed payload', () => {

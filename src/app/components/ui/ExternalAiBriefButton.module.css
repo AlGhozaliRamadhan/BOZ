@@ -11,23 +11,23 @@
   gap: 6px;
   min-height: 30px;
   padding: 6px 10px;
-  border: 1px solid #383838;
-  background: #111;
+  border: 1px solid #383843;
+  background: var(--surface-gradient);
   color: var(--accent-cyan);
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.06em;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  transition: border-color 0.15s ease, color 0.15s ease;
 }
 
 .external-ai-brief-button:hover:not(:disabled) {
-  border-color: var(--accent-cyan);
-  background: rgba(0, 229, 255, 0.08);
+  border-color: var(--text-muted);
+  background: var(--surface-gradient-hover);
 }
 
 .external-ai-brief-button:disabled {
-  color: #555;
+  color: #555564;
   cursor: not-allowed;
 }
