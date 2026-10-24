@@ -43,7 +43,7 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-updater": "2.14.0",
     "ajv": "^8.17.1",
     "axios": "^1.18.1",
