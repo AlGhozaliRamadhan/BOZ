@@ -38,6 +38,10 @@ const PROVIDER_ORDER = [
   'openai', 'anthropic', 'groq', 'openrouter', 'custom', 'nvidia', 'github', 'offline',
 ] as const;
 
+// Module-level empty list: `settings?.availableModels || []` allocated a new
+// array on every render and restarted the picker's memo/effect cycle each time.
+const EMPTY_MODELS: ModelOption[] = [];
+
 export default function ChatModelPicker() {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -129,9 +133,16 @@ export default function ChatModelPicker() {
   // The fetched listing (live or persisted fallback) is the per-provider view
   // the models route assembled; before it arrives, serve the settings
   // snapshot's curated list for the active provider.
-  const listed: ModelOption[] = liveListing
-    ? liveListing.models
-    : settings?.availableModels || [];
+  //
+  // Identity matters, not just value: `grouped` below is memoized on this
+  // object, and the folder effect re-runs on every `grouped` change. Without a
+  // stable fallback, `settings?.availableModels || []` minted a new array on
+  // every render (always, while settings were still loading) — new `grouped`,
+  // new `setExpandedFolders` state, new render: an unbreakable loop.
+  const listed = useMemo(
+    () => (liveListing ? liveListing.models : settings?.availableModels || EMPTY_MODELS),
+    [liveListing, settings?.availableModels],
+  );
 
   const grouped = useMemo(() => groupModelsByPrefix(listed as { id: string }[]), [listed]);
 
@@ -142,7 +153,12 @@ export default function ChatModelPicker() {
     if (!open) return;
     const active = settings?.model || '';
     const folder = grouped.groups.find((g) => g.models.some((m) => m.id === active));
-    setExpandedFolders(folder ? [folder.prefix] : []);
+    const next = folder ? [folder.prefix] : [];
+    // Same folder already expanded → keep the previous identity so React can
+    // bail out instead of re-rendering for an equal value.
+    setExpandedFolders((prev) =>
+      prev.length === next.length && prev.every((value, index) => value === next[index]) ? prev : next,
+    );
   }, [open, settings?.model, grouped]);
 
   const { groups, ungrouped } = grouped;

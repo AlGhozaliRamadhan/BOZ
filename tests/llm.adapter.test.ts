@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LLMAdapter } from '../src/services/ai/llm.adapter.js';
+import { config } from '../src/config/config.js';
 
 describe('LLMAdapter.extractJson', () => {
   it('strips code fences', () => {
@@ -181,5 +182,106 @@ describe('LLMAdapter reasoning separation', () => {
       tool_calls: [{ id: '1', type: 'function', function: { name: 'list_skills', arguments: '{}' } }],
     });
     expect(message.thought).toBeNull();
+  });
+});
+
+describe('LLMAdapter custom (9router) provider', () => {
+  // The model string a router published is the model string it resolves. BOZ
+  // used to strip router namespaces ("openrouter/", "ollama/", "cf/@cf/") from
+  // every provider's model ID, which the router answered with
+  // "invalid model format" — a 400 the user saw as a generation error.
+  function withCustomProvider(run: () => Promise<void>): Promise<void> {
+    const previousProvider = config.aiProvider;
+    const previousModel = config.custom.model;
+    config.setAIProvider('custom');
+    config.setAIModel('placeholder-model', 'custom');
+    return run().finally(() => {
+      config.setAIModel(previousModel, 'custom');
+      config.setAIProvider(previousProvider);
+    });
+  }
+
+  function stubClient(create: (params: Record<string, unknown>) => Promise<unknown>) {
+    return {
+      chat: { completions: { create } },
+    };
+  }
+
+  it('sends a namespaced model ID verbatim', async () => {
+    await withCustomProvider(async () => {
+      const adapter = new LLMAdapter();
+      let sent: Record<string, unknown> | null = null;
+      (adapter as any).customClient = async () => stubClient(async (params) => {
+        sent = params;
+        return { choices: [{ message: { content: 'ok' } }] };
+      });
+
+      await adapter.callWithTools({
+        messages: [{ role: 'user', content: 'price of nvda' }],
+        tools: [{ type: 'function', function: { name: 'fetch_price' } }],
+        model: 'openrouter/vendor/some-model',
+      });
+
+      expect((sent as unknown as { model: string }).model).toBe('openrouter/vendor/some-model');
+    });
+  });
+
+  it('retries toolless when the router rejects the tool payload', async () => {
+    await withCustomProvider(async () => {
+      const adapter = new LLMAdapter();
+      const sent: Record<string, unknown>[] = [];
+      (adapter as any).customClient = async () => stubClient(async (params) => {
+        sent.push(params);
+        if (sent.length === 1) {
+          throw Object.assign(new Error('this model does not support tools'), { status: 400 });
+        }
+        return { choices: [{ message: { content: 'answered without tools' } }] };
+      });
+
+      const reply = await adapter.callWithTools({
+        messages: [{ role: 'user', content: 'price of nvda' }],
+        tools: [{ type: 'function', function: { name: 'fetch_price' } }],
+      });
+
+      expect(reply.content).toBe('answered without tools');
+      expect(sent).toHaveLength(2);
+      expect('tools' in sent[1]).toBe(false);
+      expect('tool_choice' in sent[1]).toBe(false);
+    });
+  });
+
+  it('does not retry a tool payload rejection that is really an auth failure', async () => {
+    await withCustomProvider(async () => {
+      const adapter = new LLMAdapter();
+      let calls = 0;
+      (adapter as any).customClient = async () => stubClient(async () => {
+        calls++;
+        throw Object.assign(new Error('invalid api key'), { status: 401 });
+      });
+
+      await expect(adapter.callWithTools({
+        messages: [{ role: 'user', content: 'price of nvda' }],
+        tools: [{ type: 'function', function: { name: 'fetch_price' } }],
+      })).rejects.toThrow('invalid api key');
+      expect(calls).toBe(1);
+    });
+  });
+
+  it('reads a non-streaming body a router returned for a streaming call', async () => {
+    await withCustomProvider(async () => {
+      const adapter = new LLMAdapter();
+      (adapter as any).customClient = async () => stubClient(async () => ({
+        choices: [{ message: { content: 'Hello there.' } }],
+      }));
+
+      const chunks: string[] = [];
+      for await (const chunk of adapter.callTextStream({
+        messages: [{ role: 'user', content: 'hi' }],
+      })) {
+        if (chunk.type === 'text') chunks.push(chunk.text);
+      }
+
+      expect(chunks.join('')).toBe('Hello there.');
+    });
   });
 });

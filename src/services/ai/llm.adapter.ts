@@ -60,9 +60,23 @@ function providerSupportsReasoningEffort(provider: string): boolean {
  * NVIDIA/GitHub fallbacks.
  */
 async function* readOpenAiCompatibleStream(
-  stream: AsyncIterable<{ choices?: { delta?: Record<string, unknown> | null }[] }>,
+  stream: AsyncIterable<{ choices?: { delta?: Record<string, unknown> | null }[] }> | { choices?: { message?: Record<string, unknown> | null }[] },
 ): AsyncGenerator<LLMStreamChunk, void, unknown> {
-  for await (const chunk of stream) {
+  // Some routers ignore `stream: true` and answer with one normal completion
+  // body. Iterating that object throws "not async iterable" and the user saw a
+  // generation error instead of the answer the provider had already sent.
+  if (!isIterableStream(stream)) {
+    const message = stream?.choices?.[0]?.message;
+    if (message) {
+      const reasoning = readReasoningDelta(message);
+      if (reasoning) yield reasoningChunk(reasoning);
+      const content = message.content;
+      if (typeof content === 'string' && content.length > 0) yield textChunk(content);
+    }
+    return;
+  }
+
+  for await (const chunk of stream as AsyncIterable<{ choices?: { delta?: Record<string, unknown> | null }[] }>) {
     const delta = chunk?.choices?.[0]?.delta;
     if (!delta) continue;
     // Reasoning first: a provider may open with a reasoning delta and no text.
@@ -74,6 +88,16 @@ async function* readOpenAiCompatibleStream(
 }
 
 const DEFAULT_TIMEOUT_MS = 90_000;
+
+/**
+ * True when a chat completion payload is a real stream rather than a single
+ * response body. Routers that ignore `stream: true` return the latter.
+ */
+function isIterableStream(value: unknown): value is AsyncIterable<unknown> {
+  const candidate = value as { [Symbol.asyncIterator]?: unknown; [Symbol.iterator]?: unknown } | null;
+  return typeof candidate?.[Symbol.asyncIterator] === 'function'
+    || typeof candidate?.[Symbol.iterator] === 'function';
+}
 
 // Stray prefixes (e.g. "~openai/gpt-latest" or router namespaces users paste
 // from 9router model lists) are not valid OpenRouter model IDs. Clean them so
@@ -97,6 +121,18 @@ function sanitizeOpenRouterModelId(raw: string): string {
 // tool round entirely instead of failing mid-stream.
 export function providerHonorsToolChoice(provider: string): boolean {
   return ['github', 'nvidia', 'openai', 'anthropic', 'groq', 'openrouter'].includes(provider);
+}
+
+/**
+ * Whether a failed call looks like the *payload* was rejected — the router's
+ * model cannot take `tools`/`tool_choice` — rather than the credentials, the
+ * model ID, or the network. Only this class is worth retrying toolless.
+ */
+export function isToolPayloadRejection(err: unknown): boolean {
+  const status = (err as { status?: unknown })?.status;
+  if (typeof status === 'number' && status !== 400 && status !== 422) return false;
+  const message = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  return /\btools?\b|\btool_choice\b|function[ _-]?calling/i.test(message);
 }
 
 export class LLMAdapter {
@@ -165,7 +201,7 @@ export class LLMAdapter {
   ): Promise<string> {
     const { client, model } = this.cloudClient(provider);
     const params: Record<string, unknown> = {
-      model: options.model ?? model,
+      model: sanitizeOpenRouterModelId(options.model ?? model),
       messages: options.messages,
       temperature: options.temperature,
       max_tokens: options.maxTokens,
@@ -188,7 +224,7 @@ export class LLMAdapter {
   ): AsyncGenerator<LLMStreamChunk, void, unknown> {
     const { client, model } = this.cloudClient(provider);
     const params: Record<string, unknown> = {
-      model: options.model ?? model,
+      model: sanitizeOpenRouterModelId(options.model ?? model),
       messages: options.messages,
       temperature: options.temperature,
       max_tokens: options.maxTokens,
@@ -220,7 +256,7 @@ export class LLMAdapter {
   ): Promise<LLMMessage> {
     const { client, model } = this.cloudClient(provider);
     const response: any = await client.chat.completions.create({
-      model: options.model ?? model,
+      model: sanitizeOpenRouterModelId(options.model ?? model),
       messages: options.messages as never,
       ...(options.tools?.length
         ? { tools: options.tools as never, tool_choice: options.toolChoice as never }
@@ -243,7 +279,11 @@ export class LLMAdapter {
     const provider = config.aiProvider;
     const temperature = options.temperature ?? 0.4;
     const maxTokens = options.maxTokens ?? 1500;
-    const model = options.model ? sanitizeOpenRouterModelId(options.model) : undefined;
+    // Model IDs belong to the provider that will receive them. Only the
+    // OpenRouter-family routes below rewrite IDs; a router such as 9router
+    // resolves the exact string it published, and stripping its namespace
+    // answered "invalid model format" for every model picked from its list.
+    const model = options.model?.trim() || undefined;
     const messages = options.messages;
 
     if (provider === 'custom') {
@@ -355,7 +395,11 @@ export class LLMAdapter {
     const provider = config.aiProvider;
     const temperature = options.temperature ?? 0.4;
     const maxTokens = options.maxTokens ?? 1500;
-    const model = options.model ? sanitizeOpenRouterModelId(options.model) : undefined;
+    // Model IDs belong to the provider that will receive them. Only the
+    // OpenRouter-family routes below rewrite IDs; a router such as 9router
+    // resolves the exact string it published, and stripping its namespace
+    // answered "invalid model format" for every model picked from its list.
+    const model = options.model?.trim() || undefined;
     const messages = options.messages;
 
     if (provider === 'custom') {
@@ -464,7 +508,11 @@ export class LLMAdapter {
     const provider = config.aiProvider;
     const temperature = options.temperature ?? 0.3;
     const maxTokens = options.maxTokens ?? 4096;
-    const model = options.model ? sanitizeOpenRouterModelId(options.model) : undefined;
+    // Model IDs belong to the provider that will receive them. Only the
+    // OpenRouter-family routes below rewrite IDs; a router such as 9router
+    // resolves the exact string it published, and stripping its namespace
+    // answered "invalid model format" for every model picked from its list.
+    const model = options.model?.trim() || undefined;
     const messages = options.messages;
     const toolChoice = options.toolChoice ?? 'auto';
     // A turn that needs no tool sends no tools AT ALL rather than an empty list:
@@ -491,8 +539,21 @@ export class LLMAdapter {
         params.tool_choice = resolvedToolChoice;
       }
       const client = await this.customClient();
-      const res = await client.chat.completions.create(params as any);
-      return LLMAdapter.normalizeOpenAIResponse(res.choices?.[0]?.message ?? {});
+      try {
+        const res = await client.chat.completions.create(params as any);
+        return LLMAdapter.normalizeOpenAIResponse(res.choices?.[0]?.message ?? {});
+      } catch (err) {
+        if (!tools || !isToolPayloadRejection(err)) throw err;
+        // A router fronting models that cannot take a tool payload rejects the
+        // whole turn. Answering without the toolbox keeps the conversation
+        // alive instead of surfacing a generation error for a tool the user
+        // never asked about.
+        const plain = { ...params };
+        delete plain.tools;
+        delete plain.tool_choice;
+        const res = await client.chat.completions.create(plain as any);
+        return LLMAdapter.normalizeOpenAIResponse(res.choices?.[0]?.message ?? {});
+      }
     }
 
     if (provider === 'nvidia') {
