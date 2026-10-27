@@ -2,29 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { chmod, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { configEnvPath } from '../../utils/env-dir.js';
 
-export const SETTINGS_ENV_KEYS = [
-  'AI_PROVIDER',
-  'GITHUB_AI_MODEL',
-  'GITHUB_TOKEN',
-  'NVIDIA_AI_MODEL',
-  'NVIDIA_API_KEY',
-  'OFFLINE_AI_URL',
-  'OFFLINE_AI_MODEL',
-  'OPENAI_API_KEY',
-  'OPENAI_AI_MODEL',
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_AI_MODEL',
-  'GROQ_API_KEY',
-  'GROQ_AI_MODEL',
-  'OPENROUTER_API_KEY',
-  'OPENROUTER_AI_MODEL',
-  'CUSTOM_AI_URL',
-  'CUSTOM_AI_KEY',
-  'CUSTOM_AI_MODEL',
-  'CUSTOM_AI_MODELS',
-] as const;
+// Single source of truth lives in a runtime-agnostic module so the
+// instrumentation graph (compiled for every runtime) can reuse it without
+// dragging `node:fs/promises` into an edge bundle.
+import { SETTINGS_ENV_KEYS, type SettingsEnvKey } from '../../shared/settings-env-keys.js';
 
-export type SettingsEnvKey = typeof SETTINGS_ENV_KEYS[number];
+export { SETTINGS_ENV_KEYS };
+export type { SettingsEnvKey };
+
 export type SettingsEnvUpdates = Partial<Record<SettingsEnvKey, string | null>>;
 
 const SETTINGS_ENV_KEY_SET = new Set<string>(SETTINGS_ENV_KEYS);

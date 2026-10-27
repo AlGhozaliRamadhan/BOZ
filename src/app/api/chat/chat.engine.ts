@@ -10,6 +10,7 @@
 import { LLMAdapter, providerHonorsToolChoice } from '@/services/ai/llm.adapter';
 import type { ReasoningEffort } from '@/services/ai/llm.adapter';
 import { config } from '@/config/config';
+import { log } from '@/utils/logger';
 import { YahooService, yahooFinance } from '@/services/market/yahoo.service';
 import { IndicatorsService } from '@/services/market/indicators.service';
 import { MacroService } from '@/services/market/macro.service';
@@ -538,7 +539,7 @@ export class WebChatEngine {
         { reasoningEffort, model: modelOverride, toolChoice: initialToolChoice },
       );
     } catch (err) {
-      yield { type: 'error', data: { message: err instanceof Error ? err.message : 'AI call failed' } };
+      yield this.terminalFailure(err, 'AI call failed');
       return;
     }
 
@@ -736,7 +737,7 @@ export class WebChatEngine {
           },
         );
       } catch (err) {
-        yield { type: 'error', data: { message: err instanceof Error ? err.message : 'AI follow-up call failed' } };
+        yield this.terminalFailure(err, 'AI follow-up call failed');
         return;
       }
     }
@@ -946,7 +947,7 @@ export class WebChatEngine {
         }
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') throw err;
-        yield { type: 'error', data: { message: 'Reasoning agent failed: ' + (err instanceof Error ? err.message : String(err)) } };
+        yield this.terminalFailure(err, 'Reasoning agent failed');
         return;
       }
     } else {
@@ -2228,6 +2229,36 @@ export class WebChatEngine {
   private consumeLlmCall(): void {
     if (this.llmCalls >= MAX_LLM_CALLS) throw new Error(`LLM-call budget exceeded (${MAX_LLM_CALLS} per request)`);
     this.llmCalls++;
+  }
+
+  /**
+   * A terminal provider failure, surfaced with the classification the retry
+   * layer already computed.
+   *
+   * An error event with no code can only be classified by guessing from its
+   * message at the client, which is how a provider's "invalid model format"
+   * became a generic "the model could not finish the final response". The raw
+   * text still never renders — `describeChatStreamFailure` supplies the
+   * reader-facing sentence — but the code and status let the client pick the
+   * right one, and the raw text is logged here so a failure leaves a trail.
+   */
+  private terminalFailure(
+    err: unknown,
+    fallbackMessage: string,
+  ): { type: 'error'; data: { code: LlmFailure['code']; status?: number; message: string } } {
+    const failure = normalizeLlmFailure(err);
+    if (!failure.aborted) {
+      const status = failure.status === undefined ? '' : ` ${failure.status}`;
+      log.error('chat', `${failure.code}${status}: ${failure.message}`);
+    }
+    return {
+      type: 'error',
+      data: {
+        code: failure.code,
+        ...(failure.status === undefined ? {} : { status: failure.status }),
+        message: err instanceof Error ? err.message : fallbackMessage,
+      },
+    };
   }
 
   // Fresh-install guard: surface missing credentials or a placeholder model
