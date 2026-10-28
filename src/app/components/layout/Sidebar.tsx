@@ -439,7 +439,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
               onClick={() => setIsAboutOpen(true)}
               title="About BOZ"
             >
-              v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.8.4'}
+              v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.9.0'}
             </button>
           </div>
         )}
@@ -471,10 +471,10 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
                   BOZ Intelligence
                 </div>
                 <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                  Desktop version v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.8.4'}
+                  Desktop version v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.9.0'}
                 </div>
               </div>
-              <DesktopUpdateControl version={process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.8.4'} />
+              <DesktopUpdateControl version={process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.9.0'} />
               <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '12px', borderTop: '1px solid var(--border-glass)' }}>
                 <button
                   type="button"
