@@ -1,3 +1,5 @@
+import { parseFxSymbol } from '@/shared/fx';
+
 const DEFAULT_TRADINGVIEW_SYMBOL = 'NASDAQ:AAPL';
 const PREFIXED_SYMBOL = /^[A-Z0-9._^-]{1,24}:[A-Z0-9._^-]{1,40}$/;
 const BARE_SYMBOL = /^[A-Z0-9._^-]{1,40}$/;
@@ -10,6 +12,12 @@ const BARE_SYMBOL = /^[A-Z0-9._^-]{1,40}$/;
 export function toTradingViewSymbol(ticker: string): string {
   const raw = ticker.trim().toUpperCase();
   if (!raw) return DEFAULT_TRADINGVIEW_SYMBOL;
+
+  // FX first: every Yahoo pair carries `=` (EURUSD=X), which fails the bare
+  // symbol check below and used to fall all the way back to NASDAQ:AAPL.
+  // The emitted value is rebuilt from the registry, never from user input.
+  const fx = parseFxSymbol(raw);
+  if (fx) return fx.quote === 'IDR' ? `FX_IDC:${fx.code}` : `FX:${fx.code}`;
 
   if (PREFIXED_SYMBOL.test(raw)) return raw;
   if (raw.includes(':') || !BARE_SYMBOL.test(raw)) return DEFAULT_TRADINGVIEW_SYMBOL;

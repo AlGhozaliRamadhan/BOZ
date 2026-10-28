@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { ThoughtAccordion } from '@/app/components/ui/ThoughtAccordion';
 import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
+import { parseFxSymbol } from '@/shared/fx';
 import SkeletonLoader from '@/app/components/ui/SkeletonLoader';
 import ExternalAiBriefButton from '@/app/components/ui/ExternalAiBriefButton';
 import styles from '../../components/ui/TradeLevels.module.css';
@@ -77,6 +78,11 @@ export default function LongtermAnalysisPage() {
   const tl = result?.tradeLevels;
 
   const fmt = (v: number | null | undefined, d = 2) =>
+    v != null ? v.toFixed(d) : '—';
+  // A pair is a rate: own precision, no dollar sign, and no volume rows.
+  const fx = parseFxSymbol(result?.ticker ?? ticker);
+  const unit = fx ? '' : '$';
+  const px = (v: number | null | undefined, d = fx?.precision ?? 2) =>
     v != null ? v.toFixed(d) : '—';
 
   return (
@@ -229,9 +235,9 @@ export default function LongtermAnalysisPage() {
             <div className="glass-card compact">
               <div className="card-header"><span className="card-title">52-Week Context</span></div>
               <div className="grid-4 gap-4">
-                <div><span className="card-title">52W High</span><br /><span className={styles['trade-level-value']}>${fmt(md.fiftyTwoWeekHigh)}</span></div>
+                <div><span className="card-title">52W High</span><br /><span className={styles['trade-level-value']}>{unit}{px(md.fiftyTwoWeekHigh)}</span></div>
                 <div><span className="card-title">From High</span><br /><span className={`${styles['trade-level-value']} stop`}>{fmt(md.from52wHigh, 1)}%</span></div>
-                <div><span className="card-title">52W Low</span><br /><span className={styles['trade-level-value']}>${fmt(md.fiftyTwoWeekLow)}</span></div>
+                <div><span className="card-title">52W Low</span><br /><span className={styles['trade-level-value']}>{unit}{px(md.fiftyTwoWeekLow)}</span></div>
                 <div><span className="card-title">From Low</span><br /><span className={`${styles['trade-level-value']} target`}>+{fmt(md.from52wLow, 1)}%</span></div>
               </div>
             </div>
@@ -245,13 +251,19 @@ export default function LongtermAnalysisPage() {
                 <tbody>
                   <tr><td>RSI (14)</td><td className={md?.rsi > 70 ? 'table-cell-negative' : md?.rsi < 30 ? 'table-cell-positive' : ''}>{fmt(md?.rsi, 1)}</td></tr>
                   <tr><td>MACD</td><td className={(md?.macd ?? 0) >= 0 ? 'table-cell-positive' : 'table-cell-negative'}>{fmt(md?.macd, 4)}</td></tr>
-                  <tr><td>SMA 20</td><td>${fmt(md?.sma_20)}</td></tr>
-                  <tr><td>SMA 50</td><td>${fmt(md?.sma_50)}</td></tr>
-                  <tr><td>SMA 200</td><td>${fmt(md?.sma_200)}</td></tr>
-                  <tr><td>ATR</td><td>{fmt(md?.atr, 4)} ({fmt(md?.atr_percent)}%)</td></tr>
+                  <tr><td>SMA 20</td><td>{unit}{px(md?.sma_20)}</td></tr>
+                  <tr><td>SMA 50</td><td>{unit}{px(md?.sma_50)}</td></tr>
+                  <tr><td>SMA 200</td><td>{unit}{px(md?.sma_200)}</td></tr>
+                  <tr><td>ATR</td><td>{px(md?.atr, fx ? fx.precision : 4)} ({fmt(md?.atr_percent)}%)</td></tr>
                   <tr><td>BB Width</td><td>{fmt(md?.bb_width, 4)}</td></tr>
-                  <tr><td>Volume Ratio</td><td>{fmt(md?.volume_ratio)}x</td></tr>
-                  <tr><td>OBV Trend</td><td>{md?.obv_trend ? 'Bullish' : 'Bearish'}</td></tr>
+                  {fx ? (
+                    <tr><td>Pip Size</td><td>{fx.pipSize}</td></tr>
+                  ) : (
+                    <>
+                      <tr><td>Volume Ratio</td><td>{fmt(md?.volume_ratio)}x</td></tr>
+                      <tr><td>OBV Trend</td><td>{md?.obv_trend ? 'Bullish' : 'Bearish'}</td></tr>
+                    </>
+                  )}
                 </tbody>
               </table>
             </div>

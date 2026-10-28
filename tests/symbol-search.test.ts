@@ -28,8 +28,17 @@ describe('classifySymbolMarket', () => {
   it('trusts the instrument class Yahoo reports', () => {
     expect(classifySymbolMarket('BTC-USD', 'CRYPTOCURRENCY')).toBe('crypto');
     expect(classifySymbolMarket('^GSPC', 'INDEX')).toBe('index');
-    expect(classifySymbolMarket('EURUSD=X', 'CURRENCY')).toBe('macro');
     expect(classifySymbolMarket('GC=F', 'FUTURE')).toBe('macro');
+  });
+
+  it('classifies registered pairs as FX, not macro', () => {
+    // Yahoo labels EURUSD=X CURRENCY; the pair registry is the more useful answer.
+    expect(classifySymbolMarket('EURUSD=X', 'CURRENCY')).toBe('fx');
+    expect(classifySymbolMarket('JPY=X', 'CURRENCY')).toBe('fx');
+    expect(classifySymbolMarket('IDR=X')).toBe('fx');
+    expect(classifySymbolMarket('GBP/JPY')).toBe('fx');
+    // The dollar index is a macro instrument, not a tradeable pair.
+    expect(classifySymbolMarket('DX-Y.NYB', 'CURRENCY')).toBe('macro');
   });
 
   it('falls back to symbol shape when quoteType is missing', () => {
@@ -38,6 +47,7 @@ describe('classifySymbolMarket', () => {
     expect(classifySymbolMarket('BTC-USD')).toBe('crypto');
     expect(classifySymbolMarket('BTC-USDT')).toBe('crypto');
     expect(classifySymbolMarket('GC=F')).toBe('macro');
+    expect(classifySymbolMarket('EURUSD')).toBe('fx');
   });
 
   it('uses the exchange to separate IDX from US equities', () => {
@@ -70,6 +80,15 @@ describe('buildSymbolProbes', () => {
     expect(buildSymbolProbes('BBCA.JK')).toEqual(['BBCA.JK']);
     expect(buildSymbolProbes('^GSPC')).toEqual(['^GSPC']);
     expect(buildSymbolProbes('GC=F')).toEqual(['GC=F']);
+  });
+
+  it('probes only the canonical Yahoo symbol for a pair', () => {
+    expect(buildSymbolProbes('EURUSD')).toEqual(['EURUSD=X', 'EURUSD']);
+    expect(buildSymbolProbes('EUR/USD')[0]).toBe('EURUSD=X');
+    expect(buildSymbolProbes('USDJPY')[0]).toBe('JPY=X');
+    expect(buildSymbolProbes('IDR=X')).toEqual(['IDR=X']);
+    // `.JK` / `-USD` guesses are meaningless for a pair and must not appear.
+    expect(buildSymbolProbes('USDIDR')).toEqual(['IDR=X', 'USDIDR']);
   });
 
   it('never guesses for free text', () => {

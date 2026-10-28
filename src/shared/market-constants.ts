@@ -2,6 +2,8 @@
 // Single source of truth for asset → ticker resolution and late-entry keywords.
 // Import from here in any analyzer, agent, or service that needs these.
 
+import { parseFxSymbol, resolveFxSymbol } from './fx.js';
+
 export const SYMBOL_MAP: Record<string, string> = {
   // Indices
   'SP500': '^GSPC', 'S&P500': '^GSPC', 'S&P 500': '^GSPC', 'SPX': '^GSPC', 'SPY': 'SPY',
@@ -97,6 +99,10 @@ export const LATE_KEYWORDS: string[] = [
 export function resolveSymbol(raw: string): string | null {
   const upper = raw.trim().toUpperCase();
   if (SYMBOL_MAP[upper]) return SYMBOL_MAP[upper];
+  // FX before the bare-ticker rules: `EURUSD` and `IDR=X` are pairs, and a bare
+  // six-letter code must never be mistaken for a US listing.
+  const fx = resolveFxSymbol(upper);
+  if (fx) return fx;
   if (/^[A-Z]{1,5}$/.test(upper)) return upper; // common stock / ETF ticker
   if (/^\^[A-Z0-9]{1,10}$/.test(upper)) return upper; // Yahoo index symbol
   if (/^[A-Z0-9]{1,10}(?:[.\-=][A-Z0-9]{1,8})+$/.test(upper)) return upper; // Yahoo symbol with suffix/pair (e.g. BBCA.JK, BTC-USD)
@@ -113,6 +119,9 @@ export function resolveSymbolIDX(raw: string): string | null {
   const upper = raw.trim().toUpperCase();
   // Direct map hit — already correct (BBCA → BBCA.JK, BTC → BTC-USD, etc.)
   if (SYMBOL_MAP[upper]) return SYMBOL_MAP[upper];
+  // FX pairs keep their Yahoo symbol; they must not gain a `.JK` suffix.
+  const fx = resolveFxSymbol(upper);
+  if (fx) return fx;
   // Already has a Yahoo suffix — pass through as-is
   if (/^[A-Z0-9]{1,10}(?:[.\-=][A-Z0-9]{1,8})+$/.test(upper)) return upper;
   // Bare 2-6 letter code not in the map and not a known US mega-cap → try .JK
@@ -133,6 +142,8 @@ export function resolveStockTwitsSymbol(raw: string): string | null {
 /** Build a compact Reddit search query from a Yahoo Finance symbol. */
 export function buildSocialSearchQuery(raw: string): string {
   const symbol = resolveSymbol(raw) ?? raw.trim().toUpperCase();
+  const fx = parseFxSymbol(symbol);
+  if (fx) return `${fx.code} OR "${fx.pair}"`;
   const aliases = SOCIAL_SEARCH_ALIASES[symbol];
   if (aliases) return aliases.join(' OR ');
 

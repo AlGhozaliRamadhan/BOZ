@@ -12,11 +12,12 @@ import type {
 } from '@/shared/screener-contract';
 import { MAX_SCAN_RESULTS as SCAN_RESULT_CAP } from '@/shared/screener-contract';
 import { signalConfidence } from '@/shared/screener-confidence';
+import { formatFxRate, fxDisplaySymbol, parseFxSymbol } from '@/shared/fx';
 
 type ConvictionFilter = 'LOW' | 'MEDIUM' | 'HIGH';
-type SortKey = 'screenScore' | 'expertScore' | 'confidence' | 'conviction' | 'chg1d' | 'chg5d' | 'price' | 'rsi' | 'volumeRatio';
+type SortKey = 'screenScore' | 'expertScore' | 'confidence' | 'conviction' | 'chg1d' | 'chg5d' | 'price' | 'rsi' | 'volumeRatio' | 'upside';
 type SortDirection = 'asc' | 'desc';
-type MarketTab = 'crypto' | 'us' | 'idx';
+type MarketTab = 'crypto' | 'us' | 'idx' | 'forex';
 
 interface PresetMeta {
   value: ScreenerPreset;
@@ -37,6 +38,7 @@ const MARKETS: Array<{ value: MarketTab; label: string; hint: string }> = [
   { value: 'us', label: 'US Stocks', hint: 'NYSE · Nasdaq' },
   { value: 'idx', label: 'ID Stocks', hint: 'IDX · .JK tickers' },
   { value: 'crypto', label: 'Crypto', hint: '24/7 · majors' },
+  { value: 'forex', label: 'Forex', hint: 'Majors · crosses · Asia' },
 ];
 
 const IDX_SECTORS = [
@@ -62,6 +64,14 @@ const US_SECTORS = [
   ['industrial', 'Industrial'],
 ] as const;
 
+const FOREX_SECTORS = [
+  ['all', 'All pairs'],
+  ['major', 'Majors'],
+  ['cross', 'Crosses'],
+  ['asia', 'Asia-Pacific'],
+  ['exotic', 'Exotics'],
+] as const;
+
 const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
   { value: 'screenScore', label: 'Best match' },
   { value: 'expertScore', label: 'Signal score' },
@@ -72,6 +82,19 @@ const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
   { value: 'volumeRatio', label: 'Volume' },
   { value: 'price', label: 'Price' },
   { value: 'rsi', label: 'RSI' },
+  { value: 'upside', label: 'T1 upside' },
+];
+
+// Header labels for the columns that sort client-side. `Signal` maps to the
+// raw expert score, `To T1` to the distance-to-target upside.
+const COLUMNS: Array<{ key: SortKey; label: string; className: string }> = [
+  { key: 'price', label: 'Price', className: 'scn-col--num' },
+  { key: 'chg1d', label: '1D', className: 'scn-col--num' },
+  { key: 'rsi', label: 'RSI', className: 'scn-col--num' },
+  { key: 'volumeRatio', label: 'Vol', className: 'scn-col--num' },
+  { key: 'screenScore', label: 'Match', className: 'scn-col--num' },
+  { key: 'expertScore', label: 'Signal', className: 'scn-col--signal' },
+  { key: 'upside', label: 'To T1', className: 'scn-col--num' },
 ];
 
 const CONVICTION_RANK: Record<ConvictionFilter, number> = { LOW: 1, MEDIUM: 2, HIGH: 3 };
@@ -88,7 +111,9 @@ function formatNumber(value: number | null | undefined, digits = 1): string {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : 'n/a';
 }
 
-function formatPrice(value: number | null | undefined): string {
+function formatPrice(value: number | null | undefined, ticker?: string): string {
+  // A rate needs its pair's precision; a two-decimal EUR/USD is unusable.
+  if (ticker && parseFxSymbol(ticker)) return formatFxRate(ticker, value);
   return typeof value === 'number' && Number.isFinite(value)
     ? value.toLocaleString(undefined, { maximumFractionDigits: 2 })
     : 'n/a';
@@ -122,6 +147,7 @@ function actionTone(action: string): 'buy' | 'sell' | 'watch' {
 }
 
 function displayTicker(ticker: string, universe: ScreenerUniverse): string {
+  if (universe === 'forex') return fxDisplaySymbol(ticker);
   if (universe === 'idx') return ticker.replace(/\.JK$/i, '');
   return ticker.replace(/-USD$/i, '');
 }
@@ -143,6 +169,7 @@ function sortValue(result: ScreenerResult, key: SortKey): number {
     case 'confidence': return signalConfidence(result.expertSignal);
     case 'conviction': return CONVICTION_RANK[result.expertSignal.conviction] * 1000 + Math.abs(result.expertSignal.score);
     case 'expertScore': return result.expertSignal.score;
+    case 'upside': return target1Upside(result) ?? Number.NEGATIVE_INFINITY;
     case 'screenScore':
     default: return result.screenScore;
   }
@@ -150,6 +177,7 @@ function sortValue(result: ScreenerResult, key: SortKey): number {
 
 function toMarketTab(universe: ScreenerUniverse): MarketTab {
   if (universe === 'crypto') return 'crypto';
+  if (universe === 'forex') return 'forex';
   if (universe === 'us' || universe === 'global') return 'us';
   return 'idx';
 }
@@ -180,7 +208,7 @@ export default function ScreenersPage() {
       const raw = window.localStorage.getItem(CONFIG_KEY);
       if (!raw) return;
       const saved = JSON.parse(raw) as Partial<Record<string, string>>;
-      if (saved.market === 'us' || saved.market === 'idx' || saved.market === 'crypto') setMarket(saved.market);
+      if (saved.market === 'us' || saved.market === 'idx' || saved.market === 'crypto' || saved.market === 'forex') setMarket(saved.market);
       if (typeof saved.preset === 'string' && PRESETS.some(p => p.value === saved.preset)) {
         setPreset(saved.preset as ScreenerPreset);
       }
@@ -212,7 +240,17 @@ export default function ScreenersPage() {
   }, [market, preset, sector, direction, minimumConviction, mode, sortKey, sortDirection]);
 
   const universe: ScreenerUniverse = market;
-  const sectorOptions = market === 'idx' ? IDX_SECTORS : US_SECTORS;
+  const sectorOptions = market === 'idx'
+    ? IDX_SECTORS
+    : market === 'forex'
+      ? FOREX_SECTORS
+      : US_SECTORS;
+
+  // Saved config can pair a market with a sector it does not have (IDX banking
+  // → Forex). Fall back to `all` instead of rendering an empty select.
+  useEffect(() => {
+    if (!sectorOptions.some(([value]) => value === sector)) setSector('all');
+  }, [sectorOptions, sector]);
   const activePreset = PRESETS.find(item => item.value === preset) ?? PRESETS[0];
 
   const switchMarket = (next: MarketTab) => {
@@ -294,12 +332,24 @@ export default function ScreenersPage() {
 
   const responseUniverse = response ? toMarketTab(response.query.universe ?? universe) : market;
   const summary = response?.summary ?? null;
-  // The scan service caps matches at SCAN_RESULT_CAP — say so instead of implying
-  // full coverage. Kept in step with the scanner so the notice never goes stale.
+  // The scan service caps matches at SCAN_RESULT_CAP. Say so instead of
+  // implying full coverage. Kept in step with the scanner so the notice
+  // never goes stale.
   const isCapped = (response?.results.length ?? 0) >= SCAN_RESULT_CAP;
   const isDefaultConfig =
     preset === 'momentum' && sector === 'all' && direction === 'buy' &&
     minimumConviction === 'LOW' && mode === 'fast';
+
+  // Click a column header to sort by it; clicking again flips the direction.
+  // A new column starts descending so the leading values read first.
+  const toggleSortColumn = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDirection(current => (current === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortKey(key);
+    setSortDirection('desc');
+  };
 
   return (
     <div className="scn-page">
@@ -406,7 +456,7 @@ export default function ScreenersPage() {
 
           {market !== 'crypto' && (
             <div className="scn-field scn-field--grow">
-              <h2 className="scn-label"><label htmlFor="scn-sector">{market === 'idx' ? 'Sector' : 'Market'}</label></h2>
+              <h2 className="scn-label"><label htmlFor="scn-sector">{market === 'idx' ? 'Sector' : market === 'forex' ? 'Pair class' : 'Market'}</label></h2>
               <select
                 id="scn-sector"
                 className="scn-select"
@@ -483,7 +533,7 @@ export default function ScreenersPage() {
           <div className="scn-status" aria-label="Scanning">
             <span className="scn-spinner scn-spinner--lg" aria-hidden="true" />
             <div>
-              <strong>Screening {market === 'crypto' ? 'crypto majors' : market === 'us' ? 'US equities' : 'IDX equities'}…</strong>
+              <strong>Screening {market === 'crypto' ? 'crypto majors' : market === 'us' ? 'US equities' : market === 'forex' ? 'FX pairs' : 'IDX equities'}…</strong>
               <p>Quote prefilter → 420-day indicators → chart structure → Expert Signal read.</p>
             </div>
           </div>
@@ -559,15 +609,31 @@ export default function ScreenersPage() {
 
             {visibleResults.length > 0 ? (
               <div className="scn-table">
-                <div className="scn-thead" aria-hidden="true">
+                <div className="scn-thead">
                   <span className="scn-col scn-col--id">Ticker</span>
-                  <span className="scn-col scn-col--num">Price</span>
-                  <span className="scn-col scn-col--num">1D</span>
-                  <span className="scn-col scn-col--num">RSI</span>
-                  <span className="scn-col scn-col--num">Vol</span>
-                  <span className="scn-col scn-col--num">Match</span>
-                  <span className="scn-col scn-col--signal">Signal</span>
-                  <span className="scn-col scn-col--num">To T1</span>
+                  {COLUMNS.map(column => {
+                    const isSorted = sortKey === column.key;
+                    const directionLabel = isSorted
+                      ? (sortDirection === 'asc' ? 'ascending' : 'descending')
+                      : 'descending';
+                    return (
+                      <button
+                        key={column.key}
+                        type="button"
+                        className={`scn-hcol scn-col ${column.className}${isSorted ? ' is-sorted' : ''}`}
+                        aria-label={`Sort by ${column.label.toLowerCase()}, ${directionLabel}${isSorted ? '; activate to flip direction' : ''}`}
+                        title={isSorted ? 'Sorted. Click to flip direction.' : `Sort by ${column.label.toLowerCase()}`}
+                        onClick={() => toggleSortColumn(column.key)}
+                      >
+                        {column.label}
+                        {isSorted && (
+                          <span className="scn-hcol__dir" aria-hidden="true">
+                            {sortDirection === 'asc' ? '\u2191' : '\u2193'}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                   <span className="scn-col scn-col--go"><span className="scn-visually-hidden">Actions</span></span>
                 </div>
                 <ol className="scn-rows">
@@ -579,6 +645,9 @@ export default function ScreenersPage() {
                     const confidence = signalConfidence(signal);
                     const confidenceClass = confidenceTone(confidence);
                     const down1d = result.metrics.chg1d < 0;
+                    // FX quotes carry no tape, so the volume column is blank
+                    // rather than a fabricated 1.0x reading.
+                    const isFxRow = parseFxSymbol(result.ticker) !== null;
                     return (
                       <li key={result.ticker} className={`scn-row scn-row--${tone}${isExpanded ? ' is-open' : ''}`}>
                         <div className="scn-row__grid">
@@ -592,12 +661,14 @@ export default function ScreenersPage() {
                             <strong>{displayTicker(result.ticker, responseUniverse)}</strong>
                             <span>{result.name}</span>
                           </button>
-                          <span className="scn-col scn-col--num">{formatPrice(result.metrics.price)}</span>
+                          <span className="scn-col scn-col--num">{formatPrice(result.metrics.price, result.ticker)}</span>
                           <span className={`scn-col scn-col--num${down1d ? ' is-negative' : ' is-positive'}`}>
                             {signed(result.metrics.chg1d)}%
                           </span>
                           <span className="scn-col scn-col--num">{formatNumber(result.metrics.rsi, 0)}</span>
-                          <span className="scn-col scn-col--num">{formatNumber(result.metrics.volumeRatio, 1)}x</span>
+                          <span className="scn-col scn-col--num">
+                            {isFxRow ? 'n/a' : `${formatNumber(result.metrics.volumeRatio, 1)}x`}
+                          </span>
                           <span className="scn-col scn-col--num scn-match" title={`Screen match ${result.screenScore}/100`}>
                             <span className="scn-match__bar" aria-hidden="true">
                               <span style={{ width: `${Math.max(0, Math.min(100, result.screenScore))}%` }} />
@@ -608,7 +679,7 @@ export default function ScreenersPage() {
                             <span className={`scn-action scn-action--${tone}`}>{signal.action}</span>
                             <span
                               className={`scn-confidence scn-confidence--${confidenceClass}`}
-                              title={`Signal clarity ${confidence}% — how clear the technical evidence is, not a win probability`}
+                              title={`Signal clarity ${confidence}%. How clear the technical evidence is, not a win probability`}
                             >
                               {confidence}% sure
                             </span>
@@ -653,10 +724,10 @@ export default function ScreenersPage() {
                               <h3>Trade plan</h3>
                               <dl className="scn-kv">
                                 <div><dt>Setup</dt><dd>{signal.plan.setup}</dd></div>
-                                <div><dt>Entry</dt><dd>{signal.plan.entry != null ? formatPrice(signal.plan.entry) : signal.plan.entryLabel}</dd></div>
-                                <div><dt>Target 1</dt><dd>{formatPrice(signal.plan.target1)}</dd></div>
-                                <div><dt>Target 2</dt><dd>{formatPrice(signal.plan.target2)}</dd></div>
-                                <div><dt>Stop</dt><dd>{formatPrice(signal.plan.stop)}</dd></div>
+                                <div><dt>Entry</dt><dd>{signal.plan.entry != null ? formatPrice(signal.plan.entry, result.ticker) : signal.plan.entryLabel}</dd></div>
+                                <div><dt>Target 1</dt><dd>{formatPrice(signal.plan.target1, result.ticker)}</dd></div>
+                                <div><dt>Target 2</dt><dd>{formatPrice(signal.plan.target2, result.ticker)}</dd></div>
+                                <div><dt>Stop</dt><dd>{formatPrice(signal.plan.stop, result.ticker)}</dd></div>
                                 <div>
                                   <dt>Risk / reward</dt>
                                   <dd>{signal.plan.riskReward != null ? `${signal.plan.riskReward.toFixed(2)}R` : 'n/a'}</dd>
@@ -706,7 +777,7 @@ export default function ScreenersPage() {
               <span>Completed {new Date(response.meta.completedAt).toLocaleString()}</span>
               <span>
                 {response.meta.skippedCount} unavailable · {response.meta.partial ? 'partial coverage' : 'full coverage'}
-                {isCapped ? ' · top 100 shown — sort to surface more' : ''}
+                {isCapped ? ' · top 100 shown, sort to surface more' : ''}
               </span>
             </footer>
           </>
@@ -715,7 +786,7 @@ export default function ScreenersPage() {
         {!response && !loading && !error && (
           <div className="scn-empty scn-empty--start">
             <i className="fa-solid fa-radar" aria-hidden="true" />
-            <h2>{hasRun ? 'Ready for the next scan' : `Run your first ${market === 'crypto' ? 'crypto' : market === 'us' ? 'US' : 'IDX'} screen`}</h2>
+            <h2>{hasRun ? 'Ready for the next scan' : `Run your first ${market === 'crypto' ? 'crypto' : market === 'us' ? 'US' : market === 'forex' ? 'FX' : 'IDX'} screen`}</h2>
             <p>
               {activePreset.label} · {direction === 'any' ? 'any direction' : direction === 'buy' ? 'bullish' : 'bearish'} ·{' '}
               {mode === 'fast' ? 'fast coverage over the top 60 candidates' : 'deep coverage over the full universe'}.

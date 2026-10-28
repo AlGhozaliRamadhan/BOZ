@@ -75,4 +75,26 @@ describe('screener preset scoring', () => {
 
     expect(score).toBeGreaterThanOrEqual(70);
   });
+
+  it('treats missing volume as neutral, not as participation', () => {
+    // FX has no consolidated tape, so `volumeRatio: null` must never earn the
+    // volume bonus or be penalised for lacking it.
+    const withVolume = scoreScreenerPreset('breakout', {
+      ...baseMetrics,
+      from52wHigh: -2,
+      chg1d: 3,
+      volumeRatio: 2.2,
+    });
+    const withoutVolume = scoreScreenerPreset('breakout', {
+      ...baseMetrics,
+      from52wHigh: -2,
+      chg1d: 3,
+      volumeRatio: null,
+    });
+
+    expect(withoutVolume).toBeLessThan(withVolume);
+    expect(withoutVolume).toBeGreaterThanOrEqual(55);
+    expect(scoreScreenerPreset('momentum', { ...baseMetrics, volumeRatio: null }))
+      .toBe(scoreScreenerPreset('momentum', { ...baseMetrics, volumeRatio: 1 }));
+  });
 });

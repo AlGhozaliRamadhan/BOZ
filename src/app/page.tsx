@@ -8,6 +8,7 @@ import { MiniCalendarWidget } from '@/app/components/layout/MarketStatusStrip';
 import { WatchlistAlerts } from '@/app/components/layout/WatchlistAlerts';
 import AreaChart from '@/app/components/ui/AreaChart';
 import { findBigMovers, loadRecentTickers } from '@/shared/discover';
+import { formatFxRate, fxDisplaySymbol, parseFxSymbol } from '@/shared/fx';
 import {
   assignWatchlistGroup,
   createFolder,
@@ -375,12 +376,14 @@ export default function HomePage() {
                 onChange={(e) => pickSymbol(e.target.value)}
               >
                 {favorites.map((t) => (
-                  <option key={t} value={t}>{t}</option>
+                  <option key={t} value={t}>{fxDisplaySymbol(t)}</option>
                 ))}
               </select>
               <span className={db['dash-price']}>
                 {typeof selectedQuote?.price === 'number' ? (
-                  `$${selectedQuote.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                  parseFxSymbol(selectedSymbol)
+                    ? formatFxRate(selectedSymbol, selectedQuote.price)
+                    : `$${selectedQuote.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
                 ) : (
                   <span className={styles['skel']} style={{ width: '86px', height: '14px' }}></span>
                 )}
@@ -598,10 +601,12 @@ export default function HomePage() {
               return (
                 <div key={t} className={styles['home-watchlist-row']}>
                   <button type="button" className={styles['home-watchlist-asset']} onClick={() => router.push(`/ticker/${encodeURIComponent(t)}`)}>
-                    <span className={styles['home-watchlist-symbol']}>{t}</span>
+                    <span className={styles['home-watchlist-symbol']}>{fxDisplaySymbol(t)}</span>
                     <span className={styles['home-watchlist-price']}>
                       {typeof price === 'number' ? (
-                        `$${price.toFixed(2)}`
+                        parseFxSymbol(t)
+                          ? formatFxRate(t, price)
+                          : `$${price.toFixed(2)}`
                       ) : (
                         <span className={styles['skel']} style={{ width: '64px', height: '14px' }}></span>
                       )}

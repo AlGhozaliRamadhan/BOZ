@@ -28,6 +28,14 @@ import {
   executeRiskCalc,
   extractRiskCalcFact,
 } from '@/tools/risk.tool';
+import {
+  fxRiskCalcDefinition,
+  fxSessionsDefinition,
+  executeFxRiskCalc,
+  executeFxSessions,
+  extractFxRiskCalcFact,
+  extractFxSessionsFact,
+} from '@/tools/fx.tool';
 import { RUNTIME_SYSTEM_PROMPT } from '@/shared/runtime-prompt';
 import {
   executeFetchGlobalMarketSnapshot,
@@ -1155,18 +1163,22 @@ export class WebChatEngine {
         function: {
           name: 'scan_indonesia_momentum',
           description: [
-            'Screen the IDX universe for momentum, breakout, rebound, oversold, downtrend, or 52-week-low setups.',
-            'Fast mode quote-screens all IDX stocks then chart-scans the strongest.',
-            'Deep mode chart-scans every valid IDX quote for exhaustive coverage.',
+            'Screen a market universe for momentum, breakout, rebound, oversold, downtrend, or 52-week-low setups.',
+            'Universe: IDX, US, crypto or forex. Fast mode quote-screens then chart-scans the strongest.',
+            'Deep mode chart-scans every valid quote for exhaustive coverage.',
             'Returns ranked matches with a deterministic Expert Signal, conviction, evidence, warnings, and risk-defined plan.',
           ].join(' '),
           parameters: {
             type: 'object',
             properties: {
+              universe: {
+                type: 'string',
+                enum: ['idx', 'us', 'crypto', 'forex'],
+                description: 'Market to scan. Defaults to idx.',
+              },
               sector: {
                 type: 'string',
-                enum: ['all', 'banking', 'consumer', 'mining', 'energy', 'tech', 'property', 'telecom', 'healthcare', 'industrial'],
-                description: 'Filter by sector.',
+                description: 'IDX/US sector, or forex pair class (major, cross, asia, exotic). Use "all" when unsure.',
               },
               signal_type: {
                 type: 'string',
@@ -1190,6 +1202,8 @@ export class WebChatEngine {
       },
       fetchTickerDashboardDefinition,
       riskCalcDefinition,
+      fxRiskCalcDefinition,
+      fxSessionsDefinition,
       {
         type: 'function',
         function: {
@@ -1250,6 +1264,14 @@ export class WebChatEngine {
 
       case 'risk_calc': {
         return await executeRiskCalc(args);
+      }
+
+      case 'fx_risk_calc': {
+        return await executeFxRiskCalc(args);
+      }
+
+      case 'fx_sessions': {
+        return await executeFxSessions();
       }
 
       case 'summon_agent': {
@@ -1374,12 +1396,14 @@ export class WebChatEngine {
         const signalType = (args.signal_type  as string) ?? 'buy';
         const setup      = (args.setup        as string) ?? 'momentum';
         const scanMode   = (args.scan_mode    as string) ?? 'fast';
+        const universe   = (args.universe     as string) ?? 'idx';
         if (scanMode === 'deep') {
           if (this.deepScanCalls >= 1) return 'Tool execution failed: deep scan budget exceeded (1 per request)';
           this.deepScanCalls++;
         }
         const result     = await idxScannerService.scan(
           sector as any, signalType as any, setup as any, scanMode as any,
+          { universe: universe as any },
         );
         return result.formatted;
       }
@@ -1589,9 +1613,10 @@ export class WebChatEngine {
       const watchCount   = watchMatch?.[1]   ?? '0';
       const breadth      = breadthMatch?.[1]?.trim() ?? '';
       const topStr       = topBuyName ? `. Top pick: ${topBuyName}` : '';
+      const universe     = String(args.universe ?? 'idx').toUpperCase();
       return {
         step: 0, tool: toolName,
-        fact: `IDX scan (${args.sector ?? 'all'}): ${scanned} scanned, ${buyCount} BUY / ${watchCount} WATCH. ${breadth}${topStr}`,
+        fact: `${universe} scan (${args.sector ?? 'all'}): ${scanned} scanned, ${buyCount} BUY / ${watchCount} WATCH. ${breadth}${topStr}`,
         quality: Number(buyCount) > 0 ? 'confirmed' : 'partial',
       };
     }
@@ -1622,6 +1647,14 @@ export class WebChatEngine {
 
     if (toolName === 'risk_calc') {
       return extractRiskCalcFact(args, obs);
+    }
+
+    if (toolName === 'fx_risk_calc') {
+      return extractFxRiskCalcFact(args, obs);
+    }
+
+    if (toolName === 'fx_sessions') {
+      return extractFxSessionsFact(args, obs);
     }
 
     if (toolName === 'summon_agent') {

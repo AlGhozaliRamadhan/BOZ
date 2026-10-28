@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { formatFxRate, parseFxSymbol, type FxPair } from '@/shared/fx';
 
 /* ────────────────────────────────────────────────────────────────────────────
    TECHNICAL BOARD
@@ -107,12 +108,15 @@ interface CellDef {
   cats: CellCat[];
 }
 
-function buildCells(data: IndicatorData | null): CellDef[] {
+function buildCells(data: IndicatorData | null, pair: FxPair | null): CellDef[] {
   const c = data?.last ?? null;
   const closes = data?.closes ?? [];
   const close = c?.close ?? 0;
   const rsi = c?.RSI ?? null;
   const volRatio = c?.Volume_Ratio ?? null;
+  // A pair is a rate, not a dollar amount: no `$`, and the pair's own precision.
+  const price = (v: number | null | undefined): string =>
+    v == null || !Number.isFinite(v) ? DASH : pair ? formatFxRate(pair.code, v) : `$${fmt(v)}`;
 
   // Range stats over the last 50 daily candles (matches the API window).
   const hi = closes.length ? Math.max(...closes) : null;
@@ -123,20 +127,20 @@ function buildCells(data: IndicatorData | null): CellDef[] {
   const smaTone = (sma: number | null | undefined): 'up' | 'down' | undefined =>
     sma == null ? undefined : close >= sma ? 'up' : 'down';
   const smaVal = (sma: number | null | undefined) =>
-    sma == null ? DASH : `$${fmt(sma)} ${close >= sma ? '▲' : '▼'}`;
+    sma == null ? DASH : `${price(sma)} ${close >= sma ? '▲' : '▼'}`;
 
   const cells: CellDef[] = [
-    { label: 'LAST', value: c ? `$${fmt(close)}` : DASH, cats: ['TREND'] },
+    { label: 'LAST', value: c ? price(close) : DASH, cats: ['TREND'] },
     {
       label: '50D HIGH',
-      value: hi == null ? DASH : `$${fmt(hi)}`,
+      value: price(hi),
       sub: offHigh == null || c == null ? undefined : `${fmt(offHigh, 1)}% OFF`,
       subTone: offHigh == null ? undefined : offHigh > -2 ? 'up' : undefined,
       cats: ['TREND'],
     },
     {
       label: '50D LOW',
-      value: lo == null ? DASH : `$${fmt(lo)}`,
+      value: price(lo),
       cats: ['TREND'],
     },
     {
@@ -176,35 +180,42 @@ function buildCells(data: IndicatorData | null): CellDef[] {
     { label: 'SMA 200', value: smaVal(c?.SMA_200), tone: smaTone(c?.SMA_200), cats: ['TREND'] },
     {
       label: 'ATR',
-      value: c?.ATR == null ? DASH : `${fmt(c.ATR)} (${fmt(c.ATR_Percent)}%)`,
+      value: c?.ATR == null ? DASH : `${pair ? price(c.ATR) : fmt(c.ATR)} (${fmt(c.ATR_Percent)}%)`,
       cats: ['VOLATILITY'],
     },
-    { label: 'BB HIGH', value: fmt(c?.BB_High), cats: ['VOLATILITY', 'TREND'] },
-    { label: 'BB MID', value: fmt(c?.BB_Mid), cats: ['VOLATILITY', 'TREND'] },
-    { label: 'BB LOW', value: fmt(c?.BB_Low), cats: ['VOLATILITY', 'TREND'] },
+    { label: 'BB HIGH', value: pair ? price(c?.BB_High) : fmt(c?.BB_High), cats: ['VOLATILITY', 'TREND'] },
+    { label: 'BB MID', value: pair ? price(c?.BB_Mid) : fmt(c?.BB_Mid), cats: ['VOLATILITY', 'TREND'] },
+    { label: 'BB LOW', value: pair ? price(c?.BB_Low) : fmt(c?.BB_Low), cats: ['VOLATILITY', 'TREND'] },
     {
       label: 'BB WIDTH',
       value: fmt(c?.BB_Width, 4),
       tone: c?.BB_Width != null && c.BB_Width > 0.08 ? 'warn' : undefined,
       cats: ['VOLATILITY'],
     },
-    { label: 'VOLUME', value: fmtNum(c?.volume), cats: ['VOLUME'] },
-    {
-      label: 'VOL RATIO',
-      value: volRatio == null ? DASH : `${fmt(volRatio)}x`,
-      tone: volRatio != null && volRatio > 1.5 ? 'warn' : undefined,
-      sub: volRatio != null && volRatio > 1.5 ? 'ELEVATED' : undefined,
-      subTone: volRatio != null && volRatio > 1.5 ? 'warn' : undefined,
-      cats: ['VOLUME'],
-    },
-    {
-      label: 'OBV',
-      value: fmtNum(c?.OBV),
-      sub: c?.OBV_Trend == null ? undefined : c.OBV_Trend ? 'UP' : 'DOWN',
-      subTone: c?.OBV_Trend == null ? undefined : c.OBV_Trend ? 'up' : 'down',
-      cats: ['MOMENTUM', 'VOLUME'],
-    },
   ];
+
+  // FX has no consolidated tape. A zeroed volume row would read as a real
+  // observation, so the whole category is withheld instead of faked.
+  if (!pair) {
+    cells.push(
+      { label: 'VOLUME', value: fmtNum(c?.volume), cats: ['VOLUME'] },
+      {
+        label: 'VOL RATIO',
+        value: volRatio == null ? DASH : `${fmt(volRatio)}x`,
+        tone: volRatio != null && volRatio > 1.5 ? 'warn' : undefined,
+        sub: volRatio != null && volRatio > 1.5 ? 'ELEVATED' : undefined,
+        subTone: volRatio != null && volRatio > 1.5 ? 'warn' : undefined,
+        cats: ['VOLUME'],
+      },
+      {
+        label: 'OBV',
+        value: fmtNum(c?.OBV),
+        sub: c?.OBV_Trend == null ? undefined : c.OBV_Trend ? 'UP' : 'DOWN',
+        subTone: c?.OBV_Trend == null ? undefined : c.OBV_Trend ? 'up' : 'down',
+        cats: ['MOMENTUM', 'VOLUME'],
+      },
+    );
+  }
   return cells;
 }
 
@@ -260,6 +271,11 @@ export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
   const [intervalMenuOpen, setIntervalMenuOpen] = useState(false);
   const seq = useRef(0);
 
+  // A pair has no volume and no dollar price, so the strip drops the VOLUME
+  // category rather than showing an empty tab.
+  const pair = useMemo(() => parseFxSymbol(ticker), [ticker]);
+  const categories = pair ? CATEGORIES.filter((c) => c !== 'VOLUME') : CATEGORIES;
+
   useEffect(() => {
     if (!ticker) return;
     const mySeq = ++seq.current;
@@ -272,7 +288,13 @@ export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
     });
   }, [ticker, interval]);
 
-  const allCells = buildCells(data);
+  // Switching from a stock to a pair while the VOLUME tab is selected would
+  // leave an empty board; fall back to the overview.
+  useEffect(() => {
+    if (pair && cat === 'VOLUME') setCat('OVERVIEW');
+  }, [pair, cat]);
+
+  const allCells = buildCells(data, pair);
   const visible = cat === 'ALL'
     ? allCells
     : cat === 'OVERVIEW'
@@ -294,7 +316,7 @@ export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
         {/* Left: Title + Timeframe dropdown */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
           <span style={{ color: '#ffffff', fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em' }}>
-            TECHNICAL • {ticker} • 
+            TECHNICAL • {pair ? pair.pair : ticker} •
           </span>
           <button
             type="button"
@@ -339,7 +361,7 @@ export default function TechnicalStrip({ ticker }: TechnicalStripProps) {
 
         {/* Middle: Category filter tabs */}
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
-          {CATEGORIES.map((k) => (
+          {categories.map((k) => (
             <button
               key={k}
               type="button"

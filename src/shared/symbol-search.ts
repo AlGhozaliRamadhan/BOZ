@@ -11,18 +11,20 @@
 // results are both wider and proven to exist.
 
 import { SYMBOL_MAP } from './market-constants.js';
+import { parseFxSymbol } from './fx.js';
 
-export type SymbolMarket = 'us' | 'idx' | 'crypto' | 'index' | 'macro' | 'other';
+export type SymbolMarket = 'us' | 'idx' | 'crypto' | 'index' | 'fx' | 'macro' | 'other';
 
 export type SymbolMarketFilter = 'all' | Exclude<SymbolMarket, 'other'>;
 
-export const SYMBOL_MARKET_FILTERS: readonly SymbolMarketFilter[] = ['all', 'us', 'idx', 'crypto', 'index', 'macro'];
+export const SYMBOL_MARKET_FILTERS: readonly SymbolMarketFilter[] = ['all', 'us', 'idx', 'crypto', 'index', 'fx', 'macro'];
 
 export const SYMBOL_MARKET_LABEL: Record<SymbolMarket, string> = {
   us: 'US',
   idx: 'IDX',
   crypto: 'CRYPTO',
   index: 'INDEX',
+  fx: 'FX',
   macro: 'MACRO',
   other: '—',
 };
@@ -94,6 +96,9 @@ export function classifySymbolMarket(
 
   if (type === 'CRYPTOCURRENCY') return 'crypto';
   if (type === 'INDEX') return 'index';
+  // The pair registry wins over Yahoo's type: a registered FX pair is a tradeable
+  // pair, while a bare CURRENCY (DX-Y.NYB) is a macro index.
+  if (parseFxSymbol(sym)) return 'fx';
   if (type === 'CURRENCY' || type === 'FUTURE' || type === 'FUTUREOPTION') return 'macro';
 
   if (sym.endsWith('.JK')) return 'idx';
@@ -128,6 +133,16 @@ export function buildSymbolProbes(rawQuery: string): string[] {
 
   const mapped = SYMBOL_MAP[upper];
   if (mapped) push(mapped);
+
+  // A registered pair has exactly one canonical Yahoo symbol. Probing the
+  // `.JK` / `-USD` guesses instead would waste the probe budget and return
+  // nothing.
+  const fx = parseFxSymbol(upper);
+  if (fx) {
+    push(fx.yahoo);
+    push(upper);
+    return probes;
+  }
 
   if (/^[A-Z0-9]{1,10}$/.test(upper)) {
     push(upper);

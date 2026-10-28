@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import { jsonResponse, errorResponse, parseBody, requestBodyErrorResponse } from '@/app/lib/api-helpers';
 import { YahooService } from '@/services/market/yahoo.service';
 import { IndicatorsService } from '@/services/market/indicators.service';
+import { sanitizeFxCandles } from '@/services/market/fx.service';
+import { parseFxSymbol } from '@/shared/fx';
 
 type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1wk' | '1mo';
 
@@ -12,6 +14,7 @@ export async function POST(request: NextRequest) {
 
     const yahoo = new YahooService();
     const indicators = new IndicatorsService();
+    const pair = parseFxSymbol(ticker);
 
     const date = new Date();
     if (interval === '1mo') date.setFullYear(date.getFullYear() - 10);
@@ -20,8 +23,15 @@ export async function POST(request: NextRequest) {
     else if (interval === '4h') date.setDate(date.getDate() - 30);
     else date.setDate(date.getDate() - 5);
 
-    let candles = await yahoo.getHistoricalData(ticker, date, interval as any, false);
+    let candles = await yahoo.getHistoricalData(pair?.yahoo ?? ticker, date, interval as any, false);
     if (!candles.length) return errorResponse('No market data available', 404);
+
+    // A pair has no tape, and Yahoo's daily FX series opens with a partial
+    // Sunday bar. Sanitising keeps RSI/SMA/ATR off the placeholder data.
+    if (pair) {
+      candles = sanitizeFxCandles(candles, interval);
+      if (!candles.length) return errorResponse('No market data available', 404);
+    }
 
     candles = indicators.calculateAll(candles);
 

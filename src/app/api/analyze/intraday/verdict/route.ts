@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { jsonResponse, errorResponse, parseBody, requestBodyErrorResponse } from '@/app/lib/api-helpers';
 import { AIService } from '@/services/ai/ai.service';
 import { buildPotentialLevels } from '@/shared/trade-levels';
+import { parseFxSymbol, type FxPair } from '@/shared/fx';
 import { formatCrowdSignalEvidence } from '@/shared/evidence-attribution';
 import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
 
@@ -32,7 +33,8 @@ export async function POST(request: NextRequest) {
     if (!marketData || !marketData.lastCandleFull) return errorResponse('Market data missing', 400);
 
     const aiService = new AIService();
-    const prompt = buildIntradayPrompt(ticker, marketData.lastCandleFull, macro, sentiment, chartPatterns);
+    const pair = parseFxSymbol(ticker) ?? parseFxSymbol(String(marketData.pair ?? ''));
+    const prompt = buildIntradayPrompt(ticker, marketData.lastCandleFull, pair, macro, sentiment, chartPatterns);
     const verdict = await aiService.analyze(prompt);
 
     // Legacy levels (fixed-percentage math). Canonical math is risk_calc
@@ -64,22 +66,30 @@ export async function POST(request: NextRequest) {
 function buildIntradayPrompt(
   ticker: string,
   last: any,
+  pair: FxPair | null,
   macro: any,
   sentiment: any,
   chartPatterns: any,
 ): string {
   const fmt = (v: number | null | undefined, decimals = 2) =>
     v != null ? v.toFixed(decimals) : 'N/A';
+  // A pair is a rate: own precision, no dollar sign, and no volume story.
+  const px = (v: number | null | undefined, decimals = pair ? pair.precision : 2) =>
+    v != null ? v.toFixed(decimals) : 'N/A';
+  const unit = pair ? '' : '$';
+  const volumeLine = pair
+    ? '- Volume Dynamics: not reported for FX (no consolidated tape) | OBV Trend: not applicable'
+    : `- Volume Dynamics: Volume Ratio: ${fmt(last.Volume_Ratio)}x | OBV Trend: ${last.OBV_Trend ? 'Bullish' : 'Bearish'}`;
 
-  return `Conduct a comprehensive institutional intraday analysis for ${ticker}.
+  return `Conduct a comprehensive institutional intraday analysis for ${ticker}${pair ? ` (${pair.pair})` : ''}.
 
 Market Data Snapshot:
-- Current Price: $${fmt(last.close)}
+- Current Price: ${unit}${px(last.close)}
 - RSI (14): ${fmt(last.RSI, 1)}
 - MACD: ${fmt(last.MACD, 4)} (Signal: ${fmt(last.MACD_Signal, 4)})
-- Moving Averages: SMA20: $${fmt(last.SMA_20)} | SMA50: $${fmt(last.SMA_50)}
-- Volatility: ATR: $${fmt(last.ATR)} (${fmt(last.ATR_Percent)}%) | BB Width: ${fmt(last.BB_Width)}
-- Volume Dynamics: Volume Ratio: ${fmt(last.Volume_Ratio)}x | OBV Trend: ${last.OBV_Trend ? 'Bullish' : 'Bearish'}
+- Moving Averages: SMA20: ${unit}${px(last.SMA_20)} | SMA50: ${unit}${px(last.SMA_50)}
+- Volatility: ATR: ${unit}${px(last.ATR)} (${fmt(last.ATR_Percent)}%) | BB Width: ${fmt(last.BB_Width)}
+${volumeLine}
 
 Macro & Sentiment Landscape:
 - Macro Regime: ${macro.market_regime} | Risk Appetite: ${macro.risk_sentiment}
@@ -92,7 +102,9 @@ Price Action & Structure:
 - Technical Patterns: ${chartPatterns.patterns?.join(', ') || 'None'}
 - Candlestick Dynamics: ${chartPatterns.candle_patterns?.summary_text || 'None'}
 - Fibonacci Zone: ${chartPatterns.fibonacci_position || 'N/A'}
-- Support Floor: $${fmt(chartPatterns.nearest_support)} | Resistance Ceiling: $${fmt(chartPatterns.nearest_resistance)}
+- Support Floor: ${unit}${px(chartPatterns.nearest_support)} | Resistance Ceiling: ${unit}${px(chartPatterns.nearest_resistance)}${pair ? `
+
+FX note: ${pair.pair} is a rate quoted to ${pair.precision} decimals; one pip is ${pair.pipSize} ${pair.quote}. Read risk in pips, not dollars, and never imply execution — BOZ is research only.` : ''}
 
 REQUIRED OUTPUT:
 1. "thesis": Multi-paragraph professional market breakdown explaining the intraday session vision, liquidity pools, order flow bias, and catalysts.

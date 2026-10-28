@@ -7,12 +7,14 @@ import { MacroService } from '@/services/market/macro.service';
 import { SentimentService } from '@/services/market/sentiment.service';
 import { ChartAnalyzer } from '@/analyzers/chart.analyzer';
 import { resolveSymbol } from '@/shared/market-constants';
+import { parseFxSymbol } from '@/shared/fx';
+import { sanitizeFxCandles } from '@/services/market/fx.service';
 
 const findSuggestions = async (t: string) => {
   try {
     const res = await yahooFinance.search(t, {}, { validateResult: false }) as any;
     return (res?.quotes || [])
-      .filter((q: any) => q.symbol && (q.quoteType === 'EQUITY' || q.quoteType === 'ETF' || q.quoteType === 'CRYPTOCURRENCY' || q.quoteType === 'INDEX'))
+      .filter((q: any) => q.symbol && (q.quoteType === 'EQUITY' || q.quoteType === 'ETF' || q.quoteType === 'CRYPTOCURRENCY' || q.quoteType === 'INDEX' || q.quoteType === 'CURRENCY'))
       .slice(0, 4)
       .map((q: any) => ({
         symbol: q.symbol,
@@ -46,11 +48,13 @@ export async function POST(request: NextRequest) {
 
     const yahoo = new YahooService();
     const indicators = new IndicatorsService();
+    const pair = parseFxSymbol(symbol);
 
     // Fetch 1h candles (5 days)
     const date = new Date();
     date.setDate(date.getDate() - 5);
     let candles = await yahoo.getHistoricalData(symbol, date, '1h', false);
+    if (pair) candles = sanitizeFxCandles(candles, '1h');
     if (!candles.length) {
       const suggestions = await findSuggestions(ticker);
       return jsonResponse({
@@ -63,6 +67,13 @@ export async function POST(request: NextRequest) {
       }, 404);
     }
     candles = indicators.calculateAll(candles);
+    if (pair) {
+      const lastCandle = candles.at(-1);
+      if (lastCandle) {
+        lastCandle.Volume_Ratio = undefined;
+        lastCandle.OBV_Trend = undefined;
+      }
+    }
 
     // Parallel fetches
     const macroService = new MacroService();
@@ -90,6 +101,9 @@ export async function POST(request: NextRequest) {
       bb_width: last.BB_Width ?? null,
       volume_ratio: last.Volume_Ratio ?? null,
       obv_trend: last.OBV_Trend ?? null,
+      pair: pair?.pair ?? null,
+      pip_size: pair?.pipSize ?? null,
+      precision: pair?.precision ?? null,
       // Full candle with all indicator fields — required by the /verdict route
       lastCandleFull: last,
     };

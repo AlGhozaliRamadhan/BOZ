@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { formatFxRate, parseFxSymbol } from '@/shared/fx';
 
 /* ────────────────────────────────────────────────────────────────────────────
    MARKET TICKER
@@ -95,8 +96,10 @@ function buildRenderItems(entries: TapeEntry[]): RenderItem[] {
 
 const RENDER_ITEMS = buildRenderItems(TAPE);
 
-function formatPrice(value: number | null): string {
+function formatPrice(value: number | null, symbol?: string): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  // A pair prints at its own precision; DXY and the rest keep the tape format.
+  if (symbol && parseFxSymbol(symbol)) return formatFxRate(symbol, value);
   const digits = Math.abs(value) >= 1000 ? 1 : value < 10 ? 4 : 2;
   return value.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
@@ -214,10 +217,10 @@ export default function MarketTicker({ visible = true }: MarketTickerProps) {
                   <span
                     key={`${pass}-t-${i}`}
                     className="bbg-ticker__cell"
-                    title={quote ? `${entry.label} · ${formatPrice(quote.price)}` : `${entry.label} · no quote`}
+                    title={quote ? `${entry.label} · ${formatPrice(quote.price, entry.symbol)}` : `${entry.label} · no quote`}
                   >
                     <span className="bbg-ticker__symbol">{entry.label}</span>
-                    <span className="bbg-ticker__price">{formatPrice(quote?.price ?? null)}</span>
+                    <span className="bbg-ticker__price">{formatPrice(quote?.price ?? null, entry.symbol)}</span>
                     <span className={`bbg-ticker__change ${change == null ? '' : isUp ? 'up' : 'down'}`}>
                       {change == null ? '—' : `${isUp ? '▲' : '▼'} ${change.toFixed(2)}%`}
                     </span>

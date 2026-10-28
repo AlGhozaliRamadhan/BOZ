@@ -1059,26 +1059,34 @@
   pointer-events: none;
 }
 
+/* Same treatment as the dashboard cards / calendar popover: the surface wash
+   (not a flat fill), the glass border token, a soft control radius and the
+   inset top highlight — so the field reads as a mini mis-card in the bar. */
 .app-menu-search-input {
   width: 100%;
   height: 30px;
   padding: 0 28px 0 30px;
-  border: 1px solid #34343f;
-  border-radius: var(--radius-sm);
-  background: #1d1d24;
+  border: 1px solid var(--border-glass);
+  border-radius: 9px;
+  background: var(--surface-gradient);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   color: var(--text-primary);
   font: inherit;
   font-size: 12.5px;
   outline: none;
-  transition: border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
+
+.app-menu-search-input:hover { border-color: var(--border-glass-hover); }
 
 .app-menu-search-input::placeholder { color: var(--text-muted); }
 
 .app-menu-search-input:focus {
-  border-color: #4a4a58;
-  background: #22222a;
-  box-shadow: none;
+  border-color: var(--border-glass-hover);
+  background: var(--surface-gradient-hover);
+  /* Monochrome focus: a soft white ring, no colour — the shell's accent-free
+     language (white chrome, colour is data only). */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 0 0 3px rgba(255, 255, 255, 0.06);
 }
 
 .app-menu-search-input:focus-visible {
@@ -1094,14 +1102,15 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
   font-size: 11px;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.app-menu-search-clear:hover { background: #30303a; color: var(--text-primary); }
+.app-menu-search-clear:hover { background: rgba(255, 255, 255, 0.085); color: var(--text-primary); }
 
 .app-menu-search-results {
   left: 0;
@@ -1111,20 +1120,23 @@
   transform: none;
   max-height: 320px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #34343f transparent;
   transform-origin: top center;
-  animation: app-menu-search-reveal 420ms var(--ease-out);
+  animation: app-menu-search-reveal 240ms var(--ease-out);
   will-change: opacity, transform;
 }
 
 @keyframes app-menu-search-reveal {
-  from { opacity: 0; transform: translateY(-18px) scale(0.95); filter: blur(8px); }
-  to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  from { opacity: 0; transform: translateY(-5px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* Row cascade: whole rows rise into place as the panel opens (icons untouched). */
 .app-menu-search-results .app-menu-command,
 .app-menu-search-results .app-menu-search-empty {
-  animation: app-menu-search-item 300ms var(--ease-out) backwards;
+  animation: app-menu-search-item 260ms var(--ease-out) backwards;
 }
 
 .app-menu-search-results .app-menu-command:nth-child(2) { animation-delay: 45ms; }
@@ -1135,7 +1147,7 @@
 .app-menu-search-results .app-menu-command:nth-child(n+7) { animation-delay: 270ms; }
 
 @keyframes app-menu-search-item {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
@@ -1143,7 +1155,10 @@
   .app-menu-search-results { animation: none; }
   .app-menu-search-results .app-menu-command,
   .app-menu-search-results .app-menu-search-empty { animation: none; }
-  .app-menu-search-input { transition: none; }
+  .app-menu-search-input,
+  .app-menu-search-clear,
+  .app-menu-command,
+  .app-menu-icon-button { transition: none; }
 }
 
 .app-menu-search-results .app-menu-command-main {
@@ -1161,7 +1176,7 @@
   flex-shrink: 0;
 }
 
-.app-menu-command.is-active { background: #30303a; color: var(--text-primary); }
+.app-menu-command.is-active { background: rgba(255, 255, 255, 0.085); color: var(--text-primary); }
 .app-menu-command.is-active i { color: var(--text-primary); }
 
 .app-menu-search-empty {
@@ -1182,20 +1197,23 @@
 .app-menu-icon-button:focus-visible,
 .sidebar-link:focus-visible,
 .sidebar-collapse-btn:focus-visible {
-  outline: 1px solid #8ab4f8;
-  outline-offset: -1px;
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
 }
 
+/* Matching sibling of the dashboard calendar popover (.mis-popover): same
+   surface wash, glass border, 14px radius, inset top highlight + deep soft
+   shadow. Any dropdown opened from the menu bar inherits this look. */
 .app-menu-dropdown {
   position: absolute;
-  top: calc(100% + 5px);
+  top: calc(100% + 6px);
   left: 0;
   min-width: 214px;
-  padding: 5px;
+  padding: 6px;
   background: var(--surface-gradient);
-  border: 1px solid #3a3a45;
-  border-radius: var(--radius-md);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 14px 34px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--border-glass);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 16px 44px rgba(0, 0, 0, 0.6);
   z-index: 130;
 }
 
@@ -1208,21 +1226,27 @@
   min-height: 31px;
   padding: 0 9px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: 8px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
   text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .app-menu-command-main { gap: 9px; }
 .app-menu-command-main i { width: 14px; color: var(--text-muted); text-align: center; }
-.app-menu-command:hover,
-.app-menu-command:focus-visible { background: #30303a; color: var(--text-primary); outline: none; }
+.app-menu-command:hover { background: rgba(255, 255, 255, 0.085); color: var(--text-primary); }
 .app-menu-command:hover i { color: var(--text-primary); }
-.app-menu-command kbd { color: var(--text-muted); font: 11px var(--font-mono); }
+.app-menu-command kbd {
+  color: var(--text-muted);
+  font: 11px var(--font-mono);
+  border: 1px solid var(--border-glass);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
 
 .app-menu-context {
   gap: 7px;
@@ -1247,7 +1271,7 @@
   width: 30px;
   height: 30px;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: 9px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -1256,11 +1280,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .app-menu-icon-button:hover {
-  background: #2a2a33;
-  border-color: #383843;
+  /* Calendar control idiom (.mis-cal-schedule-btn): translucent fill + glass
+     border, no flat grey. */
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border-glass);
   color: var(--text-primary);
 }
 
