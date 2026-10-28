@@ -8,6 +8,12 @@ describe('toTradingViewSymbol', () => {
     ['^GSPC', 'SP:SPX'],
     ['BRK.B', 'NYSE:BRK.B'],
     ['NASDAQ:MSFT', 'NASDAQ:MSFT'],
+    ['EURUSD=X', 'FX:EURUSD'],
+    ['EURUSD', 'FX:EURUSD'],
+    ['eur/usd', 'FX:EURUSD'],
+    ['USDJPY=X', 'FX:USDJPY'],
+    ['GBP/JPY', 'FX:GBPJPY'],
+    ['USDIDR', 'FX_IDC:USDIDR'],
   ])('maps %s to %s', (input, expected) => {
     expect(toTradingViewSymbol(input)).toBe(expected);
   });

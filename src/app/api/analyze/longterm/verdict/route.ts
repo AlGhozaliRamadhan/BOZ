@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { jsonResponse, errorResponse, parseBody, requestBodyErrorResponse } from '@/app/lib/api-helpers';
 import { AIService } from '@/services/ai/ai.service';
 import { buildPotentialLevels } from '@/shared/trade-levels';
+import { parseFxSymbol, type FxPair } from '@/shared/fx';
 import { formatCrowdSignalEvidence } from '@/shared/evidence-attribution';
 import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
 
@@ -39,7 +40,8 @@ export async function POST(request: NextRequest) {
     };
 
     const aiService = new AIService();
-    const prompt = buildLongtermPrompt(ticker, marketData.lastCandleFull, macro, sentiment, chartPatterns, context52w);
+    const pair = parseFxSymbol(ticker) ?? parseFxSymbol(String(marketData.pair ?? ''));
+    const prompt = buildLongtermPrompt(ticker, marketData.lastCandleFull, pair, macro, sentiment, chartPatterns, context52w);
     const verdict = await aiService.analyze(prompt);
 
     // Legacy levels (fixed-percentage math). Canonical math is risk_calc
@@ -71,6 +73,7 @@ export async function POST(request: NextRequest) {
 function buildLongtermPrompt(
   ticker: string,
   last: any,
+  pair: FxPair | null,
   macro: any,
   sentiment: any,
   chartPatterns: any,
@@ -78,14 +81,21 @@ function buildLongtermPrompt(
 ): string {
   const fmt = (v: number | null | undefined, decimals = 2) =>
     v != null ? v.toFixed(decimals) : 'N/A';
+  // A pair is a rate: own precision, no dollar sign, and no volume story.
+  const px = (v: number | null | undefined, decimals = pair ? pair.precision : 2) =>
+    v != null ? v.toFixed(decimals) : 'N/A';
+  const unit = pair ? '' : '$';
+  const flowLine = pair
+    ? '- Institutional Flow & Volatility: OBV Trend: not applicable | Volume Ratio: not reported for FX | ATR: ' + fmt(last.ATR_Percent) + '%'
+    : `- Institutional Flow & Volatility: RSI: ${fmt(last.RSI, 1)} | OBV Trend: ${last.OBV_Trend ? 'Accumulation' : 'Distribution'} | Volume Ratio: ${fmt(last.Volume_Ratio)}x | ATR: ${fmt(last.ATR_Percent)}%`;
 
-  return `Conduct a comprehensive institutional multi-month investment analysis and strategic business outlook for ${ticker} (3-12 month investment horizon).
+  return `Conduct a comprehensive institutional multi-month investment analysis and strategic outlook for ${ticker}${pair ? ` (${pair.pair})` : ''} (3-12 month horizon).
 
 Asset & Valuation Profile:
-- Current Price: $${fmt(last.close)}
-- 52-Week Range: High $${fmt(context52w.high52w)} (${fmt(context52w.from52wHigh, 1)}% from ATH) | Low $${fmt(context52w.low52w)} (+${fmt(context52w.from52wLow, 1)}% off lows)
-- Multi-Timeframe Alignment: SMA20: $${fmt(last.SMA_20)} | SMA50: $${fmt(last.SMA_50)} | SMA200: $${fmt(last.SMA_200)}
-- Institutional Flow & Volatility: RSI: ${fmt(last.RSI, 1)} | OBV Trend: ${last.OBV_Trend ? 'Accumulation' : 'Distribution'} | Volume Ratio: ${fmt(last.Volume_Ratio)}x | ATR: ${fmt(last.ATR_Percent)}%
+- Current Price: ${unit}${px(last.close)}
+- 52-Week Range: High ${unit}${px(context52w.high52w)} (${fmt(context52w.from52wHigh, 1)}% from ATH) | Low ${unit}${px(context52w.low52w)} (+${fmt(context52w.from52wLow, 1)}% off lows)
+- Multi-Timeframe Alignment: SMA20: ${unit}${px(last.SMA_20)} | SMA50: ${unit}${px(last.SMA_50)} | SMA200: ${unit}${px(last.SMA_200)}
+${flowLine}
 
 Macro Regime & Monetary Backdrop:
 - Global Macro Regime: ${macro.market_regime} | Risk Sentiment: ${macro.risk_sentiment}
@@ -96,7 +106,9 @@ Macro Regime & Monetary Backdrop:
 Multi-Month Chart Structure:
 - Daily/Weekly Patterns: ${chartPatterns.patterns?.join(', ') || 'None'}
 - Fibonacci Position: ${chartPatterns.fibonacci_position || 'N/A'}
-- Primary Floor: $${fmt(chartPatterns.nearest_support)} | Overhead Resistance: $${fmt(chartPatterns.nearest_resistance)}
+- Primary Floor: ${unit}${px(chartPatterns.nearest_support)} | Overhead Resistance: ${unit}${px(chartPatterns.nearest_resistance)}${pair ? `
+
+FX note: ${pair.pair} is a rate quoted to ${pair.precision} decimals; one pip is ${pair.pipSize} ${pair.quote}. A long-horizon pair view is a macro view — rate differentials, central-bank path and carry. Read risk in pips, not dollars, and never imply execution — BOZ is research only.` : ''}
 
 REQUIRED OUTPUT:
 1. "thesis": In-depth institutional investment thesis detailing the company's business model vision, secular growth catalysts, economic moat, competitive positioning, valuation multiple potential, and 3-12 month roadmap.

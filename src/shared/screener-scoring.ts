@@ -10,7 +10,12 @@ function finite(value: number | null, fallback = 0): number {
 
 /** Measures how closely a ticker matches a selected screen, not trade direction. */
 export function scoreScreenerPreset(preset: ScreenerPreset, metrics: ScreenerMetrics): number {
-  const volume = finite(metrics.volumeRatio, 1);
+  // FX quotes carry no volume. `null` must score exactly like a neutral 1.0x
+  // reading — never like a participation signal — so every volume bonus is
+  // gated on an explicit number instead of a numeric fallback.
+  const volume = typeof metrics.volumeRatio === 'number' && Number.isFinite(metrics.volumeRatio)
+    ? metrics.volumeRatio
+    : null;
   const rsi = finite(metrics.rsi, 50);
   const fromHigh = Math.abs(finite(metrics.from52wHigh, -50));
   const fromLow = finite(metrics.from52wLow, 50);
@@ -21,7 +26,7 @@ export function scoreScreenerPreset(preset: ScreenerPreset, metrics: ScreenerMet
       return clamp(
         (fromHigh <= 5 ? 35 : Math.max(0, 25 - fromHigh)) +
         (metrics.chg1d > 0 ? Math.min(20, metrics.chg1d * 5) : 0) +
-        (volume >= 1.2 ? Math.min(30, volume * 12) : 0) +
+        (volume !== null && volume >= 1.2 ? Math.min(30, volume * 12) : 0) +
         (macd > 0 ? 15 : 0),
       );
     case 'rebound':
@@ -29,7 +34,7 @@ export function scoreScreenerPreset(preset: ScreenerPreset, metrics: ScreenerMet
         (fromLow >= 3 && fromLow <= 20 ? 35 : Math.max(0, 25 - Math.abs(fromLow - 10))) +
         (metrics.chg1d > 0 ? Math.min(20, metrics.chg1d * 6) : 0) +
         (metrics.chg5d > -3 && metrics.chg5d < 8 ? 15 : 0) +
-        (volume >= 1.1 ? Math.min(20, volume * 9) : 0) +
+        (volume !== null && volume >= 1.1 ? Math.min(20, volume * 9) : 0) +
         (rsi >= 35 && rsi <= 60 ? 10 : 0),
       );
     case 'oversold':
@@ -37,7 +42,7 @@ export function scoreScreenerPreset(preset: ScreenerPreset, metrics: ScreenerMet
         (rsi <= 30 ? 40 : rsi <= 40 ? 25 : 0) +
         (metrics.chg20d <= -10 ? Math.min(25, Math.abs(metrics.chg20d)) : 0) +
         (fromLow <= 20 ? 20 : 0) +
-        (volume >= 1.2 ? 15 : 0),
+        (volume !== null && volume >= 1.2 ? 15 : 0),
       );
     case 'downtrend':
       return clamp(
@@ -45,7 +50,7 @@ export function scoreScreenerPreset(preset: ScreenerPreset, metrics: ScreenerMet
         (metrics.chg5d < 0 ? Math.min(20, Math.abs(metrics.chg5d) * 3) : 0) +
         (macd < 0 ? 20 : 0) +
         (rsi < 45 ? 15 : 0) +
-        (volume >= 1.2 && metrics.chg1d < 0 ? 10 : 0),
+        (volume !== null && volume >= 1.2 && metrics.chg1d < 0 ? 10 : 0),
       );
     case 'near_52w_low':
       return clamp(
@@ -59,13 +64,13 @@ export function scoreScreenerPreset(preset: ScreenerPreset, metrics: ScreenerMet
       const bullish =
         (metrics.chg5d > 0 ? Math.min(25, metrics.chg5d * 3) : 0) +
         (metrics.chg20d > 0 ? Math.min(20, metrics.chg20d) : 0) +
-        (volume >= 1.2 ? Math.min(20, volume * 8) : 0) +
+        (volume !== null && volume >= 1.2 ? Math.min(20, volume * 8) : 0) +
         (rsi >= 50 && rsi <= 68 ? 20 : rsi > 68 && rsi <= 75 ? 10 : 0) +
         (macd > 0 ? 15 : 0);
       const bearish =
         (metrics.chg5d < 0 ? Math.min(25, Math.abs(metrics.chg5d) * 3) : 0) +
         (metrics.chg20d < 0 ? Math.min(20, Math.abs(metrics.chg20d)) : 0) +
-        (volume >= 1.2 ? Math.min(20, volume * 8) : 0) +
+        (volume !== null && volume >= 1.2 ? Math.min(20, volume * 8) : 0) +
         (rsi <= 50 && rsi >= 32 ? 20 : rsi < 32 && rsi >= 25 ? 10 : 0) +
         (macd < 0 ? 15 : 0);
       return clamp(Math.max(bullish, bearish));

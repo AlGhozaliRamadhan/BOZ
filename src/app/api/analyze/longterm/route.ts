@@ -9,6 +9,8 @@ import { ChartAnalyzer } from '@/analyzers/chart.analyzer';
 import { AIService } from '@/services/ai/ai.service';
 import { buildPotentialLevels } from '@/shared/trade-levels';
 import { resolveSymbol } from '@/shared/market-constants';
+import { parseFxSymbol, type FxPair } from '@/shared/fx';
+import { sanitizeFxCandles } from '@/services/market/fx.service';
 import { formatCrowdSignalEvidence } from '@/shared/evidence-attribution';
 import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
 
@@ -37,13 +39,24 @@ export async function POST(request: NextRequest) {
 
     const yahoo = new YahooService();
     const indicators = new IndicatorsService();
+    const pair = parseFxSymbol(symbol);
 
     // Fetch 2 years of daily candles for long-term analysis
     const date = new Date();
     date.setFullYear(date.getFullYear() - 2);
-    let candles = await yahoo.getHistoricalData(symbol, date, '1d', false, { adjustPrices: true });
-    if (!candles.length) return errorResponse('No market data available', 404);
-    candles = indicators.calculateAll(candles);
+    const rawCandles = await yahoo.getHistoricalData(symbol, date, '1d', false, { adjustPrices: !pair });
+    const sourcedCandles = pair ? sanitizeFxCandles(rawCandles, '1d') : rawCandles;
+    if (!sourcedCandles.length) return errorResponse('No market data available', 404);
+    const candles = indicators.calculateAll(sourcedCandles);
+    if (pair) {
+      // FX has no tape. Clearing both fields keeps the prompt and the dashboard
+      // from presenting a fabricated volume/OBV observation.
+      const lastCandle = candles.at(-1);
+      if (lastCandle) {
+        lastCandle.Volume_Ratio = undefined;
+        lastCandle.OBV_Trend = undefined;
+      }
+    }
 
     // Parallel fetches
     const macroService = new MacroService();
@@ -76,6 +89,9 @@ export async function POST(request: NextRequest) {
       bb_width: last.BB_Width ?? null,
       volume_ratio: last.Volume_Ratio ?? null,
       obv_trend: last.OBV_Trend ?? null,
+      pair: pair?.pair ?? null,
+      pip_size: pair?.pipSize ?? null,
+      precision: pair?.precision ?? null,
       fiftyTwoWeekHigh: high52w,
       fiftyTwoWeekLow: low52w,
       from52wHigh,
@@ -84,7 +100,7 @@ export async function POST(request: NextRequest) {
 
     // Run AI analysis with long-term prompt
     const aiService = new AIService();
-    const prompt = buildLongtermPrompt(symbol, last, macro, sentiment, chartPatterns, {
+    const prompt = buildLongtermPrompt(symbol, last, pair, macro, sentiment, chartPatterns, {
       high52w, low52w, from52wHigh, from52wLow,
     });
     const verdict = await aiService.analyze(prompt);
@@ -129,6 +145,7 @@ export async function POST(request: NextRequest) {
 function buildLongtermPrompt(
   ticker: string,
   last: any,
+  pair: FxPair | null,
   macro: any,
   sentiment: any,
   chartPatterns: any,
@@ -136,21 +153,27 @@ function buildLongtermPrompt(
 ): string {
   const fmt = (v: number | null | undefined, decimals = 2) =>
     v != null ? v.toFixed(decimals) : 'N/A';
+  // A pair is a rate: own precision, no dollar sign, and no volume story.
+  const px = (v: number | null | undefined, decimals = pair ? pair.precision : 2) =>
+    v != null ? v.toFixed(decimals) : 'N/A';
+  const unit = pair ? '' : '$';
+  const flowLine = pair
+    ? 'Institutional Flow & Volatility: OBV Trend: not applicable | Volume Ratio: not reported for FX'
+    : `Institutional Flow & Volatility: OBV Trend: ${last.OBV_Trend ? 'Accumulation' : 'Distribution'} | Volume Ratio: ${fmt(last.Volume_Ratio)}x`;
 
-  return `Analyze ${ticker} for long-term positioning (3-12 month investment horizon).
+  return `Analyze ${ticker}${pair ? ` (${pair.pair})` : ''} for long-term positioning (3-12 month investment horizon).
 
-Current Price: $${fmt(last.close)}
+Current Price: ${unit}${px(last.close)}
 RSI(14): ${fmt(last.RSI, 1)}
 MACD: ${fmt(last.MACD, 4)} / Signal: ${fmt(last.MACD_Signal, 4)}
-SMA20: ${fmt(last.SMA_20)} | SMA50: ${fmt(last.SMA_50)} | SMA200: ${fmt(last.SMA_200)}
-ATR: ${fmt(last.ATR)} (${fmt(last.ATR_Percent)}%)
+SMA20: ${unit}${px(last.SMA_20)} | SMA50: ${unit}${px(last.SMA_50)} | SMA200: ${unit}${px(last.SMA_200)}
+ATR: ${unit}${px(last.ATR)} (${fmt(last.ATR_Percent)}%)
 BB Width: ${fmt(last.BB_Width)}
-Volume Ratio: ${fmt(last.Volume_Ratio)}
-OBV Trend: ${last.OBV_Trend ? 'Bullish' : 'Bearish'}
+${flowLine}
 
 52-Week Context:
-- 52w High: $${fmt(context52w.high52w)} (${fmt(context52w.from52wHigh, 1)}% away)
-- 52w Low: $${fmt(context52w.low52w)} (+${fmt(context52w.from52wLow, 1)}% above)
+- 52w High: ${unit}${px(context52w.high52w)} (${fmt(context52w.from52wHigh, 1)}% away)
+- 52w Low: ${unit}${px(context52w.low52w)} (+${fmt(context52w.from52wLow, 1)}% above)
 
 Macro Context:
 - Market Regime: ${macro.market_regime}
@@ -167,10 +190,14 @@ Sentiment:
 Chart Patterns (Daily): ${chartPatterns.patterns.join(', ')}
 Candle Pattern: ${chartPatterns.candle_patterns.summary_text}
 Fibonacci Position: ${chartPatterns.fibonacci_position}
-Support: $${fmt(chartPatterns.nearest_support)}
-Resistance: $${fmt(chartPatterns.nearest_resistance)}
+Support: ${unit}${px(chartPatterns.nearest_support)}
+Resistance: ${unit}${px(chartPatterns.nearest_resistance)}
 
-Focus on: secular trends, institutional accumulation/distribution, macro cycle positioning, and multi-month risk/reward setups. Do not invent price targets: state missing inputs as missing, and if there is no clean setup say so with what you would need to see.`;
+Focus on: ${pair
+    ? `rate differentials, central-bank path, carry and the macro cycle for ${pair.pair}; a pair is a rate quoted to ${pair.precision} decimals with a pip of ${pair.pipSize} ${pair.quote}. State risk in pips, not dollars.`
+    : 'secular trends, institutional accumulation/distribution, macro cycle positioning, and multi-month risk/reward setups.'} Do not invent price targets: state missing inputs as missing, and if there is no clean setup say so with what you would need to see.${pair ? `
+
+Never imply execution — BOZ is research only.` : ''}`;
 }
 
 

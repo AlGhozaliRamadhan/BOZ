@@ -13,6 +13,8 @@ import {
   type QuoteSnapshot,
 } from '@/shared/dashboard-analysis';
 import { resolveSymbol } from '@/shared/market-constants';
+import { parseFxSymbol } from '@/shared/fx';
+import { fxService, sanitizeFxCandles } from '@/services/market/fx.service';
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,6 +25,7 @@ export async function GET(request: NextRequest) {
     if (!symbol) {
       return errorResponse(`Unknown ticker: ${ticker}`, 400);
     }
+    const pair = parseFxSymbol(symbol);
     const yahoo = new YahooService();
     const indicators = new IndicatorsService();
     const chartAnalyzer = new ChartAnalyzer();
@@ -33,23 +36,36 @@ export async function GET(request: NextRequest) {
     const from = new Date();
     from.setDate(from.getDate() - 420);
 
-    const [candlesRaw, quoteRaw, macro, sentiment, headlines] = await Promise.all([
-      yahoo.getHistoricalData(symbol, from, '1d', false, { adjustPrices: true }),
+    const [candlesRaw, quoteRaw, macro, sentiment, headlines, fx] = await Promise.all([
+      yahoo.getHistoricalData(symbol, from, '1d', false, { adjustPrices: !pair }),
       // Validation off so commodities/FX/indices still populate the snapshot.
       yahooFinance.quote(symbol, {}, { validateResult: false }).catch(() => null),
       macroService.getMacroContext(symbol).catch(() => null),
       sentimentService.fetchCrowdSentiment(symbol).catch(() => null),
-      newsService.getStockNews(symbol).catch(() => [] as string[]),
+      // A pair reads better as "EUR/USD" than as "EURUSD=X" in a news query.
+      newsService.getStockNews(pair ? pair.pair : symbol).catch(() => [] as string[]),
+      pair ? fxService.getContext(symbol).catch(() => null) : Promise.resolve(null),
     ]);
 
     if (!candlesRaw.length) return errorResponse('No market data available', 404);
 
-    const candles = indicators.calculateAll(candlesRaw);
+    const source = pair ? sanitizeFxCandles(candlesRaw, '1d') : candlesRaw;
+    if (!source.length) return errorResponse('No market data available', 404);
+    const candles = indicators.calculateAll(source);
+    if (pair) {
+      // Volume and OBV are meaningless without a tape. Clearing them here stops
+      // buildDashboardAnalysis from emitting participation signals for FX.
+      const last = candles.at(-1);
+      if (last) {
+        last.Volume_Ratio = undefined;
+        last.OBV_Trend = undefined;
+      }
+    }
     const patterns = chartAnalyzer.analyzeChartPatterns(candles);
     const q = quoteRaw as any;
     const quote: QuoteSnapshot = {
       name: q?.longName ?? q?.shortName ?? symbol,
-      marketCap: q?.marketCap ?? null,
+      marketCap: pair ? null : q?.marketCap ?? null,
       fiftyTwoWeekHigh: q?.fiftyTwoWeekHigh ?? null,
       fiftyTwoWeekLow: q?.fiftyTwoWeekLow ?? null,
       previousClose: q?.regularMarketPreviousClose ?? null,
@@ -57,7 +73,7 @@ export async function GET(request: NextRequest) {
       quoteType: q?.quoteType ?? q?.typeDisp ?? null,
       exchange: q?.fullExchangeName ?? q?.exchange ?? null,
       currency: q?.currency ?? null,
-      averageVolume: q?.averageDailyVolume3Month ?? q?.averageDailyVolume10Day ?? null,
+      averageVolume: pair ? null : q?.averageDailyVolume3Month ?? q?.averageDailyVolume10Day ?? null,
     };
 
     const analysis = buildDashboardAnalysis({ ticker: symbol, candles, quote, patterns });
@@ -72,7 +88,7 @@ export async function GET(request: NextRequest) {
         price: q?.regularMarketPrice ?? analysis.structure.price,
         change: q?.regularMarketChange ?? null,
         changePercent: q?.regularMarketChangePercent ?? null,
-        volume: q?.regularMarketVolume ?? null,
+        volume: pair ? null : q?.regularMarketVolume ?? null,
         averageVolume: quote.averageVolume,
         marketCap: quote.marketCap,
         dayHigh: q?.regularMarketDayHigh ?? null,
@@ -85,12 +101,20 @@ export async function GET(request: NextRequest) {
         quoteType: quote.quoteType,
         exchange: quote.exchange,
         currency: quote.currency,
-        trailingPE: q?.trailingPE ?? null,
+        trailingPE: pair ? null : q?.trailingPE ?? null,
         regularMarketTime: q?.regularMarketTime ?? null,
+        pair: pair?.pair ?? null,
+        pipSize: pair?.pipSize ?? null,
+        precision: pair?.precision ?? null,
+        bid: pair ? q?.bid ?? null : null,
+        ask: pair ? q?.ask ?? null : null,
       },
       analysis,
       macro,
       sentiment,
+      // FX extras: session clock, rate book and cross rates. Null off-FX so
+      // non-pair pages keep their existing payload exactly.
+      fx,
       news: {
         headlines: headlines.slice(0, 6),
         sentiment: newsScore.sentiment,

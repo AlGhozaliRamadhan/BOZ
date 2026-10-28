@@ -58,7 +58,7 @@ export interface ScreenerResult {
   expertSignal: ExpertSignal;
 }
 
-export type ScreenerUniverse = 'idx' | 'us' | 'crypto' | 'global';
+export type ScreenerUniverse = 'idx' | 'us' | 'crypto' | 'forex' | 'global';
 
 /**
  * Upper bound on rows a single scan returns. Lives here rather than in the

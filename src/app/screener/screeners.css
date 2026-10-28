@@ -1,7 +1,9 @@
 ﻿/* === SCREENERS ================================================================
    Professional list workspace: underline tabs + filter bar + table rows.
-   No cards, no multi-column card grids — dividers and rows only.
-   Verdict color lives on the rail + action word; everything else monochrome.
+   No cards, no multi-column card grids. Separation comes from spacing and
+   row hairlines, not from bands of rules stacked over one another.
+   Verdict color lives on the left rail of an open row + the action word;
+   everything else stays monochrome.
    ========================================================================== */
 
 .scn-page {
@@ -25,8 +27,7 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-4);
-  padding-bottom: var(--space-4);
-  border-bottom: 1px solid var(--border-glass);
+  padding-bottom: var(--space-2);
 }
 
 .scn-header h1 {
@@ -54,7 +55,7 @@
   white-space: nowrap;
 }
 
-/* Market tabs — underline list, no cards */
+/* Market tabs: underline list, no cards */
 .scn-tabs {
   display: flex;
   gap: 4px;
@@ -79,13 +80,13 @@
 .scn-tab.is-active { border-bottom-color: var(--text-primary); color: var(--text-primary); }
 .scn-tab:disabled { opacity: 0.5; cursor: default; }
 
-/* Controls — flat stacked filter bar separated by dividers */
+/* Controls: flat stacked filter bar; spacing separates it from the tabs
+   above and the results below, no extra rule lines. */
 .scn-controls {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  border-bottom: 1px solid var(--border-glass);
-  padding: 14px 0;
+  padding: 14px 0 18px;
 }
 
 .scn-label {
@@ -99,7 +100,7 @@
 
 .scn-label label { color: inherit; font: inherit; }
 
-/* Screens — one dropdown instead of a pill list */
+/* Screens: one dropdown instead of a pill list */
 .scn-screenrow { position: relative; max-width: 420px; }
 
 .scn-screenrow__icon {
@@ -135,7 +136,7 @@
   animation: scn-fade var(--duration-fast) var(--ease-out);
 }
 
-/* Light motion — press feedback, tab slide, row entrance, detail expand */
+/* Light motion: press feedback, tab slide, row entrance, detail expand */
 .scn-tab { transition: color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out); }
 .scn-tab:active:not(:disabled) { transform: translateY(1px); }
 
@@ -143,6 +144,7 @@
 .scn-run,
 .scn-reset,
 .scn-sortdir,
+.scn-hcol,
 .scn-chevron,
 .scn-open,
 .scn-brief,
@@ -184,6 +186,7 @@
 @media (prefers-reduced-motion: reduce) {
   .scn-row, .scn-detail, .scn-status, .scn-controls__desc { animation: none; }
   .scn-tab:active:not(:disabled) { transform: none; }
+  .scn-hcol { transition: none; }
   .scn-segment__btn:active:not(:disabled),
   .scn-run:active:not(:disabled),
   .scn-sortdir:active,
@@ -248,7 +251,7 @@
   padding: 0 9px;
 }
 
-.scn-select:focus { border-color: #6f6f82; }
+.scn-select:focus { border-color: var(--border-glass-hover); }
 .scn-select--compact { width: auto; min-width: 130px; }
 
 .scn-actions {
@@ -275,7 +278,7 @@
   padding: 0 18px;
 }
 
-.scn-run:hover { background: #e2e2e8; }
+.scn-run:hover { background: color-mix(in srgb, var(--text-primary) 86%, var(--text-inverse)); }
 .scn-run.is-cancel { background: transparent; border-color: var(--border-glass-hover); color: var(--text-primary); }
 
 .scn-reset {
@@ -304,13 +307,12 @@
 /* Results */
 .scn-results { min-width: 0; }
 
-/* Summary — one line, not cards */
+/* Summary: one line, not cards */
 .scn-strip {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 8px;
-  border-bottom: 1px solid var(--border-glass);
   padding: 10px 0;
   font-size: 12.5px;
 }
@@ -388,8 +390,8 @@
 
 .scn-sortdir:hover { border-color: var(--border-glass-hover); color: var(--text-primary); }
 
-/* Result table — divider-separated rows */
-.scn-table { border-bottom: 1px solid var(--border-glass); }
+/* Result table: row hairlines only. The block carries no own outer rule. */
+.scn-table { min-width: 0; }
 
 .scn-thead,
 .scn-row__grid {
@@ -402,7 +404,13 @@
   gap: 12px;
 }
 
+/* The column header stays pinned under the app menu bar while a long result
+   list scrolls, so sort context never walks off screen. */
 .scn-thead {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: var(--bg-primary);
   border-bottom: 1px solid var(--border-glass);
   padding: 6px 8px 6px 14px;
   color: var(--text-muted);
@@ -416,6 +424,33 @@
 .scn-col--num { font-variant-numeric: tabular-nums; text-align: right; }
 .scn-col--signal { display: flex; flex-direction: column; gap: 1px; }
 .scn-col--go { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+
+/* Sortable column headers: buttons inside the grid cells. Click sorts,
+   clicking the active column again flips direction. */
+.scn-hcol {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.scn-hcol.scn-col--num { justify-content: flex-end; }
+.scn-hcol:hover { color: var(--text-primary); text-decoration: underline dotted; text-decoration-color: var(--text-muted); text-underline-offset: 3px; }
+.scn-thead .scn-hcol.is-sorted { color: var(--text-primary); text-decoration: underline; text-underline-offset: 3px; }
+.scn-hcol__dir { font-size: 9px; line-height: 1; }
 
 .scn-rows { list-style: none; margin: 0; padding: 0; }
 
@@ -458,7 +493,6 @@
 
 .scn-col--num.is-positive { color: var(--bull); }
 .scn-col--num.is-negative { color: #ff6b6b; }
-.scn-thead .scn-col--num { color: var(--text-muted); }
 
 .scn-match { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; font-weight: 600; }
 .scn-match__bar {
@@ -500,12 +534,27 @@
 .scn-chevron:hover,
 .scn-open:hover { background: var(--surface-glass-active); color: var(--text-primary); }
 
-/* Expanded detail — stacked sections with dividers, never side-by-side cards */
+/* Expanded detail: anchored to its row by a 2px verdict-tone rail on the
+   left. Sections inside separate by spacing and labels; no rule lines. */
 .scn-detail {
-  border-top: 1px dashed var(--border-glass-hover);
-  margin: 0 8px 0 14px;
-  padding: 12px 0 16px;
+  position: relative;
+  margin: 0 8px 4px 18px;
+  padding: 12px 0 16px 14px;
 }
+
+.scn-detail::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  bottom: 14px;
+  left: 0;
+  width: 2px;
+  border-radius: var(--radius-full);
+  background: var(--border-glass-hover);
+}
+
+.scn-row--buy .scn-detail::before { background: var(--bull); }
+.scn-row--sell .scn-detail::before { background: var(--bear); }
 
 .scn-detail__meta {
   margin: 0 0 10px;
@@ -514,9 +563,8 @@
 }
 
 .scn-detail section + section {
-  border-top: 1px solid var(--border-glass);
-  margin-top: 12px;
-  padding-top: 12px;
+  margin-top: 14px;
+  padding-top: 2px;
 }
 
 .scn-detail h3 {
@@ -534,7 +582,7 @@
 .scn-kv {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px 28px;
+  gap: 2px 28px;
   margin: 0;
 }
 
@@ -542,8 +590,7 @@
   display: flex;
   align-items: baseline;
   gap: 10px;
-  border-bottom: 1px dotted var(--border-glass);
-  padding: 5px 0;
+  padding: 4px 0;
 }
 
 .scn-kv dt { flex-shrink: 0; width: 96px; color: var(--text-muted); font-size: 11px; }
@@ -569,15 +616,14 @@
   padding: 0 16px;
 }
 
-.scn-brief:hover { background: #e2e2e8; }
+.scn-brief:hover { background: color-mix(in srgb, var(--text-primary) 86%, var(--text-inverse)); }
 
-/* Status / empty — flat, no card chrome */
+/* Status / empty: flat, no card chrome, no extra rule */
 .scn-status {
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  border-bottom: 1px solid var(--border-glass);
-  padding: var(--space-5) 0;
+  padding: var(--space-4) 0;
 }
 
 .scn-status strong { font-size: 13px; }
@@ -614,7 +660,6 @@
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  border-bottom: 1px solid var(--border-glass);
   padding: 40px 24px;
   text-align: center;
 }
@@ -664,6 +709,7 @@
 .scn-reset:focus-visible,
 .scn-select:focus-visible,
 .scn-sortdir:focus-visible,
+.scn-hcol:focus-visible,
 .scn-retry:focus-visible,
 .scn-row__id:focus-visible,
 .scn-chevron:focus-visible,
@@ -680,9 +726,12 @@
   .scn-segment__btn, .scn-select--screen { min-height: 44px; }
 }
 
-/* Narrow tables keep their columns and scroll instead of breaking the row */
+/* Narrow tables keep their columns and scroll instead of breaking the row.
+   Sticky pinning turns off there: inside an overflow-x scroller the header
+   would pin to the wrong scrollport. */
 @media (max-width: 900px) {
   .scn-table { overflow-x: auto; }
+  .scn-thead { position: static; }
   .scn-thead, .scn-row__grid { min-width: 760px; }
   .scn-kv { grid-template-columns: 1fr; }
 }

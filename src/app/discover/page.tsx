@@ -10,6 +10,7 @@ import {
 } from '@/shared/discover';
 import { pageWindow, type PageToken } from '@/shared/pagination';
 import { SYMBOL_MARKET_LABEL, type SymbolMarket } from '@/shared/symbol-search';
+import { formatFxRate, fxDisplaySymbol, parseFxSymbol } from '@/shared/fx';
 import { useLoadMoreOnScroll, useSymbolSearch } from '@/app/lib/hooks';
 import type { ScreenerResult } from '@/shared/screener-contract';
 
@@ -18,7 +19,7 @@ interface TapeQuote {
   changePercent: number | null;
 }
 
-type MarketTab = 'us' | 'crypto' | 'idx';
+type MarketTab = 'us' | 'crypto' | 'idx' | 'forex';
 
 const TAPE: Array<{ symbol: string; label: string }> = [
   { symbol: '^VIX', label: 'VOLATILITY' },
@@ -27,22 +28,28 @@ const TAPE: Array<{ symbol: string; label: string }> = [
   { symbol: 'GC=F', label: 'GOLD' },
   { symbol: '^TNX', label: 'US 10Y' },
   { symbol: '^JKSE', label: 'IHSG' },
+  { symbol: 'EURUSD=X', label: 'EUR/USD' },
+  { symbol: 'IDR=X', label: 'USD/IDR' },
 ];
 
 const TABS: Array<{ value: MarketTab; label: string }> = [
   { value: 'us', label: 'US Stocks' },
   { value: 'crypto', label: 'Crypto' },
   { value: 'idx', label: 'IDX Stocks' },
+  { value: 'forex', label: 'Forex' },
 ];
 
 const PAGE_SIZE = 15;
 
 function displayTicker(ticker: string, tab: MarketTab): string {
+  if (tab === 'forex') return fxDisplaySymbol(ticker);
   if (tab === 'idx') return ticker.replace(/\.JK$/i, '');
   return ticker.replace(/-USD$/i, '');
 }
 
-function formatPrice(value: number | null | undefined): string {
+function formatPrice(value: number | null | undefined, ticker: string, tab: MarketTab): string {
+  // A rate needs its own precision: 1.09 is not a EUR/USD quote.
+  if (tab === 'forex') return formatFxRate(ticker, value);
   return typeof value === 'number' && Number.isFinite(value)
     ? value.toLocaleString(undefined, { maximumFractionDigits: 2 })
     : '—';
@@ -304,7 +311,7 @@ export default function DiscoverPage() {
             <strong>{displayTicker(r.ticker, activeTab)}</strong>
             <span>{r.name}</span>
           </span>
-          <span className={styles['discover-num']}>{formatPrice(r.metrics.price)}</span>
+          <span className={styles['discover-num']}>{formatPrice(r.metrics.price, r.ticker, activeTab)}</span>
           <span className={`${styles['discover-num']}${chg >= 0 ? ' is-up' : ' is-down'}`}>{signed(chg)}</span>
           <span className={`${styles['discover-num']} ${styles['discover-hide-mobile']}`}>
             {r.metrics.rsi != null ? r.metrics.rsi.toFixed(0) : '—'}
@@ -439,7 +446,9 @@ export default function DiscoverPage() {
               <div className={styles['discover-tape-label']}>{label}</div>
               <div className={styles['discover-tape-price']}>
                 {q && typeof q.price === 'number' ? (
-                  q.price.toLocaleString(undefined, { maximumFractionDigits: q.price < 100 ? 2 : 1 })
+                  parseFxSymbol(symbol)
+                    ? formatFxRate(symbol, q.price)
+                    : q.price.toLocaleString(undefined, { maximumFractionDigits: q.price < 100 ? 2 : 1 })
                 ) : (
                   <span className={searchStyles['skel']} style={{ width: '72px', height: '17px' }}></span>
                 )}

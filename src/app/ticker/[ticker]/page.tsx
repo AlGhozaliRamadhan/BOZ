@@ -7,8 +7,10 @@ import TechnicalStrip from '@/app/components/ui/TechnicalStrip';
 import SkeletonLoader from '@/app/components/ui/SkeletonLoader';
 import { buildStocktwitsPulse, stocktwitsContrarianNote } from '@/shared/crowd-pulse';
 import ExternalAiBriefButton from '@/app/components/ui/ExternalAiBriefButton';
+import FxDeskPanel, { type FxDeskContext } from '@/app/components/ui/FxDeskPanel';
 import { recordRecentTicker } from '@/shared/discover';
 import { SYMBOL_MARKET_LABEL, type SymbolMarket } from '@/shared/symbol-search';
+import { formatFxPips, formatMinutes, fxMarketStatus, parseFxSymbol } from '@/shared/fx';
 import { useLoadMoreOnScroll, useSymbolSearch } from '@/app/lib/hooks';
 import styles from './TickerPage.module.css';
 
@@ -33,6 +35,12 @@ interface QuoteData {
   currency: string | null;
   trailingPE: number | null;
   regularMarketTime: string | number | Date | null;
+  pair?: string | null;
+  pipSize?: number | null;
+  precision?: number | null;
+  changePips?: number | null;
+  bid?: number | null;
+  ask?: number | null;
 }
 
 interface MacroData {
@@ -292,6 +300,7 @@ export default function DashboardPage() {
   const [sentiment, setSentiment] = useState<SentimentData | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisData | null>(null);
   const [news, setNews] = useState<NewsData | null>(null);
+  const [fxContext, setFxContext] = useState<FxDeskContext | null>(null);
   const [briefingData, setBriefingData] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -339,6 +348,12 @@ export default function DashboardPage() {
         currency: rawQuote.currency ?? null,
         trailingPE: rawQuote.trailingPE ?? null,
         regularMarketTime: rawQuote.regularMarketTime ?? null,
+        pair: rawQuote.pair ?? null,
+        pipSize: rawQuote.pipSize ?? null,
+        precision: rawQuote.precision ?? null,
+        changePips: rawQuote.changePips ?? null,
+        bid: rawQuote.bid ?? null,
+        ask: rawQuote.ask ?? null,
       };
 
       let vixLevelStr: string | null = null;
@@ -390,6 +405,7 @@ export default function DashboardPage() {
       setSentiment(sentimentData);
       setAnalysis(payload.analysis || null);
       setNews(payload.news || null);
+      setFxContext(payload.fx || null);
       setBriefingData(payload);
       setAsOf(payload.timestamp ? new Date(payload.timestamp) : null);
     } catch (err) {
@@ -426,6 +442,18 @@ export default function DashboardPage() {
   } : null), [sentiment]);
   const contrarianNote = useMemo(() => stocktwitsContrarianNote(pulse), [pulse]);
 
+  // FX pages reuse the same dashboard but read rates, pips and the session
+  // clock instead of volume and market cap.
+  const fxPair = useMemo(
+    () => parseFxSymbol(quote?.ticker ?? '') ?? parseFxSymbol(ticker),
+    [quote?.ticker, ticker],
+  );
+  const fxStatus = useMemo(
+    () => (fxPair ? fxMarketStatus(new Date()) : null),
+    // `asOf` advances on every poll, which is what re-computes the countdown.
+    [fxPair, asOf],
+  );
+
   const handleTickerSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (tickerInput.trim()) {
@@ -451,6 +479,8 @@ export default function DashboardPage() {
 
   const formatPx = (num: number | null | undefined) => {
     if (num == null || !Number.isFinite(num)) return '—';
+    // A rate needs its pair's own precision: 1.08765, not 1.09.
+    if (fxPair) return num.toFixed(fxPair.precision);
     const a = Math.abs(num);
     if (a >= 1000) return num.toFixed(2);
     if (a >= 1) return num.toFixed(2);
@@ -647,7 +677,7 @@ export default function DashboardPage() {
             <div className={styles['ticker-overview__main']}>
               <div className={styles['ticker-overview__identity']}>
                 <div className={styles['ticker-overview__symbol-line']}>
-                  <h2>{quote?.ticker}</h2>
+                  <h2>{fxPair ? fxPair.pair : quote?.ticker}</h2>
                   <button
                     type="button"
                     onClick={toggleFavorite}
@@ -658,31 +688,57 @@ export default function DashboardPage() {
                   >
                     <i className={`${isFavorite ? 'fa-solid' : 'fa-regular'} fa-star`} aria-hidden="true"></i>
                   </button>
-                  <span className={styles['ticker-overview__asset']}>{analysis?.assetClass || quote?.quoteType || 'ASSET'}</span>
+                  <span className={styles['ticker-overview__asset']}>{fxPair ? `FX · ${fxPair.class.toUpperCase()}` : analysis?.assetClass || quote?.quoteType || 'ASSET'}</span>
                 </div>
                 <p>{quote?.name}{quote?.exchange ? ` · ${quote.exchange}` : ''}</p>
                 <span className={styles['ticker-overview__session']}>
-                  <i className={marketStateMeta(quote?.marketState).live ? 'is-live' : ''} aria-hidden="true" />
-                  {marketStateMeta(quote?.marketState).label} · {formatClock(asOf)}
+                  <i
+                    className={(fxStatus ? fxStatus.open : marketStateMeta(quote?.marketState).live) ? 'is-live' : ''}
+                    aria-hidden="true"
+                  />
+                  {fxStatus
+                    ? fxStatus.nextEvent
+                      ? `${fxStatus.nextEvent.city.toUpperCase()} ${fxStatus.nextEvent.action === 'open' ? 'OPENS' : 'CLOSES'} IN ${formatMinutes(fxStatus.nextEvent.inMinutes)}`
+                      : 'FX MARKET'
+                    : `${marketStateMeta(quote?.marketState).label} · ${formatClock(asOf)}`}
                 </span>
               </div>
               <div className={styles['ticker-overview__price']}>
-                <span className={styles['ticker-overview__label']}>LAST PRICE</span>
-                <strong>{quote?.currency && quote.currency !== 'USD' ? `${quote.currency} ` : '$'}{formatPx(quote?.price)}</strong>
+                <span className={styles['ticker-overview__label']}>{fxPair ? 'RATE' : 'LAST PRICE'}</span>
+                <strong>
+                  {fxPair ? '' : quote?.currency && quote.currency !== 'USD' ? `${quote.currency} ` : '$'}
+                  {formatPx(quote?.price)}
+                </strong>
                 <span className={styles['ticker-overview__change']} style={{ color: getPnlColor(quote?.change ?? 0) }}>
                   {formatSignedDelta(quote?.change, formatPx)}
                   {quote?.changePercent != null && Number.isFinite(quote.changePercent) && (
                     <span>({formatSignedDelta(quote.changePercent, (n) => `${n.toFixed(2)}%`)})</span>
+                  )}
+                  {fxPair && quote?.change != null && (
+                    <span style={{ marginLeft: '8px', color: '#888899', fontWeight: 500 }}>
+                      {formatFxPips(fxPair.code, quote.change)}
+                    </span>
                   )}
                 </span>
               </div>
             </div>
 
             <dl className={styles['ticker-overview__stats']}>
-              <div><dt>VOLUME</dt><dd>{formatNum(quote?.volume)}</dd></div>
-              <div><dt>DAY RANGE</dt><dd>{formatPx(quote?.low)} <span>–</span> {formatPx(quote?.high)}</dd></div>
-              <div><dt>52W RANGE</dt><dd>{formatPx(quote?.fiftyTwoWeekLow)} <span>–</span> {formatPx(quote?.fiftyTwoWeekHigh)}</dd></div>
-              <div><dt>MARKET CAP</dt><dd>{formatNum(quote?.marketCap)}</dd></div>
+              {fxPair ? (
+                <>
+                  <div><dt>PIP SIZE</dt><dd>{fxPair.pipSize}</dd></div>
+                  <div><dt>DAY RANGE</dt><dd>{formatPx(quote?.low)} <span>–</span> {formatPx(quote?.high)}</dd></div>
+                  <div><dt>52W RANGE</dt><dd>{formatPx(quote?.fiftyTwoWeekLow)} <span>–</span> {formatPx(quote?.fiftyTwoWeekHigh)}</dd></div>
+                  <div><dt>BID / ASK</dt><dd>{formatPx(quote?.bid)} <span>/</span> {formatPx(quote?.ask)}</dd></div>
+                </>
+              ) : (
+                <>
+                  <div><dt>VOLUME</dt><dd>{formatNum(quote?.volume)}</dd></div>
+                  <div><dt>DAY RANGE</dt><dd>{formatPx(quote?.low)} <span>–</span> {formatPx(quote?.high)}</dd></div>
+                  <div><dt>52W RANGE</dt><dd>{formatPx(quote?.fiftyTwoWeekLow)} <span>–</span> {formatPx(quote?.fiftyTwoWeekHigh)}</dd></div>
+                  <div><dt>MARKET CAP</dt><dd>{formatNum(quote?.marketCap)}</dd></div>
+                </>
+              )}
             </dl>
           </section>
 
@@ -708,6 +764,14 @@ export default function DashboardPage() {
               </div>
             </details>
           </section>
+
+          {fxPair && (
+            <FxDeskPanel
+              symbol={fxPair.yahoo}
+              price={quote?.price ?? null}
+              context={fxContext}
+            />
+          )}
 
           {/* ── LOWER SECTION: chart and intelligence blocks share the page surface ── */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
@@ -764,12 +828,12 @@ export default function DashboardPage() {
                     <div style={{ color: '#555564', fontSize: '9px' }}>{analysis?.structure.from52wLowPct != null ? `+${analysis.structure.from52wLowPct.toFixed(1)}%` : dash}</div>
                   </div>
                   <div>
-                    <div style={{ color: '#555564', fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em' }}>MKT CAP</div>
-                    <div style={{ color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>{formatNum(quote?.marketCap)}</div>
+                    <div style={{ color: '#555564', fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em' }}>{fxPair ? 'PIP SIZE' : 'MKT CAP'}</div>
+                    <div style={{ color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>{fxPair ? fxPair.pipSize : formatNum(quote?.marketCap)}</div>
                   </div>
                   <div>
-                    <div style={{ color: '#555564', fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em' }}>AVG VOL</div>
-                    <div style={{ color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>{formatNum(quote?.averageVolume)}</div>
+                    <div style={{ color: '#555564', fontSize: '9px', fontWeight: 700, letterSpacing: '0.08em' }}>{fxPair ? 'PRECISION' : 'AVG VOL'}</div>
+                    <div style={{ color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>{fxPair ? `${fxPair.precision} dp` : formatNum(quote?.averageVolume)}</div>
                   </div>
                 </div>
               </section>
@@ -1018,7 +1082,7 @@ export default function DashboardPage() {
               {/* Card 5: What Ticker Is Doing & News Catalysts */}
               <section className={styles['ticker-intel__section']}>
                 <div style={{ color: '#ffffff', fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', marginBottom: '14px' }}>
-                  WHAT {quote?.ticker} IS DOING & CATALYSTS
+                  WHAT {fxPair ? fxPair.pair : quote?.ticker} IS DOING & CATALYSTS
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {(analysis?.insights || []).slice(1).map((line, i) => (

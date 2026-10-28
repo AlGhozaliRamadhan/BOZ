@@ -9,6 +9,8 @@ import { ChartAnalyzer } from '@/analyzers/chart.analyzer';
 import { AIService } from '@/services/ai/ai.service';
 import { buildPotentialLevels } from '@/shared/trade-levels';
 import { resolveSymbol } from '@/shared/market-constants';
+import { parseFxSymbol, type FxPair } from '@/shared/fx';
+import { sanitizeFxCandles } from '@/services/market/fx.service';
 import { formatCrowdSignalEvidence } from '@/shared/evidence-attribution';
 import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
 
@@ -37,13 +39,24 @@ export async function POST(request: NextRequest) {
 
     const yahoo = new YahooService();
     const indicators = new IndicatorsService();
+    const pair = parseFxSymbol(symbol);
 
     // Fetch 1h candles (5 days)
     const date = new Date();
     date.setDate(date.getDate() - 5);
-    let candles = await yahoo.getHistoricalData(symbol, date, '1h', false);
-    if (!candles.length) return errorResponse('No market data available', 404);
-    candles = indicators.calculateAll(candles);
+    const rawCandles = await yahoo.getHistoricalData(symbol, date, '1h', false);
+    const sourcedCandles = pair ? sanitizeFxCandles(rawCandles, '1h') : rawCandles;
+    if (!sourcedCandles.length) return errorResponse('No market data available', 404);
+    const candles = indicators.calculateAll(sourcedCandles);
+    if (pair) {
+      // No consolidated tape for a pair: clearing these stops the prompt and
+      // the dashboard from reporting a fabricated volume/OBV read.
+      const lastCandle = candles.at(-1);
+      if (lastCandle) {
+        lastCandle.Volume_Ratio = undefined;
+        lastCandle.OBV_Trend = undefined;
+      }
+    }
 
     // Parallel fetches
     const macroService = new MacroService();
@@ -71,11 +84,14 @@ export async function POST(request: NextRequest) {
       bb_width: last.BB_Width ?? null,
       volume_ratio: last.Volume_Ratio ?? null,
       obv_trend: last.OBV_Trend ?? null,
+      pair: pair?.pair ?? null,
+      pip_size: pair?.pipSize ?? null,
+      precision: pair?.precision ?? null,
     };
 
     // Run AI analysis
     const aiService = new AIService();
-    const prompt = buildIntradayPrompt(symbol, last, macro, sentiment, chartPatterns);
+    const prompt = buildIntradayPrompt(symbol, last, pair, macro, sentiment, chartPatterns);
     const verdict = await aiService.analyze(prompt);
 
     // Legacy levels (fixed-percentage math). Canonical math is risk_calc
@@ -117,23 +133,30 @@ export async function POST(request: NextRequest) {
 function buildIntradayPrompt(
   ticker: string,
   last: any,
+  pair: FxPair | null,
   macro: any,
   sentiment: any,
   chartPatterns: any,
 ): string {
   const fmt = (v: number | null | undefined, decimals = 2) =>
     v != null ? v.toFixed(decimals) : 'N/A';
+  // A pair is a rate: own precision, no dollar sign, and no volume story.
+  const px = (v: number | null | undefined, decimals = pair ? pair.precision : 2) =>
+    v != null ? v.toFixed(decimals) : 'N/A';
+  const unit = pair ? '' : '$';
+  const volumeLine = pair
+    ? 'Volume Ratio: not reported for FX | OBV Trend: not applicable'
+    : `Volume Ratio: ${fmt(last.Volume_Ratio)} | OBV Trend: ${last.OBV_Trend ? 'Bullish' : 'Bearish'}`;
 
-  return `Analyze ${ticker} for intraday trading (2-6 hour horizon).
+  return `Analyze ${ticker}${pair ? ` (${pair.pair})` : ''} for intraday trading (2-6 hour horizon).
 
-Current Price: $${fmt(last.close)}
+Current Price: ${unit}${px(last.close)}
 RSI(14): ${fmt(last.RSI, 1)}
 MACD: ${fmt(last.MACD, 4)} / Signal: ${fmt(last.MACD_Signal, 4)}
-SMA20: ${fmt(last.SMA_20)} | SMA50: ${fmt(last.SMA_50)}
-ATR: ${fmt(last.ATR)} (${fmt(last.ATR_Percent)}%)
+SMA20: ${unit}${px(last.SMA_20)} | SMA50: ${unit}${px(last.SMA_50)}
+ATR: ${unit}${px(last.ATR)} (${fmt(last.ATR_Percent)}%)
 BB Width: ${fmt(last.BB_Width)}
-Volume Ratio: ${fmt(last.Volume_Ratio)}
-OBV Trend: ${last.OBV_Trend ? 'Bullish' : 'Bearish'}
+${volumeLine}
 
 Macro Context:
 - Market Regime: ${macro.market_regime}
@@ -149,8 +172,10 @@ Sentiment:
 Chart Patterns: ${chartPatterns.patterns.join(', ')}
 Candle Pattern: ${chartPatterns.candle_patterns.summary_text}
 Fibonacci Position: ${chartPatterns.fibonacci_position}
-Nearest Support: $${fmt(chartPatterns.nearest_support)}
-Nearest Resistance: $${fmt(chartPatterns.nearest_resistance)}`;
+Nearest Support: ${unit}${px(chartPatterns.nearest_support)}
+Nearest Resistance: ${unit}${px(chartPatterns.nearest_resistance)}${pair ? `
+
+FX note: ${pair.pair} is a rate quoted to ${pair.precision} decimals; one pip is ${pair.pipSize} ${pair.quote}. State risk in pips, not dollars, and never imply execution — BOZ is research only.` : ''}`;
 }
 
 

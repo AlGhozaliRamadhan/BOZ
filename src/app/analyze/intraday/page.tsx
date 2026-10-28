@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { ThoughtAccordion } from '@/app/components/ui/ThoughtAccordion';
 import { buildStocktwitsPulse } from '@/shared/crowd-pulse';
+import { parseFxSymbol } from '@/shared/fx';
 import SkeletonLoader from '@/app/components/ui/SkeletonLoader';
 import ExternalAiBriefButton from '@/app/components/ui/ExternalAiBriefButton';
 
@@ -76,6 +77,11 @@ export default function IntradayAnalysisPage() {
   const tl = result?.tradeLevels;
 
   const fmt = (v: number | null | undefined, d = 2) =>
+    v != null ? v.toFixed(d) : '—';
+  // A pair is a rate: own precision, no dollar sign, and no volume rows.
+  const fx = parseFxSymbol(result?.ticker ?? ticker);
+  const unit = fx ? '' : '$';
+  const px = (v: number | null | undefined, d = fx?.precision ?? 2) =>
     v != null ? v.toFixed(d) : '—';
 
   return (
@@ -252,16 +258,22 @@ export default function IntradayAnalysisPage() {
                     <td>MACD</td>
                     <td className={(md?.macd ?? 0) >= 0 ? 'table-cell-positive' : 'table-cell-negative'}>{fmt(md?.macd, 4)}</td>
                   </tr>
-                  <tr><td>SMA 20</td><td>${fmt(md?.sma_20)}</td></tr>
-                  <tr><td>SMA 50</td><td>${fmt(md?.sma_50)}</td></tr>
-                  <tr><td>SMA 200</td><td>${fmt(md?.sma_200)}</td></tr>
-                  <tr><td>ATR</td><td>{fmt(md?.atr, 4)} ({fmt(md?.atr_percent)}%)</td></tr>
+                  <tr><td>SMA 20</td><td>{unit}{px(md?.sma_20)}</td></tr>
+                  <tr><td>SMA 50</td><td>{unit}{px(md?.sma_50)}</td></tr>
+                  <tr><td>SMA 200</td><td>{unit}{px(md?.sma_200)}</td></tr>
+                  <tr><td>ATR</td><td>{px(md?.atr, fx ? fx.precision : 4)} ({fmt(md?.atr_percent)}%)</td></tr>
                   <tr><td>BB Width</td><td>{fmt(md?.bb_width, 4)}</td></tr>
-                  <tr>
-                    <td>Volume Ratio</td>
-                    <td className={(md?.volume_ratio ?? 0) > 1.5 ? 'table-cell-positive' : ''}>{fmt(md?.volume_ratio)}x</td>
-                  </tr>
-                  <tr><td>OBV Trend</td><td>{md?.obv_trend ? 'Bullish' : 'Bearish'}</td></tr>
+                  {fx ? (
+                    <tr><td>Pip Size</td><td>{fx.pipSize}</td></tr>
+                  ) : (
+                    <>
+                      <tr>
+                        <td>Volume Ratio</td>
+                        <td className={(md?.volume_ratio ?? 0) > 1.5 ? 'table-cell-positive' : ''}>{fmt(md?.volume_ratio)}x</td>
+                      </tr>
+                      <tr><td>OBV Trend</td><td>{md?.obv_trend ? 'Bullish' : 'Bearish'}</td></tr>
+                    </>
+                  )}
                 </tbody>
               </table>
             </div>

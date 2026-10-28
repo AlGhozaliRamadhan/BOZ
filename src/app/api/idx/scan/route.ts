@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { jsonResponse, errorResponse } from '@/app/lib/api-helpers';
 import { idxScannerService, normalizePresets, normalizeScannerUniverse } from '@/services/market/idx.scanner.service';
 import type { ScannerUniverse, SignalFilter, SetupFilter, ScanMode } from '@/services/market/idx.scanner.service';
+import { FX_SECTORS } from '@/shared/fx';
 import { WorkloadBusyError } from '@/services/security/workload-gate';
 import { log } from '@/utils/logger';
 
@@ -14,7 +15,8 @@ const VALID_US_SECTORS = [
   'consumer', 'industrial',
 ];
 const VALID_CRYPTO_SECTORS = ['all'];
-const VALID_UNIVERSES: ScannerUniverse[] = ['idx', 'us', 'crypto', 'global'];
+const VALID_FOREX_SECTORS = ['all', ...FX_SECTORS];
+const VALID_UNIVERSES: ScannerUniverse[] = ['idx', 'us', 'crypto', 'forex', 'global'];
 const VALID_SIGNALS: SignalFilter[] = ['buy', 'sell', 'any'];
 const VALID_SETUPS: SetupFilter[] = ['momentum', 'rebound', 'near_52w_low', 'all_time_low', 'downtrend', 'breakout', 'oversold'];
 const VALID_MODES: ScanMode[] = ['fast', 'deep'];
@@ -45,9 +47,11 @@ export async function GET(request: NextRequest) {
     const normalizedUniverse = normalizeScannerUniverse(universe);
     const validSectors = normalizedUniverse === 'crypto'
       ? VALID_CRYPTO_SECTORS
-      : normalizedUniverse === 'us'
-        ? VALID_US_SECTORS
-        : VALID_IDX_SECTORS;
+      : normalizedUniverse === 'forex'
+        ? VALID_FOREX_SECTORS
+        : normalizedUniverse === 'us'
+          ? VALID_US_SECTORS
+          : VALID_IDX_SECTORS;
     if (!validSectors.includes(sector)) {
       return errorResponse(`Invalid sector. Valid: ${validSectors.join(', ')}`, 400);
     }
@@ -162,6 +166,7 @@ export async function GET(request: NextRequest) {
     const paramsUniverse = request.nextUrl.searchParams.get('universe') ?? 'idx';
     const normalized = normalizeScannerUniverse(paramsUniverse);
     const scanLabel = normalized === 'crypto' ? 'Crypto scan failed. Please try again.'
+      : normalized === 'forex' ? 'Forex scan failed. Please try again.'
       : normalized === 'us' ? 'US scan failed. Please try again.'
       : 'IDX scan failed. Please try again.';
     return errorResponse(scanLabel);

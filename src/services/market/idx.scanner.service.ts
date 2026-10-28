@@ -9,23 +9,26 @@ import type {
   ScreenerResult,
 } from '../../shared/screener-contract.js';
 import { MAX_SCAN_RESULTS } from '../../shared/screener-contract.js';
+import { FX_PAIRS, parseFxSymbol } from '../../shared/fx.js';
 import type { Candle } from '../../types/types.js';
 import { log } from '../../utils/logger.js';
 import { deepScanWorkloadGate, WorkloadBusyError } from '../security/workload-gate.js';
 import { IndicatorsService } from './indicators.service.js';
 import { idxUniverseService } from './idx.universe.service.js';
 import { globalUniverseService } from './global.universe.service.js';
+import { sanitizeFxCandles } from './fx.service.js';
 import { yahooFinance } from './yahoo.service.js';
 
 export type ScanSignal = 'BUY' | 'WATCH' | 'AVOID';
 export type SignalFilter = ScreenerDirection;
 export type SetupFilter = ScreenerPreset | 'all_time_low';
 export type ScanMode = ScreenerMode;
-export type ScannerUniverse = 'idx' | 'us' | 'crypto' | 'global';
+export type ScannerUniverse = 'idx' | 'us' | 'crypto' | 'forex' | 'global';
 
 /** 'global' is a deprecated alias for 'us' kept for older clients. */
-export function normalizeScannerUniverse(value: ScannerUniverse | string): 'idx' | 'us' | 'crypto' {
+export function normalizeScannerUniverse(value: ScannerUniverse | string): 'idx' | 'us' | 'crypto' | 'forex' {
   if (value === 'crypto') return 'crypto';
+  if (value === 'forex') return 'forex';
   if (value === 'us' || value === 'global') return 'us';
   return 'idx';
 }
@@ -130,6 +133,20 @@ export interface ScanPageOptions extends ScanOptions {
 
 const QUOTE_BATCH_SIZE = 100;
 const CHART_BATCH_SIZE = 8;
+
+/** Display + logging names for each scanner universe. */
+const SCANNER_LABEL: Record<'idx' | 'us' | 'crypto' | 'forex', string> = {
+  idx: 'IDX',
+  us: 'US',
+  crypto: 'Crypto',
+  forex: 'Forex',
+};
+const SCANNER_LOG: Record<'idx' | 'us' | 'crypto' | 'forex', string> = {
+  idx: 'idx-scanner',
+  us: 'us-scanner',
+  crypto: 'crypto-scanner',
+  forex: 'fx-scanner',
+};
 /** Fast mode analyses everything below this candidate count. */
 const FAST_FULL_SCAN_LIMIT = 120;
 /** Fast-mode ceiling on chart-enriched candidates. Each one costs a Yahoo chart
@@ -229,6 +246,20 @@ function finiteNumber(value: unknown, fallback = 0): number {
 export class IdxScannerService {
   async getUniverse(sector: string, universe: ScannerUniverse = 'idx'): Promise<StockEntry[]> {
     const normalized = normalizeScannerUniverse(universe);
+    if (normalized === 'forex') {
+      // The FX registry is fixed and small enough to filter inline. Pair tickers
+      // stay in canonical Yahoo form so the chart/quote path needs no special
+      // case beyond the volume suppression in preScoreQuote/enrichCandidate.
+      const filtered = FX_PAIRS
+        .filter(pair => sector === 'all' || pair.class === sector)
+        .map(pair => ({
+          ticker: pair.yahoo,
+          name: pair.nickname ? `${pair.pair} · ${pair.nickname}` : pair.pair,
+          sector: pair.class,
+        }));
+      log.info('fx-scanner', `universe: ${filtered.length} pairs (${sector}) from ${FX_PAIRS.length} total`);
+      return filtered;
+    }
     if (normalized === 'crypto') {
       const all = await globalUniverseService.getCryptoUniverse();
       const filtered = globalUniverseService.filterBySector(all, sector === 'all' ? 'all' : 'crypto');
@@ -259,7 +290,9 @@ export class IdxScannerService {
     return chunks;
   }
 
-  private preScoreQuote(quote: any, direction: SignalFilter, preset: ScreenerPreset): number {
+  private preScoreQuote(entry: QuotedEntry, direction: SignalFilter, preset: ScreenerPreset): number {
+    const { quote } = entry;
+    const isFx = parseFxSymbol(entry.ticker) !== null;
     const price = finiteNumber(quote?.regularMarketPrice);
     const chg1d = finiteNumber(quote?.regularMarketChangePercent);
     const volume = finiteNumber(quote?.regularMarketVolume);
@@ -268,13 +301,18 @@ export class IdxScannerService {
       || 1;
     const high52w = finiteNumber(quote?.fiftyTwoWeekHigh);
     const low52w = finiteNumber(quote?.fiftyTwoWeekLow);
-    if (price <= 0 || volume <= 0) return -999;
+    if (price <= 0) return -999;
+    // FX has no consolidated tape, so zero volume is the normal reading rather
+    // than a dead listing. Gating on it would empty the entire FX board.
+    if (!isFx && volume <= 0) return -999;
 
-    const volumeRatio = averageVolume > 0 ? volume / averageVolume : 1;
+    const volumeRatio = isFx ? 1 : averageVolume > 0 ? volume / averageVolume : 1;
     const fromHigh = high52w > 0 ? ((price - high52w) / high52w) * 100 : -50;
     const fromLow = low52w > 0 ? ((price - low52w) / low52w) * 100 : 50;
     const distanceFromHigh = Math.abs(fromHigh);
-    const liquidity = Math.min(20, Math.log10(Math.max(volume, 1)) * 2);
+    // A constant liquidity floor keeps FX ranking driven by price action instead
+    // of a tick-volume term that does not exist for the asset class.
+    const liquidity = isFx ? 10 : Math.min(20, Math.log10(Math.max(volume, 1)) * 2);
     let score = liquidity;
 
     if (preset === 'breakout') {
@@ -382,7 +420,7 @@ export class IdxScannerService {
     mode: ScanMode,
   ): QuoteCandidate[] {
     const scored = quoted
-      .map(entry => ({ ...entry, preScore: this.preScoreQuote(entry.quote, direction, preset), preset }))
+      .map(entry => ({ ...entry, preScore: this.preScoreQuote(entry, direction, preset), preset }))
       .sort((left, right) => right.preScore - left.preScore);
     if (mode === 'deep' || scored.length <= FAST_FULL_SCAN_LIMIT) return scored;
     return scored.filter(candidate => candidate.preScore > -100).slice(0, FAST_CANDIDATE_LIMIT);
@@ -429,12 +467,15 @@ export class IdxScannerService {
     abortSignal?: AbortSignal,
   ): Promise<StockResult | null> {
     throwIfAborted(abortSignal);
+    const pair = parseFxSymbol(candidate.ticker);
     const period1 = new Date(Date.now() - HISTORY_DAYS * 86_400_000);
     const chartResult = await yahooFinance.chart(candidate.ticker, {
       period1,
       interval: '1d',
     }).catch(() => null);
-    const rawCandles = this.chartCandles(chartResult);
+    const rawCandles = pair
+      ? sanitizeFxCandles(this.chartCandles(chartResult), '1d')
+      : this.chartCandles(chartResult);
     if (rawCandles.length < 20) return null;
 
     const indicators = new IndicatorsService();
@@ -442,15 +483,25 @@ export class IdxScannerService {
     const candles = indicators.calculateAll(rawCandles);
     const quote = candidate.quote;
     const price = finiteNumber(quote?.regularMarketPrice, candles.at(-1)?.close ?? 0);
-    const volume = finiteNumber(quote?.regularMarketVolume, candles.at(-1)?.volume ?? 0);
+    const volume = pair ? 0 : finiteNumber(quote?.regularMarketVolume, candles.at(-1)?.volume ?? 0);
     const previousVolumes = candles.slice(-21, -1).map(candle => candle.volume).filter(value => value > 0);
-    const averageVolume = previousVolumes.length > 0
-      ? previousVolumes.reduce((sum, value) => sum + value, 0) / previousVolumes.length
-      : finiteNumber(quote?.averageDailyVolume10Day) || finiteNumber(quote?.averageDailyVolume3Month) || 1;
-    const volumeRatio = averageVolume > 0 ? volume / averageVolume : 1;
+    const averageVolume = pair
+      ? 0
+      : previousVolumes.length > 0
+        ? previousVolumes.reduce((sum, value) => sum + value, 0) / previousVolumes.length
+        : finiteNumber(quote?.averageDailyVolume10Day) || finiteNumber(quote?.averageDailyVolume3Month) || 1;
+    const volumeRatio = pair ? null : averageVolume > 0 ? volume / averageVolume : 1;
     const last = candles.at(-1);
     if (!last || price <= 0) return null;
-    last.Volume_Ratio = volumeRatio;
+    if (pair) {
+      // IndicatorsService fills 1/false for an all-zero volume series, which
+      // still reads downstream as a real observation. Clearing the fields is
+      // what actually suppresses the volume and OBV signals.
+      last.Volume_Ratio = undefined;
+      last.OBV_Trend = undefined;
+    } else {
+      last.Volume_Ratio = volumeRatio ?? 1;
+    }
 
     const high52w = finiteNumber(quote?.fiftyTwoWeekHigh);
     const low52w = finiteNumber(quote?.fiftyTwoWeekLow);
@@ -468,7 +519,7 @@ export class IdxScannerService {
       quoteType: quote?.quoteType ?? null,
       exchange: quote?.fullExchangeName ?? quote?.exchange ?? null,
       currency: quote?.currency ?? null,
-      averageVolume,
+      averageVolume: pair ? null : averageVolume,
     };
     const analysis = buildDashboardAnalysis({
       ticker: candidate.ticker,
@@ -518,7 +569,7 @@ export class IdxScannerService {
       chg1d,
       chg5d,
       chg20d,
-      volRatio: volumeRatio,
+      volRatio: volumeRatio ?? 0,
       from52wHigh: from52wHigh ?? 0,
       from52wLow: from52wLow ?? 0,
       rsi: metrics.rsi,
@@ -715,9 +766,7 @@ export class IdxScannerService {
 
     const release = mode === 'deep' ? deepScanWorkloadGate.tryAcquire() : () => undefined;
     if (!release) {
-      const busyLabel = scannerUniverse === 'crypto' ? 'A deep Crypto scan is already running'
-        : scannerUniverse === 'us' ? 'A deep US scan is already running'
-        : 'A deep IDX scan is already running';
+      const busyLabel = `A deep ${SCANNER_LABEL[scannerUniverse]} scan is already running`;
       throw new WorkloadBusyError(busyLabel);
     }
 
@@ -791,9 +840,7 @@ export class IdxScannerService {
 
     const release = mode === 'deep' ? deepScanWorkloadGate.tryAcquire() : () => undefined;
     if (!release) {
-      const busyLabel = scannerUniverse === 'crypto' ? 'A deep Crypto scan is already running'
-        : scannerUniverse === 'us' ? 'A deep US scan is already running'
-        : 'A deep IDX scan is already running';
+      const busyLabel = `A deep ${SCANNER_LABEL[scannerUniverse]} scan is already running`;
       throw new WorkloadBusyError(busyLabel);
     }
     const startedAt = new Date().toISOString();
@@ -807,7 +854,7 @@ export class IdxScannerService {
       const enriched: StockResult[] = [];
 
       log.info(
-        scannerUniverse === 'crypto' ? 'crypto-scanner' : scannerUniverse === 'us' ? 'us-scanner' : 'idx-scanner',
+        SCANNER_LOG[scannerUniverse],
         `${mode} quote prefilter: ${chartCandidates.length}/${quoted.length} chart candidates from ${universe.length} universe`,
       );
 
@@ -928,15 +975,18 @@ export class IdxScannerService {
     const lines = results.slice(0, 12).map((result, index) => {
       const signal = result.expertSignal;
       const warning = signal.warnings[0] ? ` | Warning: ${signal.warnings[0]}` : '';
-      return `${index + 1}. ${result.ticker} — screen ${result.screenScore}/100 | ${signal.action} ${signal.conviction} (${signal.score >= 0 ? '+' : ''}${signal.score}) | ${signal.reasons[0] ?? signal.plan.setup}${warning}`;
+      const display = parseFxSymbol(result.ticker)?.pair ?? result.ticker;
+      return `${index + 1}. ${display} — screen ${result.screenScore}/100 | ${signal.action} ${signal.conviction} (${signal.score >= 0 ? '+' : ''}${signal.score}) | ${signal.reasons[0] ?? signal.plan.setup}${warning}`;
     });
     const normalized = normalizeScannerUniverse(scannerUniverse);
-    const label = normalized === 'crypto' ? 'CRYPTO SCREENER' : normalized === 'us' ? 'US SCREENER' : 'IDX SCREENER';
+    const label = `${SCANNER_LABEL[normalized].toUpperCase()} SCREENER`;
     return [
       `${label} — ${preset.replaceAll('_', ' ').toUpperCase()} (${sector}, ${mode})`,
       `Coverage: ${enrichedCount} enriched from ${universeCount} symbols. Breadth: ${breadthSignal}.`,
       lines.length > 0 ? lines.join('\n') : 'No candidates met the selected screen and direction filters.',
-      'Expert Signal is deterministic technical confluence, not a forecast. Confirm entries with current price and volume.',
+      normalized === 'forex'
+        ? 'Expert Signal is deterministic technical confluence, not a forecast. FX quotes carry no volume; confirm entries with current price and the session clock.'
+        : 'Expert Signal is deterministic technical confluence, not a forecast. Confirm entries with current price and volume.',
     ].join('\n');
   }
 }
