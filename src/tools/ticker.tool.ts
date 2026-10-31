@@ -5,7 +5,7 @@ import { ChartAnalyzer } from '../analyzers/chart.analyzer.js';
 import { buildDashboardAnalysis, scoreHeadlines, type QuoteSnapshot } from '../shared/dashboard-analysis.js';
 import { SentimentService } from '../services/market/sentiment.service.js';
 import { NewsService } from '../services/news/news.service.js';
-import { resolveSymbolIDX } from '../shared/market-constants.js';
+import { resolveSymbol } from '../shared/market-constants.js';
 import { parseFxSymbol } from '../shared/fx.js';
 import { sanitizeFxCandles } from '../services/market/fx.service.js';
 import { formatCrowdSignalEvidence } from '../shared/evidence-attribution.js';
@@ -54,10 +54,102 @@ export const fetchPriceDefinition = {
   },
 };
 
+// ─── Ticker resolution ────────────────────────────────────────────────────────
+
+/**
+ * The listings one raw ticker may map to, tried IN ORDER.
+ *
+ * A bare ticker means its primary listing — `VOO` the US ETF, `BBCA` the IDX
+ * company the symbol map names. The `.JK` guess is an ALTERNATE tried only
+ * after the primary yields nothing: `resolveSymbolIDX` used to append `.JK`
+ * by default, which is how a US ETF arrived as a non-existent Indonesian
+ * entry and the dashboard stayed silent about the substitutions it made.
+ */
+function staticTickerCandidates(raw: string): string[] {
+  const upper = raw.trim().toUpperCase();
+  const candidates: string[] = [];
+  const push = (symbol?: string | null) => {
+    const next = symbol?.trim().toUpperCase() ?? '';
+    if (next && !candidates.includes(next)) candidates.push(next);
+  };
+  push(resolveSymbol(upper) ?? upper);
+  // A bare 2–6 letter code picks up the IDX listing as a SECOND candidate,
+  // never the first lookup.
+  if (/^[A-Z]{2,6}$/.test(upper) && !upper.includes('.')) push(`${upper}.JK`);
+  return candidates;
+}
+
+/**
+ * Listings Yahoo itself matches to the name — run ONCE, after the static
+ * candidates miss. This is what turns "S&P 500" into ^GSPC without the
+ * engine ever guessing a suffix at the instrument.
+ */
+async function searchTickerSymbols(raw: string, exclude: Set<string>): Promise<string[]> {
+  try {
+    const results = await yahooFinance.search(raw, {}, { validateResult: false }).catch(() => null) as any;
+    const quotes: any[] = results?.quotes ?? [];
+    return quotes
+      .filter((q) => typeof q.symbol === 'string' && (
+        q.quoteType === 'EQUITY'
+        || q.quoteType === 'ETF'
+        || q.quoteType === 'INDEX'
+        || q.quoteType === 'CRYPTOCURRENCY'
+        || q.quoteType === 'CURRENCY'
+      ))
+      .map((q) => String(q.symbol).toUpperCase())
+      .filter((symbol) => !exclude.has(symbol))
+      .slice(0, 3);
+  } catch {
+    return [];
+  }
+}
+
 // ─── Tool Executors ───────────────────────────────────────────────────────────
 
 export async function executeFetchTickerDashboard(raw: string): Promise<string> {
-  const symbol = resolveSymbolIDX(raw) || raw.toUpperCase();
+  const upper = raw.trim().toUpperCase();
+  const tried: string[] = [];
+  const failures: string[] = [];
+
+  // Primary listing first, format alternates after a miss, Yahoo discovery last.
+  const statics = staticTickerCandidates(upper);
+  for (const symbol of statics) {
+    tried.push(symbol);
+    const outcome = await tryDashboardFetch(symbol);
+    if (outcome.kind === 'ok') return outcome.content;
+    if (outcome.kind === 'error') failures.push(outcome.message);
+  }
+
+  const discovered = await searchTickerSymbols(upper, new Set(statics));
+  for (const symbol of discovered) {
+    tried.push(symbol);
+    const outcome = await tryDashboardFetch(symbol);
+    if (outcome.kind === 'ok') return outcome.content;
+    if (outcome.kind === 'error') failures.push(outcome.message);
+  }
+
+  // One friendly sentence up front — it is the line the thinking panel quotes
+  // — with the technical specifics parked behind a Details line. "returned no
+  // results" doubles as the engine's marker that this call FAILED, so the
+  // panel shows the failure instead of a silent success.
+  const attempts = tried.join(', ') || upper;
+  const details = failures.length > 0 ? `\n\nDetails: ${failures[0].slice(0, 300)}` : '';
+  return `BOZ could not load a ${upper} dashboard — the market data service returned no results for the listings tried (${attempts}). Ask the user to check the symbol, or work from another source.${details}`;
+}
+
+type DashboardOutcome =
+  | { kind: 'ok'; content: string }
+  | { kind: 'no-data' }
+  | { kind: 'error'; message: string };
+
+/**
+ * Runs the full dashboard build for ONE resolved symbol.
+ *
+ * `no-data` means the listing answered but carries no tape (the instrument is
+ * probably not real), so the caller can try the next candidate format.
+ * `error` preserves the transport message for the friendly tail.
+ */
+async function tryDashboardFetch(symbol: string): Promise<DashboardOutcome> {
   try {
     const yahoo = new YahooService();
     const indicators = new IndicatorsService();
@@ -93,7 +185,8 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
     const weeklyCandlesRaw = pair ? sanitizeFxCandles(weeklyCandlesRawIn, '1wk') : weeklyCandlesRawIn;
 
     if (!candlesRaw.length) {
-      return `No market data available for ${pair ? pair.pair : symbol}. Please check if the ticker is valid.`;
+      // This listing answered but has no tape — another candidate may carry it.
+      return { kind: 'no-data' };
     }
 
     // 1D Daily Indicators & Analysis
@@ -126,6 +219,14 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
       averageVolume: pair ? null : q?.averageDailyVolume3Month ?? q?.averageDailyVolume10Day ?? null,
     };
 
+    // An index is quoted in points, not dollars, and its "volume" is index-level
+    // volume — counting it as though it were share volume is the exact mixup
+    // the dashboard must never print.
+    const isIndexQuote = !pair && (
+      String(q?.quoteType ?? q?.typeDisp ?? '').toUpperCase() === 'INDEX'
+      || symbol.startsWith('^')
+    );
+
     const analysis = buildDashboardAnalysis({ ticker: symbol, candles, quote, patterns });
     const lastCandle = candles[candles.length - 1];
     const lastWeekly = weeklyCandles.length ? weeklyCandles[weeklyCandles.length - 1] : null;
@@ -152,7 +253,8 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
 
     // ── Formatting helpers ───────────────────────────────────────────────────
     // A pair is quoted in its own precision, never with a dollar sign, and its
-    // distances are read in pips. Non-FX keeps the original equity formatting.
+    // distances are read in pips. An index is quoted in points, never with a
+    // dollar sign either. Equities keep the original $ formatting.
     const hasDecimals = (value: number | null | undefined): value is number =>
       value != null && Number.isFinite(value);
     const px = (value: number | null | undefined): string => {
@@ -164,8 +266,17 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
       const pips = value / pair.pipSize;
       return ` (${pips >= 0 ? '+' : ''}${pips.toFixed(1)} pips)`;
     };
-    const priceWithUnit = (value: number | null | undefined): string =>
-      pair ? px(value) : `$${px(value)}`;
+    const priceWithUnit = (value: number | null | undefined): string => {
+      if (pair || isIndexQuote) return px(value);
+      return `$${px(value)}`;
+    };
+    // The headline carries the unit once: "4166.20 pts" reads as an index
+    // level; an equity keeps "$216.91"; a pair is unitless at its precision.
+    const headlinePrice = (value: number | null | undefined): string => {
+      if (pair) return px(value);
+      if (isIndexQuote) return `${px(value)} pts`;
+      return `$${px(value)}`;
+    };
     const changeValue = q?.regularMarketChange;
     const changePct = q?.regularMarketChangePercent;
     const changePips = pair && hasDecimals(changeValue) ? changeValue / pair.pipSize : null;
@@ -178,7 +289,7 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
       const changeLabel = c.open > 0
         ? ` (${c.close >= c.open ? 'UP' : 'DOWN'} ${(((c.close - c.open) / c.open) * 100).toFixed(2)}%)`
         : '';
-      const volumeLabel = pair ? '' : ` | Vol: ${(c.volume / 1e3).toFixed(0)}k`;
+      const volumeLabel = pair ? '' : isIndexQuote ? ` | Vol (index-level): ${(c.volume / 1e3).toFixed(0)}k` : ` | Vol: ${(c.volume / 1e3).toFixed(0)}k`;
       return `    • [${timeStr}] Open: ${priceWithUnit(c.open)} | High: ${priceWithUnit(c.high)} | Low: ${priceWithUnit(c.low)} | Close: ${priceWithUnit(c.close)}${volumeLabel}${changeLabel}`;
     }).join('\n');
 
@@ -199,10 +310,12 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
       ? `Change: ${hasDecimals(changeValue) ? (changeValue >= 0 ? '+' : '') + px(changeValue) : '--'}${changePips != null ? ` (${changePips >= 0 ? '+' : ''}${changePips.toFixed(1)} pips)` : ''} (${hasDecimals(changePct) ? (changePct >= 0 ? '+' : '') + changePct.toFixed(2) + '%' : '--%'}) | Day Volume: not reported for FX\n` +
         `Day Range: Low ${px(q?.regularMarketDayLow)} – High ${px(q?.regularMarketDayHigh)} | Open: ${px(q?.regularMarketOpen)} | Prev Close: ${px(quote.previousClose)}\n` +
         `52W Range: ${px(analysis.structure.low52w)} – ${px(analysis.structure.high52w)} (${analysis.structure.from52wHighPct?.toFixed(1) || '--'}% from high, +${analysis.structure.from52wLowPct?.toFixed(1) || '--'}% from low, Range Pos: ${analysis.structure.range52wPos?.toFixed(0) || '--'}%)`
-      : `Last Price: $${analysis.structure.price.toFixed(2)} | Change: ${hasDecimals(changeValue) ? (changeValue >= 0 ? '+' : '') + changeValue.toFixed(2) : '--'} (${hasDecimals(changePct) ? (changePct >= 0 ? '+' : '') + changePct.toFixed(2) + '%' : '--%'})\n` +
-        `Day Range: Low $${q?.regularMarketDayLow?.toFixed(2) || '--'} – High $${q?.regularMarketDayHigh?.toFixed(2) || '--'} | Open: $${q?.regularMarketOpen?.toFixed(2) || '--'} | Prev Close: $${quote.previousClose?.toFixed(2) || '--'}\n` +
-        `Day Volume: ${q?.regularMarketVolume ? (q.regularMarketVolume / 1e6).toFixed(2) + 'M' : '--'} (20D Avg: ${quote.averageVolume ? (quote.averageVolume / 1e6).toFixed(2) + 'M' : '--'}, Vol Ratio: ${analysis.structure.volumeRatio?.toFixed(2) || '--'}x)\n` +
-        `Market Cap: ${quote.marketCap ? '$' + (quote.marketCap / 1e12 >= 1 ? (quote.marketCap / 1e12).toFixed(2) + 'T' : (quote.marketCap / 1e9).toFixed(2) + 'B') : '--'} | 52W Range: $${analysis.structure.low52w?.toFixed(2) || '--'} – $${analysis.structure.high52w?.toFixed(2) || '--'} (${analysis.structure.from52wHighPct?.toFixed(1) || '--'}% from ATH, +${analysis.structure.from52wLowPct?.toFixed(1) || '--'}% from 52w low, Range Pos: ${analysis.structure.range52wPos?.toFixed(0) || '--'}%)`;
+      : `Last Price: ${headlinePrice(analysis.structure.price)} | Change: ${hasDecimals(changeValue) ? (changeValue >= 0 ? '+' : '') + changeValue.toFixed(2) : '--'} (${hasDecimals(changePct) ? (changePct >= 0 ? '+' : '') + changePct.toFixed(2) + '%' : '--%'})\n` +
+        `Day Range: Low ${priceWithUnit(q?.regularMarketDayLow)} – High ${priceWithUnit(q?.regularMarketDayHigh)} | Open: ${priceWithUnit(q?.regularMarketOpen)} | Prev Close: ${priceWithUnit(quote.previousClose)}\n` +
+        (isIndexQuote
+          ? `Day Volume (index-level): ${q?.regularMarketVolume ? (q.regularMarketVolume / 1e6).toFixed(2) + 'M' : '--'} (20D Avg (index-level): ${quote.averageVolume ? (quote.averageVolume / 1e6).toFixed(2) + 'M' : '--'}, Vol Ratio: ${analysis.structure.volumeRatio?.toFixed(2) || '--'}x)\n`
+          : `Day Volume: ${q?.regularMarketVolume ? (q.regularMarketVolume / 1e6).toFixed(2) + 'M' : '--'} (20D Avg: ${quote.averageVolume ? (quote.averageVolume / 1e6).toFixed(2) + 'M' : '--'}, Vol Ratio: ${analysis.structure.volumeRatio?.toFixed(2) || '--'}x)\n`) +
+        `Market Cap: ${quote.marketCap ? '$' + (quote.marketCap / 1e12 >= 1 ? (quote.marketCap / 1e12).toFixed(2) + 'T' : (quote.marketCap / 1e9).toFixed(2) + 'B') : '--'} | 52W Range: ${priceWithUnit(analysis.structure.low52w)} – ${priceWithUnit(analysis.structure.high52w)} (${analysis.structure.from52wHighPct?.toFixed(1) || '--'}% from ATH, +${analysis.structure.from52wLowPct?.toFixed(1) || '--'}% from 52w low, Range Pos: ${analysis.structure.range52wPos?.toFixed(0) || '--'}%)`;
 
     sections.push(
       `=== ${pair ? pair.pair : symbol} DASHBOARD OVERVIEW ===\n` +
@@ -235,7 +348,9 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
       `  • Volatility & Bands: ATR: ${priceWithUnit(analysis.structure.atr)}${pipDistance(analysis.structure.atr)} (${analysis.structure.atrPercent?.toFixed(2) || '--'}% of price) | BB Width: ${lastCandle?.BB_Width?.toFixed(2) || '--'}% (Upper: ${priceWithUnit(lastCandle?.BB_High)}, Mid: ${priceWithUnit(lastCandle?.BB_Mid)}, Lower: ${priceWithUnit(lastCandle?.BB_Low)} | Position: ${analysis.structure.bbPosition})\n` +
       (pair
         ? `  • Volume & Flow: not applicable — FX quotes carry no consolidated volume or OBV reading\n`
-        : `  • Volume & Flow: Volume: ${q?.regularMarketVolume ? (q.regularMarketVolume / 1e6).toFixed(2) + 'M' : '--'} (Ratio: ${analysis.structure.volumeRatio?.toFixed(2) || '--'}x) | OBV Trend: ${analysis.structure.obvTrend ? 'Bullish Accumulation (Smart Money Inflow)' : 'Bearish Distribution (Smart Money Outflow)'}\n`) +
+        : isIndexQuote
+          ? `  • Volume & Flow: Volume (index-level): ${q?.regularMarketVolume ? (q.regularMarketVolume / 1e6).toFixed(2) + 'M' : '--'} (Ratio: ${analysis.structure.volumeRatio?.toFixed(2) || '--'}x) | OBV Trend: ${analysis.structure.obvTrend ? 'Bullish Accumulation (Smart Money Inflow)' : 'Bearish Distribution (Smart Money Outflow)'}\n`
+          : `  • Volume & Flow: Volume: ${q?.regularMarketVolume ? (q.regularMarketVolume / 1e6).toFixed(2) + 'M' : '--'} (Ratio: ${analysis.structure.volumeRatio?.toFixed(2) || '--'}x) | OBV Trend: ${analysis.structure.obvTrend ? 'Bullish Accumulation (Smart Money Inflow)' : 'Bearish Distribution (Smart Money Outflow)'}\n`) +
       `[Weekly 1W Macro Frame]:\n` +
       `  • Macro Trend: ${weeklyTrend}\n` +
       `  • Weekly RSI(14): ${weeklyRsi}\n` +
@@ -306,38 +421,60 @@ export async function executeFetchTickerDashboard(raw: string): Promise<string> 
 
     sections.push(`TICKER DIRECT LINK: /ticker/${encodeURIComponent(symbol)}`);
 
-    return sections.join('\n\n');
+    return { kind: 'ok', content: sections.join('\n\n') };
   } catch (err) {
-    return `Failed to fetch dashboard data for ${symbol}: ${err instanceof Error ? err.message : String(err)}`;
+    return { kind: 'error', message: err instanceof Error ? err.message : String(err) };
   }
 }
 
 export async function executeFetchPrice(raw: string): Promise<string> {
-  const symbol = resolveSymbolIDX(raw) || raw.toUpperCase();
-  const pair = parseFxSymbol(symbol);
+  const upper = raw.trim().toUpperCase();
+  const tried: string[] = [];
+
+  // Primary listing first; the `.JK` format and Yahoo-discovered listings are
+  // only tried after the primary fails to quote. Appending an exchange
+  // suffix by default is what turned VOO into a non-existent IDX entry.
+  const statics = staticTickerCandidates(upper);
+  for (const symbol of statics) {
+    tried.push(symbol);
+    const observation = await tryPriceFetch(symbol);
+    if (observation) return observation;
+  }
+
+  const discovered = await searchTickerSymbols(upper, new Set(statics));
+  for (const symbol of discovered) {
+    tried.push(symbol);
+    const observation = await tryPriceFetch(symbol);
+    if (observation) return observation;
+  }
+
+  // The lead sentence is the line the thinking panel quotes; "returned no
+  // results" doubles as the engine's marker for an honestly-failed call.
+  const attempts = tried.join(', ') || upper;
+  const matches = await closestListings(raw);
+  if (matches.length > 0) {
+    return `BOZ could not get a live quote for "${raw}" — the quote service returned no results for the formats tried (${attempts}). Closest listings: ${matches.join(', ')}. Ask the user which listing they meant.`;
+  }
+  return `BOZ could not get a live quote for "${raw}" — the quote service returned no results for the formats tried (${attempts}). Ask the user to double-check the symbol.`;
+}
+
+/** Quotes ONE resolved symbol; undefined when it offers no price at all. */
+async function tryPriceFetch(symbol: string): Promise<string | undefined> {
   try {
     // Validation off: the schema rejects whole symbols for commodities and FX,
     // which made `GC=F` and `EURUSD=X` report as "not found" despite existing.
     const quote = await yahooFinance.quote(symbol, {}, { validateResult: false });
     const price = (quote as any)?.regularMarketPrice;
     const change = (quote as any)?.regularMarketChangePercent;
-    if (price === undefined || price === null) {
-      const searchResults = await yahooFinance.search(raw, {}, { validateResult: false }).catch(() => null) as any;
-      const matches = (searchResults?.quotes || [])
-        .filter((q: any) => q.symbol && (q.quoteType === 'EQUITY' || q.quoteType === 'ETF' || q.quoteType === 'CRYPTOCURRENCY' || q.quoteType === 'INDEX' || q.quoteType === 'CURRENCY'))
-        .slice(0, 3)
-        .map((q: any) => `${q.symbol} (${q.shortname || q.longname || q.symbol})`);
-      if (matches.length > 0) {
-        return `Ticker "${raw}" was not found. Closest matches: ${matches.join(', ')}. Ask the user for clarification on which one they meant.`;
-      }
-      return `No price data found for ticker "${raw}". Please ask user to clarify or check the symbol.`;
-    }
+    if (price === undefined || price === null) return undefined;
+
     const chgNum = typeof change === 'number' ? change : 0;
-    const name_ = (quote as any).shortName || (quote as any).longName || symbol;
+    const name = (quote as any).shortName || (quote as any).longName || symbol;
     const dayHigh = (quote as any).regularMarketDayHigh;
     const dayLow = (quote as any).regularMarketDayLow;
     const prevClose = (quote as any).regularMarketPreviousClose;
     const changeAbs = (quote as any).regularMarketChange;
+    const pair = parseFxSymbol(symbol);
 
     if (pair) {
       // A pair has no dollar price and its move is read in pips.
@@ -355,20 +492,26 @@ export async function executeFetchPrice(raw: string): Promise<string> {
     }
 
     return [
-      `Symbol: ${symbol} | Name: ${name_} | Price: ${price} (Change: ${chgNum.toFixed(2)}%)`,
+      `Symbol: ${symbol} | Name: ${name} | Price: ${price} (Change: ${chgNum.toFixed(2)}%)`,
       dayHigh != null ? `Day Range: ${dayLow} – ${dayHigh}` : '',
       prevClose != null ? `Prev Close: ${prevClose}` : '',
     ].filter(Boolean).join(' | ');
   } catch {
+    // This format could not be quoted; the caller tries the next candidate.
+    return undefined;
+  }
+}
+
+/** Listings Yahoo matches to a free-text name, for the clarification line. */
+async function closestListings(raw: string): Promise<string[]> {
+  try {
     const searchResults = await yahooFinance.search(raw, {}, { validateResult: false }).catch(() => null) as any;
-    const matches = (searchResults?.quotes || [])
+    return (searchResults?.quotes || [])
       .filter((q: any) => q.symbol && (q.quoteType === 'EQUITY' || q.quoteType === 'ETF' || q.quoteType === 'CRYPTOCURRENCY' || q.quoteType === 'INDEX' || q.quoteType === 'CURRENCY'))
       .slice(0, 3)
       .map((q: any) => `${q.symbol} (${q.shortname || q.longname || q.symbol})`);
-    if (matches.length > 0) {
-      return `Ticker "${raw}" was not found. Closest matches: ${matches.join(', ')}. Ask the user for clarification on which one they meant.`;
-    }
-    return `Could not find ticker "${raw}". Please ask user to verify the symbol.`;
+  } catch {
+    return [];
   }
 }
 

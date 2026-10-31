@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { WebChatEngine, type ChatRetryEventData } from '../chat.engine';
+import { WebChatEngine, type ChatRetryEventData, type ChatToolRetryEventData } from '../chat.engine';
 import type { ThoughtEffort } from '@/shared/thought-prompts';
 import {
   parseBody,
@@ -115,6 +115,21 @@ export async function POST(request: NextRequest) {
       };
 
       /**
+       * TOOL retry notices flow the same direct route as provider retries: a
+       * tool round is awaited mid-generator, so the engine cannot yield these
+       * from inside it. The client marks the exact running row in the thinking
+       * panel rather than a stack-level countdown.
+       */
+      const enqueueToolRetryNotice = (data: ChatToolRetryEventData) => {
+        if (clientSignal.aborted) return;
+        try {
+          controller.enqueue(encoder.encode(`event: tool_retry\ndata: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          // Client went away mid-notice; the abort handler closes the stream.
+        }
+      };
+
+      /**
        * Provider reasoning is forwarded on its own SSE channel.
        *
        * The first delta also emits `reasoning_start`, which is what opens the
@@ -146,6 +161,7 @@ export async function POST(request: NextRequest) {
           continueFrom: body.continueFrom,
           interrupted: body.interrupted,
           onRetryNotice: enqueueRetryNotice,
+          onToolRetryNotice: enqueueToolRetryNotice,
           onReasoningDelta: enqueueReasoning,
         })) {
           if (clientSignal.aborted) break;

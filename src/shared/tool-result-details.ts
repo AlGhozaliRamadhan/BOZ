@@ -1,3 +1,5 @@
+import { toolLabel } from './tool-labels';
+
 export interface WebSourceDetail {
   title: string;
   url?: string;
@@ -92,8 +94,11 @@ export function parseWebSources(detail: string | undefined): WebSourceDetail[] {
   return [...unique.values()];
 }
 
+/**
+ * A tool call described the way a reader sees it — "Loaded NVDA dashboard",
+ * never `fetch_ticker_dashboard`. The phrasing lives in the label map so the
+ * thinking panel and the result cards cannot drift apart.
+ */
 export function describeToolCall(tool: string, args?: Record<string, unknown>): string {
-  const name = tool.replace(/_/g, ' ');
-  const symbol = args?.symbol ?? args?.symbol_or_name;
-  return symbol ? `${name} (${String(symbol).toUpperCase()})` : name;
+  return toolLabel(tool, args, 'done');
 }

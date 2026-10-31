@@ -29,13 +29,17 @@ describe('tool result detail helpers', () => {
     ]);
   });
 
-  it('keeps only safe source URLs and labels ticker tool calls', () => {
+  it('keeps only safe source URLs and labels ticker tool calls for people', () => {
     const sources = parseWebSources(`- Unsafe result
   URL: javascript:alert(1)
   Summary: Ignore this link.`);
 
     expect(sources).toEqual([{ title: 'Unsafe result', summary: 'Ignore this link.' }]);
+    // The wire name never reaches a reader: the label map owns the wording.
     expect(describeToolCall('fetch_ticker_dashboard', { symbol: 'nvda' }))
-      .toBe('fetch ticker dashboard (NVDA)');
+      .toBe('Loaded NVDA dashboard');
+    // And an unregistered tool still cannot leak snake_case.
+    expect(describeToolCall('some_new_tool', {}))
+      .toBe('Some New Tool finished');
   });
 });
