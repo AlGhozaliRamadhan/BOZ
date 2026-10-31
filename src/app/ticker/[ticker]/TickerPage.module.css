@@ -150,15 +150,16 @@
   display: flex;
   align-items: center;
   height: 38px;
-  border: 1px solid #3b3b47;
+  padding-right: 4px;
+  border: 1px solid var(--border-glass);
   border-radius: 7px;
-  background: var(--bg-secondary);
+  background: var(--surface-glass);
   overflow: hidden;
   transition: border-color 0.15s ease;
 }
 
-.ticker-search__form:focus-within { border-color: var(--accent-violet); }
-.ticker-search__form > i { flex: 0 0 auto; margin-left: 12px; color: #858596; font-size: 12px; }
+.ticker-search__form:focus-within { border-color: var(--border-glass-hover); }
+.ticker-search__form > i { flex: 0 0 auto; margin-left: 12px; color: var(--text-muted); font-size: 11px; }
 
 .ticker-search__input {
   flex: 1;
@@ -174,24 +175,34 @@
   text-transform: uppercase;
 }
 
-.ticker-search__input::placeholder { color: #858596; text-transform: none; }
+.ticker-search__input::placeholder { color: var(--text-muted); text-transform: none; }
 
+/* Submit is a quiet icon button inside the field, not a filled block: the
+   field itself carries the shape, and the arrow matches the app's "open"
+   affordance. Enter still submits the typed symbol. */
 .ticker-search__submit {
-  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
-  padding: 0 14px;
-  border: 0;
-  background: var(--accent-violet);
-  color: #080808;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 800;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
   cursor: pointer;
+  font-size: 11px;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
-.ticker-search__submit:hover { filter: brightness(1.15); }
-.ticker-search__submit:focus-visible { outline: 2px solid #ffffff; outline-offset: -3px; }
-.ticker-search__submit span { margin-left: 5px; }
+.ticker-search__submit:hover {
+  border-color: var(--border-glass);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
+}
+
+.ticker-search__submit:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 1px; }
 
 .ticker-toolbar :global(.external-ai-brief-button) {
   min-height: 38px;
@@ -214,18 +225,18 @@
 
 .ticker-search__results {
   position: absolute;
-  top: calc(100% + 5px);
+  top: calc(100% + 6px);
   left: 0;
   right: 0;
   z-index: 50;
   max-height: min(360px, 60vh);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 4px;
-  border: 1px solid #3b3b47;
-  border-radius: 7px;
+  padding: 5px;
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
   background: var(--surface-gradient);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 12px 30px rgba(0, 0, 0, 0.4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 16px 40px rgba(0, 0, 0, 0.55);
 }
 
 .ticker-search__result {
@@ -234,9 +245,9 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 9px 8px;
+  padding: 8px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: #ffffff;
   font-family: var(--font-mono);
@@ -246,7 +257,10 @@
 }
 
 .ticker-search__result:hover,
-.ticker-search__result:focus-visible { background: #24242c; outline: none; }
+.ticker-search__result:focus-visible {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  outline: none;
+}
 .ticker-search__symbol { color: var(--accent-cyan); font-weight: 700; }
 .ticker-search__name { color: #dddde3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticker-search__exchange {

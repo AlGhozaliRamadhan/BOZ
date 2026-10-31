@@ -13,6 +13,7 @@ import type {
 import { MAX_SCAN_RESULTS as SCAN_RESULT_CAP } from '@/shared/screener-contract';
 import { signalConfidence } from '@/shared/screener-confidence';
 import { formatFxRate, fxDisplaySymbol, parseFxSymbol } from '@/shared/fx';
+import AppSelect from '@/app/components/ui/AppSelect';
 
 type ConvictionFilter = 'LOW' | 'MEDIUM' | 'HIGH';
 type SortKey = 'screenScore' | 'expertScore' | 'confidence' | 'conviction' | 'chg1d' | 'chg5d' | 'price' | 'rsi' | 'volumeRatio' | 'upside';
@@ -355,10 +356,9 @@ export default function ScreenersPage() {
     <div className="scn-page">
       <header className="scn-header">
         <div>
-          <p className="scn-eyebrow">Market screeners</p>
-          <h1>Find your next setup</h1>
+          <h1>Screeners</h1>
           <p className="scn-sub">
-            Pick a screen, run it against live quotes, and review each match with its evidence and trade plan.
+            Find your next setup · live quotes · evidence-backed trade plans
           </p>
         </div>
         <p className="scn-disclaimer" title="Signals are deterministic technical reads, not forecasts">
@@ -387,22 +387,20 @@ export default function ScreenersPage() {
       {/* Controls: one filter bar, screen dropdown plus segments */}
       <section className="scn-controls" aria-label="Screener controls">
         <div className="scn-controls__group">
-          <h2 className="scn-label"><label htmlFor="scn-screen">Screen</label></h2>
+          <h2 className="scn-label" id="scn-screen-label">Screen</h2>
           <div className="scn-screenrow">
-            <select
+            <AppSelect
               id="scn-screen"
-              className="scn-select scn-select--screen"
+              labelledBy="scn-screen-label"
               value={preset}
-              onChange={event => setPreset(event.target.value as ScreenerPreset)}
+              options={PRESETS.map(item => ({
+                value: item.value,
+                label: item.label,
+                description: item.description,
+              }))}
+              onChange={next => setPreset(next as ScreenerPreset)}
               disabled={loading}
-            >
-              {PRESETS.map(item => (
-                <option key={item.value} value={item.value}>
-                  {item.label} - {item.description}
-                </option>
-              ))}
-            </select>
-            <i className="fa-solid fa-chevron-down scn-screenrow__icon" aria-hidden="true" />
+            />
           </div>
           <p className="scn-controls__desc">{activePreset.description}</p>
         </div>
@@ -456,16 +454,17 @@ export default function ScreenersPage() {
 
           {market !== 'crypto' && (
             <div className="scn-field scn-field--grow">
-              <h2 className="scn-label"><label htmlFor="scn-sector">{market === 'idx' ? 'Sector' : market === 'forex' ? 'Pair class' : 'Market'}</label></h2>
-              <select
+              <h2 className="scn-label" id="scn-sector-label">
+                {market === 'idx' ? 'Sector' : market === 'forex' ? 'Pair class' : 'Market'}
+              </h2>
+              <AppSelect
                 id="scn-sector"
-                className="scn-select"
+                labelledBy="scn-sector-label"
                 value={sector}
-                onChange={event => setSector(event.target.value)}
+                options={sectorOptions.map(([value, label]) => ({ value, label }))}
+                onChange={setSector}
                 disabled={loading}
-              >
-                {sectorOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
+              />
             </div>
           )}
 
@@ -586,15 +585,15 @@ export default function ScreenersPage() {
                 )}
               </div>
               <div className="scn-sort">
-                <label className="scn-visually-hidden" htmlFor="scn-sort">Sort results</label>
-                <select
-                  id="scn-sort"
-                  className="scn-select scn-select--compact"
+                <AppSelect
+                  ariaLabel="Sort results"
                   value={sortKey}
-                  onChange={event => setSortKey(event.target.value as SortKey)}
-                >
-                  {SORT_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
+                  options={SORT_OPTIONS}
+                  onChange={next => setSortKey(next as SortKey)}
+                  align="end"
+                  compact
+                  className="scn-sort__select"
+                />
                 <button
                   type="button"
                   className="scn-sortdir"

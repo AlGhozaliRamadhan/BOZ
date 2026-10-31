@@ -543,7 +543,14 @@ export default function DashboardPage() {
               onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
               className={styles['ticker-search__input']}
             />
-            <button type="submit" className={styles['ticker-search__submit']}>GO <span aria-hidden="true">↗</span></button>
+            <button
+              type="submit"
+              className={styles['ticker-search__submit']}
+              aria-label="Search"
+              title="Search"
+            >
+              <i className="fa-solid fa-arrow-right" aria-hidden="true" />
+            </button>
           </form>
 
           {showDropdown && (tickerInput.trim() !== '') && (
