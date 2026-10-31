@@ -238,7 +238,10 @@ export default function MessageList({
                   steps={streamingSteps}
                   toolResults={toolStatuses}
                   isStreaming={true}
-                  defaultOpen={false}
+                  // Open WHILE streaming: thinking the user cannot see is the
+                  // same as thinking that does not exist. defaultOpen applies
+                  // at mount, so a bubble mounted mid-retry opens too.
+                  defaultOpen={true}
                   title="Thinking"
                 />
               )}

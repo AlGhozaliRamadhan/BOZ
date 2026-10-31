@@ -6,6 +6,8 @@ import DOMPurify from 'isomorphic-dompurify';
 import styles from './ThoughtAccordion.module.css';
 import type { ToolResult } from '@/shared/chat-tool-results';
 import type { ThoughtStep } from '@/app/chat/_lib/chat-stream-manager';
+import type { ToolLabelPhase } from '@/shared/tool-labels';
+import { toolLabel } from '@/shared/tool-labels';
 import { parseWebSources, type WebSourceDetail } from '@/shared/tool-result-details';
 
 /**
@@ -24,6 +26,8 @@ export interface ThoughtTimelineStep {
   preview?: string;
   detail?: string;
   status?: 'running' | 'done';
+  /** Transient data-source retry, while the row is still running. */
+  retry?: { attempt: number; allowance: number };
 }
 
 export interface ThoughtAccordionProps {
@@ -139,6 +143,7 @@ export function ThoughtAccordion({
           preview: step.preview,
           detail: step.detail,
           status: step.status,
+          retry: step.retry,
         });
 
   if (unified && unified.length > 0) {
@@ -362,6 +367,8 @@ export function ThoughtAccordion({
                   ) : (
                     <ToolStepRow
                       name={step.toolName || step.title || 'tool_call'}
+                      args={step.args}
+                      retry={step.retry}
                       summary={step.content}
                       preview={step.preview}
                       detail={step.detail}
@@ -480,12 +487,16 @@ function oneLineSummary(...sources: Array<string | undefined>): string {
 /**
  * One tool call, collapsed by default.
  *
- * Name plus the single fact that came back. Raw output, and the web-source list
- * for a search, only render once the reader opens it — so provenance stays one
- * click away without competing with the prose for the eye.
+ * The row leads with a human label ("Loading VOO dashboard") that phases with
+ * the call and carries the ticker when it can — the wire name survives only as
+ * hover text. A transient retry takes over the summary slot while it runs; the
+ * fact that came back replaces it once the call settles. Raw output, and the
+ * web-source list for a search, render once the reader opens it.
  */
 function ToolStepRow({
   name,
+  args,
+  retry,
   summary,
   preview,
   detail,
@@ -493,6 +504,8 @@ function ToolStepRow({
   isWebSearch,
 }: {
   name: string;
+  args?: Record<string, unknown>;
+  retry?: { attempt: number; allowance: number };
   summary?: string;
   preview?: string;
   detail?: string;
@@ -505,6 +518,12 @@ function ToolStepRow({
   const sources = isWebSearch ? parseWebSources(rawDetail || preview || '') : [];
   const hasRawOutput = sources.length > 0 || rawDetail !== headline;
 
+  const phase: ToolLabelPhase = isRunning ? (retry ? 'retry' : 'running') : 'done';
+  const label = toolLabel(name, args, phase);
+  const retryNote = isRunning && retry
+    ? `${label} (${retry.attempt}/${retry.allowance})…`
+    : null;
+
   return (
     <div className={styles['thought-tool-row']}>
       <button
@@ -514,9 +533,13 @@ function ToolStepRow({
         aria-expanded={hasRawOutput ? expanded : undefined}
         disabled={!hasRawOutput}
       >
-        <span className={styles['thought-tool-name']}>{name}</span>
+        <span className={styles['thought-tool-name']} title={name}>{label}</span>
         {isRunning && <span className="spinner spinner-xs" aria-hidden="true" />}
-        {headline && <span className={styles['thought-tool-summary']}>{headline}</span>}
+        {retryNote ? (
+          <span className={styles['thought-tool-retry']}>{retryNote}</span>
+        ) : headline ? (
+          <span className={styles['thought-tool-summary']}>{headline}</span>
+        ) : null}
         {hasRawOutput && (
           <span className={styles['thought-tool-toggle']}>
             {expanded ? 'Hide output' : 'Show output'}

@@ -252,6 +252,7 @@ export class LLMAdapter {
       maxTokens: number;
       model?: string;
       toolChoice?: { type: 'function'; function: { name: string } } | 'auto';
+      reasoningEffort?: ReasoningEffort;
     },
   ): Promise<LLMMessage> {
     const { client, model } = this.cloudClient(provider);
@@ -260,6 +261,12 @@ export class LLMAdapter {
       messages: options.messages as never,
       ...(options.tools?.length
         ? { tools: options.tools as never, tool_choice: options.toolChoice as never }
+        : {}),
+      // Tool turns used to DROP the effort knob: the picker set `high` and the
+      // reasoning pass ran at the model's default, which is how visible
+      // thinking quietly disappeared from tool rounds.
+      ...(options.reasoningEffort && providerSupportsReasoningEffort(provider)
+        ? { reasoning_effort: options.reasoningEffort as never }
         : {}),
       temperature: options.temperature,
       max_tokens: options.maxTokens,
@@ -538,6 +545,9 @@ export class LLMAdapter {
         params.tools = tools;
         params.tool_choice = resolvedToolChoice;
       }
+      if (options.reasoningEffort && providerSupportsReasoningEffort('custom')) {
+        params.reasoning_effort = options.reasoningEffort;
+      }
       const client = await this.customClient();
       try {
         const res = await client.chat.completions.create(params as any);
@@ -586,6 +596,7 @@ export class LLMAdapter {
         maxTokens,
         model,
         toolChoice: resolvedToolChoice,
+        reasoningEffort: options.reasoningEffort,
       });
     }
 

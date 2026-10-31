@@ -254,15 +254,30 @@
 }
 
 .thought-tool-name {
-  font-family: var(--font-mono, monospace);
-  font-size: 11px;
-  color: var(--text-muted, #8a8a9a);
+  font-size: 12px;
+  font-weight: 500;
+  /* Theme-adaptive: --accent-cyan is #ffffff in BOTH themes, so it would have
+   * been invisible in light mode. The text ramp flips correctly instead. */
+  color: var(--text-primary, #ffffff);
+  letter-spacing: -0.01em;
   flex-shrink: 0;
 }
 
 .thought-tool-summary {
   font-size: 12px;
   color: var(--text-secondary, #b3b3be);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The slot a transient retry occupies while its call runs: same rhythm as the
+ * fact line it replaces, held dimmer so it reads as waiting, not as evidence. */
+.thought-tool-retry {
+  font-size: 12px;
+  color: var(--text-muted, #737387);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -278,7 +293,9 @@
 }
 
 .thought-tool-line:enabled:hover .thought-tool-toggle {
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--text-primary, #ffffff);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .thought-tool-output {
@@ -300,27 +317,38 @@
 .web-search-source-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   margin-top: 2px;
 }
 
+/* Sources are plain text links, not cards: no background, no border, no
+ * padding — the title IS the link, with the publisher's name riding along.
+ * Colors come from the theme-adaptive text ramp (--accent-cyan is #ffffff in
+ * both themes and would vanish on the light background). Hover and keyboard
+ * focus do the accent work with an underline and an outline respectively. */
 .web-search-source {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
+  max-width: 100%;
   min-width: 0;
-  padding: 7px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: transparent;
   color: inherit;
-  background: rgba(255, 255, 255, 0.025);
   text-decoration: none;
-  transition: border-color 120ms ease, background 120ms ease;
 }
 
-.web-search-source:hover {
-  border-color: rgba(0, 229, 255, 0.48);
-  background: rgba(0, 229, 255, 0.06);
+.web-search-source:hover .web-search-source-title {
+  color: var(--text-primary, #ffffff);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.web-search-source:focus-visible {
+  outline: 1px solid var(--text-primary, #ffffff);
+  outline-offset: 3px;
 }
 
 .web-search-source:global(.is-unlinked) {
@@ -335,7 +363,7 @@
   height: 16px;
   overflow: hidden;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(127, 127, 154, 0.16);
 }
 
 .web-search-source-favicon img {
@@ -360,31 +388,35 @@
 }
 
 .web-search-source-title {
-  color: var(--text-secondary, #ccccd2);
+  color: var(--text-secondary, #a3a3b0);
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   line-height: 1.3;
 }
 
-.web-search-source:hover .web-search-source-title {
-  color: var(--accent-cyan, #00e5ff);
-}
-
 .web-search-source-publisher {
-  color: var(--text-muted, #808092);
+  color: var(--text-muted, #737387);
   font-size: 10px;
   line-height: 1.25;
 }
 
 .web-search-source-toggle {
   align-self: flex-start;
-  color: var(--accent-cyan, #00e5ff);
+  transition: color 120ms ease;
+  color: var(--text-secondary, #a3a3b0);
   font-size: 11px;
 }
 
 .web-search-source-toggle:hover {
   color: var(--text-primary, #ffffff);
   text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.web-search-source-toggle:focus-visible {
+  outline: 1px solid var(--text-primary, #ffffff);
+  outline-offset: 3px;
+  border-radius: 2px;
 }
 
 .thought-markdown-text p {

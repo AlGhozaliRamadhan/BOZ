@@ -49,6 +49,12 @@ export type ThoughtStep =
       success?: boolean;
       preview?: string;
       detail?: string;
+      /**
+       * A transient data-source failure now being retried. Shown while the
+       * call runs ("Retrying VOO dashboard (2/3)…") and dropped the moment the
+       * result settles.
+       */
+      retry?: { attempt: number; allowance: number };
     };
 
 /**
@@ -329,6 +335,22 @@ function retryStateFromPayload(dataStr: string): StreamRetryState | null {
   };
 }
 
+/**
+ * Parse a `tool_retry` payload down to the two numbers the panel renders.
+ *
+ * Validated like every other cross-boundary payload: a malformed notice must
+ * not stamp `NaN` onto a running row.
+ */
+function toolRetryFromPayload(dataStr: string): { attempt: number; allowance: number } | null {
+  let payload: unknown;
+  try { payload = JSON.parse(dataStr); } catch { return null; }
+  if (!payload || typeof payload !== 'object') return null;
+  const attempt = Number((payload as Record<string, unknown>).attempt);
+  const allowance = Number((payload as Record<string, unknown>).allowance);
+  if (!Number.isFinite(attempt) || !Number.isFinite(allowance)) return null;
+  return { attempt, allowance };
+}
+
 function streamFailureFromError(error: unknown): ChatStreamFailure {
   if (!error || typeof error !== 'object') return {};
   const candidate = error as Partial<ChatStreamFailure> & { message?: unknown };
@@ -337,6 +359,14 @@ function streamFailureFromError(error: unknown): ChatStreamFailure {
     code: typeof candidate.code === 'string' ? candidate.code : undefined,
     message: typeof candidate.message === 'string' ? candidate.message : undefined,
   };
+}
+
+/**
+ * A record of a settled run never shows stale retry text on a row that never
+ * resolved — once the run is over, "Retrying…" is no longer true.
+ */
+function stepsWithoutTransientRetry(steps: ThoughtStep[]): ThoughtStep[] {
+  return steps.map((step) => step.kind === 'tool' && step.retry ? { ...step, retry: undefined } : step);
 }
 
 function notify(handle: ActiveStream): void {
@@ -475,7 +505,7 @@ async function runStream(
     try {
       patchAssistantMessage(storage, sessionId, handle.messageIndex, {
         content: message.content,
-        steps: handle.steps.map((step) => ({ ...step })),
+        steps: stepsWithoutTransientRetry(handle.steps).map((step) => ({ ...step })),
         tools: message.tools ? [...message.tools] : [],
         metrics: message.metrics,
         status: message.status,
@@ -492,7 +522,7 @@ async function runStream(
       content: message.content,
       // The stream survives settlement: it is the record of what the model did,
       // and it is already excluded from `content`, `partial`, and history.
-      steps: handle.steps.map((step) => ({ ...step })),
+      steps: stepsWithoutTransientRetry(handle.steps).map((step) => ({ ...step })),
       tools: message.tools ? [...message.tools] : [],
       error,
       // A terminal state never keeps a retry countdown: the backoff either
@@ -530,7 +560,7 @@ async function runStream(
 
   const createReply = (content: string, status: ChatMessage['status']): ChatMessage => {
     const completedAt = Date.now();
-    const steps = handle.steps.length > 0 ? handle.steps.map((step) => ({ ...step })) : undefined;
+    const steps = handle.steps.length > 0 ? stepsWithoutTransientRetry(handle.steps).map((step) => ({ ...step })) : undefined;
     const tools = handle.collectedTools.filter((tool) => tool.status === 'done');
     return {
       role: 'assistant',
@@ -648,6 +678,26 @@ async function runStream(
               notify(handle);
               persistProgress(sessionId, handle, true);
             } catch { /* malformed tool event is non-fatal */ }
+          } else if (currentEvent === 'tool_retry') {
+            // A transient data-source failure behind a RUNNING row. Attached to
+            // the row (not a global countdown): the next `tool_result` for the
+            // same call replaces the whole entry, so the retry note clears with it.
+            try {
+              let payload: unknown;
+              try { payload = JSON.parse(dataStr); } catch { payload = null; }
+              const parsed = toolRetryFromPayload(dataStr);
+              if (payload && typeof payload === 'object' && parsed) {
+                const data = payload as Record<string, unknown>;
+                const stepIdx = findToolStepIndex(handle.steps, String(data.tool ?? ''), data.args);
+                if (stepIdx >= 0) {
+                  const step = handle.steps[stepIdx];
+                  if (step.kind === 'tool') {
+                    handle.steps[stepIdx] = { ...step, retry: parsed };
+                    notify(handle);
+                  }
+                }
+              }
+            } catch { /* malformed tool_retry event is non-fatal */ }
           } else if (currentEvent === 'tool_result') {
             try {
               const data = JSON.parse(dataStr);

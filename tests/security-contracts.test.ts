@@ -99,7 +99,10 @@ describe('security-sensitive repository contracts', () => {
     const engine = readFileSync(resolve('src/app/api/chat/chat.engine.ts'), 'utf8');
     const directRoute = readFileSync(resolve('src/app/api/chat/route.ts'), 'utf8');
     expect(engine).not.toContain("const PREFILL = '<think>");
-    expect(engine).toContain('do not emit reasoning tags or private scratchpad text');
+    // The engine now instructs visible thinking instead of suppressing it —
+    // the panel's reasoning rows depend on this line staying put.
+    expect(engine).toContain('Thinking is on the record');
+    expect(engine).toContain('private scratchpad text never leaks');
     expect(engine).toContain('not an automatic buy');
     expect(engine).toContain('not a strong-buy signal by itself');
     expect(engine).toContain('Do not state a numeric probability unless it is supplied by a calibrated source');
