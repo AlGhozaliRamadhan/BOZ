@@ -386,7 +386,14 @@ export default function DiscoverPage() {
               onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
               className={searchStyles['ticker-search__input']}
             />
-            <button type="submit" className={searchStyles['ticker-search__submit']}>GO <span aria-hidden="true">↗</span></button>
+            <button
+              type="submit"
+              className={searchStyles['ticker-search__submit']}
+              aria-label="Search"
+              title="Search"
+            >
+              <i className="fa-solid fa-arrow-right" aria-hidden="true" />
+            </button>
           </form>
           {showDropdown && tickerInput.trim() !== '' && (
             <div className={searchStyles['ticker-search__results']}>

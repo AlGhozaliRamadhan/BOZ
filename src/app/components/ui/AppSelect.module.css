@@ -1,0 +1,187 @@
+/* AppSelect — the app-wide dropdown surface.
+ * Matches the dashboard/calendar popover language: one card-gradient wash,
+ * a glass border, 12px radius, inset top highlight and a deep soft shadow.
+ * Typography is terminal-mono so it sits with the rest of the market chrome. */
+
+.root {
+  position: relative;
+  min-width: 0;
+}
+
+.trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-glass);
+  border-radius: 7px;
+  background: var(--surface-glass);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  outline: 0;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.trigger:hover:not(:disabled),
+.triggerOpen {
+  border-color: var(--border-glass-hover);
+  background: var(--surface-glass-hover);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.trigger:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.triggerCompact {
+  min-height: 34px;
+  font-size: 10.5px;
+}
+
+.value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 9px;
+  transition: transform 0.15s ease;
+}
+
+.triggerOpen .chevron {
+  transform: rotate(180deg);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 220;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(340px, calc(100vw - 48px));
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  background: var(--surface-gradient);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 16px 44px rgba(0, 0, 0, 0.6);
+  animation: app-select-in 140ms var(--ease-out);
+}
+
+.menuEnd {
+  left: auto;
+  right: 0;
+}
+
+.menu::-webkit-scrollbar {
+  width: 4px;
+}
+
+.menu::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.optionActive {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
+}
+
+.optionText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.optionLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionLabelSelected {
+  color: var(--text-primary);
+}
+
+.optionDescription {
+  overflow: hidden;
+  max-width: 280px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.check {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+@keyframes app-select-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu {
+    animation: none;
+  }
+  .chevron {
+    transition: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .trigger {
+    min-height: 44px;
+  }
+  .option {
+    min-height: 40px;
+  }
+}
