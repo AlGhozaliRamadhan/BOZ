@@ -145,8 +145,8 @@ jobs:
           # only `*-setup.exe` + `.sig` for an NSIS bundle; it produces no
           # separate updater zip. The updater runs whatever latest.json names,
           # appending /UPDATE plus the install mode's NSIS args, so the
-          # wizard-free update comes from `plugins.updater.windows.installMode`
-          # being `passive` -- not from the artifact type.
+          # window-free update comes from `plugins.updater.windows.installMode`
+          # being `quiet` (NSIS `/S`) -- not from the artifact type.
           $signable = @($installers)
           $inputs = @($signable + ($signable | ForEach-Object { "$_.sig" }))
           $allowed = @($inputs + 'latest.json', 'SHA256SUMS.txt')

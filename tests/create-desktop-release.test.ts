@@ -70,13 +70,15 @@ describe('desktop release metadata', () => {
 });
 
 describe('in-app update must not look like a reinstall', () => {
-  it('runs the NSIS installer passively so no setup wizard is shown', () => {
+  it('runs the NSIS installer silently so no installer window is shown', () => {
     const config = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'));
 
-    // passive -> NSIS `/P`: a progress bar, no wizard, no Back/Next/Cancel.
-    // quiet (`/S`) was tried in PR #116 and still showed the wizard.
-    expect(config.plugins.updater.windows.installMode).toBe('passive');
-    expect(config.plugins.updater.windows.installMode).not.toBe('quiet');
+    // quiet -> NSIS `/S`: no window at all. The in-app modal owns the update
+    // UI and the installer relaunches BOZ through `/R`. PR #116 blamed `/S`
+    // for a wizard that came from that release's manifest, so the mode itself
+    // was never the cause.
+    expect(config.plugins.updater.windows.installMode).toBe('quiet');
+    expect(config.plugins.updater.windows.installMode).not.toBe('passive');
     // The updater artifact must be signed for the manifest to carry a signature.
     expect(config.bundle.createUpdaterArtifacts).toBe(true);
     expect(config.bundle.targets).toEqual(['nsis']);

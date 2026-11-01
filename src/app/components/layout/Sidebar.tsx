@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import DesktopUpdateControl from '../ui/DesktopUpdateControl';
+import AboutModal from '../ui/AboutModal';
 import UpdatePromptModal from '../ui/UpdatePromptModal';
 import { claimStartupPrompt, useHostUpdate } from '../ui/use-host-update';
 import { invoke } from '@tauri-apps/api/core';
@@ -363,26 +363,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
                 </div>
                 <div className="profile-popover-item-right">Ctrl+⇧+,</div>
               </button>
-              {/* Real prompt entry: shown only while an installable update is
-                  pending (never for a snoozed one, where the dot rests). */}
-              {updateAvailable && (
-                <button
-                  className="profile-popover-item"
-                  onClick={() => {
-                    setIsProfileMenuOpen(false);
-                    setIsUpdatePromptOpen(true);
-                  }}
-                >
-                  <div className="profile-popover-item-left">
-                    <i className="fa-solid fa-download"></i>
-                    <span>Install update</span>
-                  </div>
-                  {status.version && (
-                    <div className="profile-popover-item-right">v{status.version}</div>
-                  )}
-                </button>
-              )}
-              <button 
+              <button
                 className="profile-popover-item"
                 onClick={() => {
                   setIsProfileMenuOpen(false);
@@ -394,6 +375,26 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
                   <span>About BOZ</span>
                 </div>
               </button>
+              {/* Last row, and only while a build is actually waiting: an
+                  "Update" entry with nothing to install is a dead end. A
+                  snoozed version arrives as idle, so it stays hidden too. */}
+              {updateAvailable && (
+                <button
+                  className="profile-popover-item"
+                  onClick={() => {
+                    setIsProfileMenuOpen(false);
+                    setIsUpdatePromptOpen(true);
+                  }}
+                >
+                  <div className="profile-popover-item-left">
+                    <i className="fa-solid fa-arrow-rotate-right"></i>
+                    <span>Update</span>
+                  </div>
+                  {status.version && (
+                    <div className="profile-popover-item-right">v{status.version}</div>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -445,49 +446,8 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
         )}
       </div>
 
-      {/* Desktop About Modal */}
-      {isAboutOpen && (
-        <div className="update-modal-overlay" onClick={() => setIsAboutOpen(false)}>
-          <div className="update-modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="update-modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <img src="/logo-boz-transparant-white.png" alt="BOZ" style={{ width: '24px', height: '24px', borderRadius: '4px' }} />
-                <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                  About BOZ
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsAboutOpen(false)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '14px' }}
-                aria-label="Close"
-              >
-                <i className="fa-solid fa-xmark"></i>
-              </button>
-            </div>
-            <div className="update-modal-body">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', textAlign: 'center', padding: '10px 0' }}>
-                <div style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                  BOZ Intelligence
-                </div>
-                <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                  Desktop version v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.9.0'}
-                </div>
-              </div>
-              <DesktopUpdateControl version={process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.9.0'} />
-              <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '12px', borderTop: '1px solid var(--border-glass)' }}>
-                <button
-                  type="button"
-                  onClick={() => setIsAboutOpen(false)}
-                  style={{ padding: '8px 16px', borderRadius: '6px', background: 'var(--text-primary)', color: 'var(--bg-primary)', border: 'none', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Desktop About Modal: identity and update state, one surface. */}
+      {isAboutOpen && <AboutModal onClose={() => setIsAboutOpen(false)} />}
 
       {/* Desktop update prompt: the startup offer, the popover entry, and the
           host's explicit open request all open THIS, never the About modal. */}

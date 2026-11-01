@@ -855,58 +855,6 @@
   50% { transform: scale(1.2); opacity: 0.8; }
 }
 
-.update-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(8px);
-  z-index: 10000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-
-.update-modal-content {
-  background: var(--surface-gradient);
-  border: 1px solid var(--border-glass, rgba(255, 255, 255, 0.12));
-  border-radius: var(--radius-lg, 16px);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
-  width: 100%;
-  max-width: 480px;
-  overflow: hidden;
-  animation: fadeIn 0.2s ease-out;
-}
-
-.update-modal-header {
-  padding: 20px 24px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--border-glass, rgba(255, 255, 255, 0.08));
-}
-
-.update-modal-body {
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.update-command-box {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 12px 14px;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  font-family: var(--font-mono, monospace);
-  font-size: 13px;
-  color: var(--accent-cyan, #00d2ff);
-}
-
 .sidebar-collapse-btn {
   position: absolute;
   top: 50%;

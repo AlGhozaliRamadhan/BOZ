@@ -26,13 +26,14 @@ Var BozClosedRunningApp
 ; 1 when `installer.nsi` recognised this run as an update of an installed copy
 ; (setup started by hand) instead of a first install or an in-app update.
 Var BozUpdateRun
-; 1 when the installation page is the progress-only update page (in-app update
-; or a hand-started update). Declared here because `Var PassiveMode` appears
-; after this include in `installer.nsi`.
+; 1 when the installation page is the progress-only update page (a hand-started
+; update; in-app updates run the installer silently). Declared here because
+; `Var PassiveMode` appears after this include in `installer.nsi`.
 Var BozUpdateUi
 
-; The installation page in passive/update mode: keep the single progress page,
-; but label it as the update it is instead of the generic installer page.
+; The installation page for a hand-started update: keep the single progress
+; page, but label it as the update it is instead of the generic installer page.
+; In-app updates use quiet mode, so this page never renders for them.
 ; Called through `MUI_PAGE_CUSTOMFUNCTION_SHOW` in `installer.nsi`.
 Function BozInstFilesShow
   ${If} $BozUpdateUi = 1
