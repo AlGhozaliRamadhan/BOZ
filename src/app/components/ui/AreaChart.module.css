@@ -82,6 +82,9 @@
   pointer-events: none;
 }
 
+/* Hover readout. The inline style supplies left/top plus the full transform
+   (including the px nudge that keeps it inside the plot at either edge), so
+   the pair below is only the resting position. */
 .area-tip {
   position: absolute;
   transform: translate(-50%, calc(-100% - 12px));

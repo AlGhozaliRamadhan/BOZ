@@ -424,7 +424,8 @@ Var AppStartMenuFolder
 !insertmacro MUI_PAGE_STARTMENU Application $AppStartMenuFolder
 
 ; 7. Installation page
-; BOZ: label the passive page as an update (see installer-hooks.nsh).
+; BOZ: label the progress-only update page (hand-started updates; in-app
+; updates run silently) -- see installer-hooks.nsh.
 !define MUI_PAGE_CUSTOMFUNCTION_SHOW BozInstFilesShow
 !insertmacro MUI_PAGE_INSTFILES
 

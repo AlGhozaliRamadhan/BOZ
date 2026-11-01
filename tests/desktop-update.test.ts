@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   IDLE_UPDATE_STATUS,
   normalizeUpdateStatus,
-} from '../src/app/components/ui/DesktopUpdateControl';
+} from '../src/app/components/ui/use-host-update';
 
 // The webview no longer drives its own `check()`: the desktop host owns the
 // update flow and publishes status. These tests pin the boundary — the UI
@@ -12,7 +12,6 @@ import {
 // Every file that speaks for the app's update voice; the shared hook holds
 // the action fallbacks and the prompt modal holds the prompt copy.
 const UPDATE_UI_SOURCES = [
-  'src/app/components/ui/DesktopUpdateControl.tsx',
   'src/app/components/ui/use-host-update.ts',
   'src/app/components/ui/UpdatePromptModal.tsx',
 ];

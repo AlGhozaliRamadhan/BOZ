@@ -63,9 +63,9 @@ describe('security-sensitive repository contracts', () => {
     expect(config.bundle.copyright).toBe('© 2026 BOZ');
     expect(config.bundle.windows.nsis.uninstallerIcon).toBe('icons/icon.ico');
     expect(config.plugins.updater.pubkey).toBeTruthy();
-    // Passive keeps the update a progress bar instead of the NSIS setup
-    // wizard, which is what made an in-app update look like a reinstall.
-    expect(config.plugins.updater.windows.installMode).toBe('passive');
+    // Quiet runs the NSIS installer with `/S`, so an in-app update never
+    // shows an installer window; the in-app modal is the whole update UI.
+    expect(config.plugins.updater.windows.installMode).toBe('quiet');
     expect(config.plugins.updater.endpoints).toEqual([
       'https://github.com/AlGhozaliRamadhan/BOZ/releases/latest/download/latest.json',
     ]);

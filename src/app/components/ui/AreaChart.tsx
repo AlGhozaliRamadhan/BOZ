@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useFetch } from '../../lib/hooks';
 import styles from './AreaChart.module.css';
 
@@ -58,10 +58,22 @@ function shortMonthDay(iso: string): string {
     : parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+/** Layout effect that stays quiet during the server render. */
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+
+/** Keeps the hover tooltip this far from the plot's left/right edge, in px. */
+const TIP_EDGE = 4;
+
 function AreaChart({ symbol, height = 250, rangeLabel = '90D' }: AreaChartProps) {
   // useId returns colons (:r5:) which are fragile inside url(#id) refs.
   const gradientId = `area-grad-${useId().replace(/:/g, '')}`;
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const plotRef = useRef<HTMLDivElement | null>(null);
+  const tipRef = useRef<HTMLSpanElement | null>(null);
+  // Px the tooltip is nudged from its point so it never leaves the plot: the
+  // overlay is centred on the pointer, which runs off the right edge on the
+  // newest candle (the plot clips, so the value would be cut in half).
+  const [tipShift, setTipShift] = useState(0);
 
   const { data, loading, error } = useFetch<{
     candles: ChartCandle[];
@@ -110,6 +122,32 @@ function AreaChart({ symbol, height = 250, rangeLabel = '90D' }: AreaChartProps)
   // Near the top the tooltip would clip; below the pointer it goes instead.
   const tooltipFlipped = hoveredY < 24;
 
+  // Measure after the tooltip paints with this point's date/value (widths vary
+  // a little) and clamp its centre into the plot. Runs before paint, so the
+  // unclamped position is never shown; the observer re-clamps on resize.
+  useIsomorphicLayoutEffect(() => {
+    const plot = plotRef.current;
+    const tip = tipRef.current;
+    if (!hover || !plot || !tip) {
+      setTipShift(0);
+      return;
+    }
+    const place = () => {
+      const width = plot.clientWidth;
+      if (width <= 0) return;
+      const center = (hover.x / VB_W) * width;
+      const half = tip.offsetWidth / 2;
+      const min = half + TIP_EDGE;
+      const max = Math.max(min, width - half - TIP_EDGE);
+      setTipShift(Math.min(Math.max(center, min), max) - center);
+    };
+    place();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(place);
+    observer.observe(plot);
+    return () => observer.disconnect();
+  }, [hover]);
+
   const handlePointerMove = (e: React.PointerEvent<HTMLElement>) => {
     if (points.length === 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -130,6 +168,7 @@ function AreaChart({ symbol, height = 250, rangeLabel = '90D' }: AreaChartProps)
   return (
     <div className={styles['area-root']} style={{ height }}>
       <div
+        ref={plotRef}
         className={`${styles['area-plot']}${plotTrendClass}`}
         onPointerMove={renderSvg ? handlePointerMove : undefined}
         onPointerLeave={renderSvg ? handlePointerLeave : undefined}
@@ -211,12 +250,15 @@ function AreaChart({ symbol, height = 250, rangeLabel = '90D' }: AreaChartProps)
                   }}
                 />
                 <span
+                  ref={tipRef}
                   className={styles['area-tip']}
-                  style={
-                    tooltipFlipped
-                      ? { left: `${(hover.x / VB_W) * 100}%`, top: `${hoveredY}%`, transform: 'translate(-50%, 14px)' }
-                      : { left: `${(hover.x / VB_W) * 100}%`, top: `${hoveredY}%` }
-                  }
+                  style={{
+                    left: `${(hover.x / VB_W) * 100}%`,
+                    top: `${hoveredY}%`,
+                    transform: tooltipFlipped
+                      ? `translate(calc(-50% + ${tipShift}px), 14px)`
+                      : `translate(calc(-50% + ${tipShift}px), calc(-100% - 12px))`,
+                  }}
                 >
                   <span className={styles['area-tip-date']}>{shortMonthDay(hover.date)}</span>
                   <span className={styles['area-tip-value']}>{hover.close.toFixed(2)}</span>
