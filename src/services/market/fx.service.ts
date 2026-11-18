@@ -142,9 +142,16 @@ export class FxService {
       return this.boardCache.rows;
     }
 
-    const rows: FxBoardRow[] = [];
+    // Two quote batches for the ~39-pair registry. They were awaited one after
+    // the other, so a cold board paid two round trips; run them together and
+    // merge in chunk order before the registry sort below.
+    const chunks: FxPair[][] = [];
     for (let index = 0; index < FX_PAIRS.length; index += QUOTE_CHUNK) {
-      const chunk = FX_PAIRS.slice(index, index + QUOTE_CHUNK);
+      chunks.push(FX_PAIRS.slice(index, index + QUOTE_CHUNK));
+    }
+
+    const chunkRows = await Promise.all(chunks.map(async (chunk): Promise<FxBoardRow[]> => {
+      const rows: FxBoardRow[] = [];
       try {
         const quotes = await yahooFinance.quote(
           chunk.map(pair => pair.yahoo),
@@ -162,7 +169,10 @@ export class FxService {
       } catch (error) {
         log.warn('fx', `Quote batch failed: ${(error as Error).message}`);
       }
-    }
+      return rows;
+    }));
+
+    const rows = chunkRows.flat();
 
     if (rows.length > 0) {
       // Preserve registry order so the board never reshuffles between refreshes.
@@ -211,7 +221,13 @@ export class FxService {
     const pair = parseFxSymbol(rawSymbol);
     if (!pair) return null;
 
-    const board = await this.getBoard();
+    // The dollar index does not depend on the rate book, so it rides along with
+    // the board fetch instead of waiting for it.
+    const [board, dxy] = await Promise.all([
+      this.getBoard(),
+      this.fetchDxy(),
+    ]);
+
     const rates: Record<string, number> = {};
     for (const row of board) {
       if (row.price !== null && row.price > 0) rates[row.code] = row.price;
@@ -221,19 +237,6 @@ export class FxService {
     if (!rates[pair.code]) {
       const own = await this.getQuote(pair.yahoo);
       if (own?.price) rates[pair.code] = own.price;
-    }
-
-    let dxy: FxContext['dxy'] = null;
-    try {
-      const raw = await yahooFinance.quote(DXY_SYMBOL, {}, { validateResult: false }) as any;
-      if (raw) {
-        dxy = {
-          price: positive(raw.regularMarketPrice),
-          changePercent: num(raw.regularMarketChangePercent),
-        };
-      }
-    } catch {
-      // Dollar index is a nice-to-have; the page renders without it.
     }
 
     const crosses = board
@@ -247,6 +250,20 @@ export class FxService {
       dxy,
       crosses,
     };
+  }
+
+  /** Dollar index. A nice-to-have: the page renders without it. */
+  private async fetchDxy(): Promise<FxContext['dxy']> {
+    try {
+      const raw = await yahooFinance.quote(DXY_SYMBOL, {}, { validateResult: false }) as any;
+      if (!raw) return null;
+      return {
+        price: positive(raw.regularMarketPrice),
+        changePercent: num(raw.regularMarketChangePercent),
+      };
+    } catch {
+      return null;
+    }
   }
 }
 

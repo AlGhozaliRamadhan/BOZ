@@ -158,10 +158,11 @@ export function formatPrice(n: number | null | undefined): string {
   return n.toFixed(6);
 }
 
-function lastDefined<T>(values: Array<T | null | undefined>): T | null {
-  for (let i = values.length - 1; i >= 0; i--) {
-    const v = values[i];
-    if (v != null) return v as T;
+/** Last non-null SMA-200, walking back from the newest candle. */
+function lastSma200(candles: Candle[]): number | null {
+  for (let i = candles.length - 1; i >= 0; i--) {
+    const value = candles[i].SMA_200;
+    if (value != null) return value;
   }
   return null;
 }
@@ -188,11 +189,14 @@ function smaStackOf(price: number, sma20: number | null, sma50: number | null, s
   return 'MIXED';
 }
 
-function trendFromCloses(closes: number[]): StructureSnapshot['weeklyLikeTrend'] {
-  if (closes.length < 10) return 'SIDEWAYS';
-  const last = closes[closes.length - 1];
-  const window = closes.slice(-20);
-  const sma = window.reduce((a, b) => a + b, 0) / window.length;
+function trendFromCandles(candles: Candle[]): StructureSnapshot['weeklyLikeTrend'] {
+  if (candles.length < 10) return 'SIDEWAYS';
+  const last = candles[candles.length - 1].close;
+  // Average the last 20 closes without materialising a slice.
+  const start = Math.max(0, candles.length - 20);
+  let sum = 0;
+  for (let i = start; i < candles.length; i++) sum += candles[i].close;
+  const sma = sum / (candles.length - start);
   if (last > sma * 1.02) return 'UPTREND';
   if (last < sma * 0.98) return 'DOWNTREND';
   return 'SIDEWAYS';
@@ -263,7 +267,7 @@ export function buildDashboardAnalysis(input: DashboardAnalysisInput): Dashboard
   const price = last.close;
   const sma20 = last.SMA_20 ?? null;
   const sma50 = last.SMA_50 ?? null;
-  const sma200 = last.SMA_200 ?? lastDefined(candles.map(c => c.SMA_200));
+  const sma200 = last.SMA_200 ?? lastSma200(candles);
   const rsi = last.RSI ?? null;
   const macd = last.MACD ?? null;
   const macdSignal = last.MACD_Signal ?? null;
@@ -273,9 +277,26 @@ export function buildDashboardAnalysis(input: DashboardAnalysisInput): Dashboard
   const volumeRatio = last.Volume_Ratio ?? null;
   const obvTrend = last.OBV_Trend ?? null;
 
-  const window252 = candles.slice(-252);
-  const computedHigh = Math.max(...window252.map(c => c.high));
-  const computedLow = Math.min(...window252.map(c => c.low));
+  // One pass for the 52-week extremes and the 20-bar support/resistance
+  // fallback. The old version allocated two slices and three maps and called
+  // `Math.max` with a 252-element spread.
+  const barCount = candles.length;
+  const longStart = Math.max(0, barCount - 252);
+  const shortStart = Math.max(0, barCount - 20);
+  let computedHigh = -Infinity;
+  let computedLow = Infinity;
+  let recentHigh = -Infinity;
+  let recentLow = Infinity;
+  for (let i = longStart; i < barCount; i++) {
+    const bar = candles[i];
+    if (bar.high > computedHigh) computedHigh = bar.high;
+    if (bar.low < computedLow) computedLow = bar.low;
+    if (i >= shortStart) {
+      if (bar.high > recentHigh) recentHigh = bar.high;
+      if (bar.low < recentLow) recentLow = bar.low;
+    }
+  }
+
   const high52w = quote?.fiftyTwoWeekHigh && quote.fiftyTwoWeekHigh > 0 ? quote.fiftyTwoWeekHigh : computedHigh;
   const low52w = quote?.fiftyTwoWeekLow && quote.fiftyTwoWeekLow > 0 ? quote.fiftyTwoWeekLow : computedLow;
   const from52wHighPct = high52w > 0 ? ((price - high52w) / high52w) * 100 : null;
@@ -287,7 +308,7 @@ export function buildDashboardAnalysis(input: DashboardAnalysisInput): Dashboard
     atr, atrPercent, volumeRatio, obvTrend, bbPosition: bbPositionOf(last),
     high52w, low52w, from52wHighPct, from52wLowPct, range52wPos,
     smaStack: smaStackOf(price, sma20, sma50, sma200),
-    weeklyLikeTrend: trendFromCloses(candles.map(c => c.close)),
+    weeklyLikeTrend: trendFromCandles(candles),
   };
 
   const signals: ConfluenceSignal[] = [];
@@ -470,8 +491,8 @@ export function buildDashboardAnalysis(input: DashboardAnalysisInput): Dashboard
     conviction === 'MEDIUM' ? (bias === 'BULL' ? 'LEAN BULLISH' : 'LEAN BEARISH') :
     (bias === 'BULL' ? 'SOFT BULLISH' : 'SOFT BEARISH');
 
-  const support = patterns?.nearest_support && patterns.nearest_support > 0 ? patterns.nearest_support : Math.min(...candles.slice(-20).map(c => c.low));
-  const resistance = patterns?.nearest_resistance && patterns.nearest_resistance > 0 ? patterns.nearest_resistance : Math.max(...candles.slice(-20).map(c => c.high));
+  const support = patterns?.nearest_support && patterns.nearest_support > 0 ? patterns.nearest_support : recentLow;
+  const resistance = patterns?.nearest_resistance && patterns.nearest_resistance > 0 ? patterns.nearest_resistance : recentHigh;
 
   const plan = buildPlan({
     price, atr, rsi, bias, conviction, support, resistance, sma20, sma50,

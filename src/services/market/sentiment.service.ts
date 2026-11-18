@@ -6,6 +6,7 @@ import { htmlToPlainText } from '../../utils/html.js';
 import { config } from '../../config/config.js';
 import { buildSocialSearchQuery, resolveStockTwitsSymbol } from '../../shared/market-constants.js';
 import { readBoundedFetchText } from '../security/public-http-client.js';
+import { AsyncTtlCache } from '../../utils/async-cache.js';
 
 // axios TLS agent for CNN / StockTwits / alternative.me (standard servers, no JA3 issues)
 const tlsAgent = new https.Agent({
@@ -23,6 +24,29 @@ const tlsAgent = new https.Agent({
     'ECDHE-RSA-CHACHA20-POLY1305',
   ].join(':'),
 });
+
+/**
+ * Provider caches.
+ *
+ * Fear & Greed is market-wide (one key for every ticker) and updates daily, so
+ * it can sit for minutes. StockTwits is per-symbol and busier; a minute of
+ * reuse is enough to coalesce a dashboard poll, a chat tool call and a page
+ * navigation that all land together. Both caches are single-flight, so a cold
+ * burst still hits the provider once.
+ */
+const FEAR_GREED_TTL_MS = 5 * 60_000;
+const STOCKTWITS_TTL_MS = 60_000;
+const REDDIT_TTL_MS = 5 * 60_000;
+
+const fearGreedCache = new AsyncTtlCache<string, any>({ ttlMs: FEAR_GREED_TTL_MS, maxEntries: 2 });
+const stockTwitsCache = new AsyncTtlCache<string, any>({ ttlMs: STOCKTWITS_TTL_MS, maxEntries: 128 });
+
+/** Test hook: forget every provider result, including the Reddit global map. */
+export function clearSentimentCaches(): void {
+  fearGreedCache.clear();
+  stockTwitsCache.clear();
+  delete (globalThis as Record<string, unknown>).__redditCache;
+}
 
 export class SentimentService {
   private readonly retryableStatuses = new Set([429, 500, 502, 503, 504]);
@@ -89,6 +113,197 @@ export class SentimentService {
     throw lastErr;
   }
 
+  /** CNN's index, with alternative.me as the only fallback. */
+  private async fetchFearGreed(headers: Record<string, string>): Promise<any | null> {
+    try {
+      const fgRes = await this.withRetry('fear_greed_cnn', () =>
+        axios.get(
+          'https://production.dataviz.cnn.io/index/fearandgreed/graphdata',
+          { headers, httpsAgent: tlsAgent, timeout: 10_000 },
+        ),
+      );
+      const score  = fgRes.data?.fear_and_greed?.score;
+      const rating = fgRes.data?.fear_and_greed?.rating;
+      if (score === undefined) return null;
+
+      const fearGreed = {
+        value:    Math.round(score),
+        label:    rating ?? 'Unknown',
+        momentum: fgRes.data?.fear_and_greed_historical?.data?.[1]?.rating ?? 'N/A',
+        source:   'CNN Fear & Greed',
+        source_url: 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata',
+      };
+      const scoreColor =
+        fearGreed.value < 30 ? clr.red :
+        fearGreed.value > 70 ? clr.green : clr.yellow;
+      log.crowd('fear-greed', `${scoreColor(String(fearGreed.value))}  ${clr.dim(fearGreed.label)}`);
+      return fearGreed;
+    } catch (err) {
+      // Silently fall through — CNN 418s are expected (anti-bot WAF), alternative.me is reliable
+      if (process.env.DEBUG_CROWD) log.warn('crowd', `Fear & Greed (CNN) error: ${(err as Error).message}`);
+      try {
+        const fgRes2 = await this.withRetry('fear_greed_altme', () =>
+          axios.get(
+            'https://api.alternative.me/fng/?limit=1',
+            { headers, httpsAgent: tlsAgent, timeout: 8_000 },
+          ),
+        );
+        const latest = fgRes2.data?.data?.[0];
+        if (!latest) return null;
+        const fearGreed = {
+          value:    parseInt(latest.value, 10),
+          label:    latest.value_classification,
+          momentum: 'N/A',
+          source:   'Alternative.me Crypto Fear & Greed',
+          source_url: 'https://api.alternative.me/fng/?limit=1',
+        };
+        log.crowd('fear-greed', `${clr.dim(String(fearGreed.value))}  ${clr.dim(fearGreed.label)}  ${clr.ghost('(fallback)')}`);
+        return fearGreed;
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  private async fetchStockTwits(stockTwitsSymbol: string, stHeaders: Record<string, string>): Promise<any | null> {
+    try {
+      const stRes = await this.withRetry('stocktwits_stream', () =>
+        axios.get(
+          `https://api.stocktwits.com/api/2/streams/symbol/${stockTwitsSymbol}.json`,
+          { headers: stHeaders, httpsAgent: tlsAgent, timeout: 10_000 },
+        ),
+      );
+      if (!stRes.data?.messages) return null;
+
+      const messages = stRes.data.messages as any[];
+      let bullish = 0, bearish = 0;
+      for (const m of messages) {
+        const basic = m.entities?.sentiment?.basic;
+        if (basic === 'Bullish') bullish++;
+        if (basic === 'Bearish') bearish++;
+      }
+      const total = bullish + bearish;
+      const sampleMessages = messages
+        .filter((m: any) => typeof m.body === 'string' && m.body.trim().length > 0)
+        .slice(0, 2)
+        .map((m: any) => ({
+          id: m.id,
+          body: htmlToPlainText(m.body),
+          sentiment: m.entities?.sentiment?.basic || null,
+          username: m.user?.username || 'Trader',
+          created_at: m.created_at,
+        }));
+
+      const data = {
+        bullish,
+        bearish,
+        total_with_sentiment: total,
+        total_messages: messages.length,
+        watchlist_count: stRes.data?.symbol?.watchlist_count ?? null,
+        sample_messages: sampleMessages,
+        // A zero labelled sample carries no signal — leave the ratio null so
+        // every downstream consumer renders "no read" instead of a 50/50 coin flip.
+        bull_ratio: total > 0 ? (bullish / total) * 100 : null,
+        source: 'StockTwits',
+        source_url: `https://api.stocktwits.com/api/2/streams/symbol/${stockTwitsSymbol}.json`,
+      };
+      const ratio      = data.bull_ratio ?? null;
+      const ratioColor = ratio == null ? clr.dim : ratio > 60 ? clr.green : ratio < 40 ? clr.red : clr.yellow;
+      log.crowd('stocktwits', `${ratio == null ? clr.dim('no labelled messages') : ratioColor(ratio.toFixed(0) + '% bullish')}  ${clr.dim(`bulls ${bullish} · bears ${bearish} · labelled ${total} of ${messages.length} sampled`)}`);
+      return data;
+    } catch (err) {
+      const status = (err as any)?.response?.status as number | undefined;
+      const msg = (err as Error).message;
+      // 403/429 from StockTwits is an expected provider WAF block (datacenter IP
+      // or missing app auth), not a code bug — degrade quietly, keep the warn
+      // channel for unexpected failures.
+      if (status === 403 || status === 429 || /status code 403/.test(msg)) {
+        log.crowd('stocktwits', clr.dim(`blocked (${status ?? 403}) for ${stockTwitsSymbol} — skipping`));
+      } else {
+        log.warn('crowd', `StockTwits ${stockTwitsSymbol} error: ${msg}`);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Reddit social buzz.
+   *
+   * Uses native fetch() (Node's undici TLS stack) instead of axios. Cloudflare
+   * (which protects reddit.com) rejects Node's OpenSSL JA3 fingerprint with SSL
+   * alert 40. Undici has a different TLS fingerprint that passes the check.
+   */
+  private async fetchRedditBuzz(ticker: string): Promise<any | null> {
+    const now = Date.now();
+    const redditCache = (global as any).__redditCache as Record<string, any> | undefined;
+    if (redditCache?.[ticker] && now - redditCache[ticker].timestamp < REDDIT_TTL_MS) {
+      const cached = redditCache[ticker];
+      log.crowd('reddit', clr.dim(`${cached.mentions} mentions (cached)`));
+      return {
+        source: 'Reddit',
+        mentions: cached.mentions,
+        top_posts: cached.top_posts,
+        window: 'month',
+        source_url: `https://www.reddit.com/search.rss?q=${encodeURIComponent(buildSocialSearchQuery(ticker))}&sort=new&limit=100&t=month`,
+      };
+    }
+
+    try {
+      const query    = encodeURIComponent(buildSocialSearchQuery(ticker));
+      const searchUrl = `https://www.reddit.com/search.rss?q=${query}&sort=new&limit=100&t=month`;
+
+      const res = await this.fetchWithRetry(searchUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!res.ok) {
+        if (process.env.DEBUG_CROWD) {
+          log.warn('crowd', `Reddit HTTP ${res.status} — skipping social buzz`);
+        }
+        return null;
+      }
+
+      const xml = await readBoundedFetchText(res);
+      const parser = new Parser();
+      const feed = await parser.parseString(xml);
+      const posts = feed.items || [];
+      const titles = posts
+        .map(p => p.title as string)
+        .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+        .slice(0, 5);
+
+      if (posts.length === 0) {
+        log.crowd('reddit', clr.dim('no recent posts found'));
+        return null;
+      }
+
+      // Report the actual RSS hit count. The feed is capped (~100); do not invent a larger number.
+      const mentions = posts.length;
+      const entry: any = {
+        source: 'Reddit',
+        mentions,
+        top_posts: titles,
+        window: 'month',
+        capped: mentions >= 100,
+        source_url: searchUrl,
+      };
+      log.crowd('reddit', clr.dim(`${mentions} recent posts${mentions >= 100 ? ' (feed cap)' : ''}`));
+
+      if (!(global as any).__redditCache) (global as any).__redditCache = {};
+      (global as any).__redditCache[ticker] = { timestamp: now, mentions, top_posts: titles };
+      return entry;
+    } catch (err) {
+      if (process.env.DEBUG_CROWD) {
+        log.warn('crowd', `Reddit ${ticker} error: ${(err as Error).message}`);
+      }
+      return null;
+    }
+  }
+
   async fetchCrowdSentiment(tickerOverride?: string): Promise<any> {
     const ticker = (tickerOverride || config.ticker || '').toUpperCase();
     const crowd = {
@@ -115,184 +330,27 @@ export class SentimentService {
     };
 
     const stockTwitsSymbol = resolveStockTwitsSymbol(ticker);
-
-    // ── Fear & Greed (CNN Money) ───────────────────────────────────────────────
-    try {
-      const fgRes = await this.withRetry('fear_greed_cnn', () =>
-        axios.get(
-          'https://production.dataviz.cnn.io/index/fearandgreed/graphdata',
-          { headers, httpsAgent: tlsAgent, timeout: 10_000 },
-        ),
-      );
-      const score  = fgRes.data?.fear_and_greed?.score;
-      const rating = fgRes.data?.fear_and_greed?.rating;
-      if (score !== undefined) {
-        crowd.fear_greed = {
-          value:    Math.round(score),
-          label:    rating ?? 'Unknown',
-          momentum: fgRes.data?.fear_and_greed_historical?.data?.[1]?.rating ?? 'N/A',
-          source:   'CNN Fear & Greed',
-          source_url: 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata',
-        };
-        const scoreColor =
-          crowd.fear_greed.value < 30 ? clr.red :
-          crowd.fear_greed.value > 70 ? clr.green : clr.yellow;
-        log.crowd('fear-greed', `${scoreColor(String(crowd.fear_greed.value))}  ${clr.dim(crowd.fear_greed.label)}`);
-      }
-    } catch (err) {
-      // Silently fall through — CNN 418s are expected (anti-bot WAF), alternative.me is reliable
-      if (process.env.DEBUG_CROWD) log.warn('crowd', `Fear & Greed (CNN) error: ${(err as Error).message}`);
-      try {
-        const fgRes2 = await this.withRetry('fear_greed_altme', () =>
-          axios.get(
-            'https://api.alternative.me/fng/?limit=1',
-            { headers, httpsAgent: tlsAgent, timeout: 8_000 },
-          ),
-        );
-        const latest = fgRes2.data?.data?.[0];
-        if (latest) {
-          crowd.fear_greed = {
-            value:    parseInt(latest.value, 10),
-            label:    latest.value_classification,
-            momentum: 'N/A',
-            source:   'Alternative.me Crypto Fear & Greed',
-            source_url: 'https://api.alternative.me/fng/?limit=1',
-          };
-          log.crowd('fear-greed', `${clr.dim(String(crowd.fear_greed.value))}  ${clr.dim(crowd.fear_greed.label)}  ${clr.ghost('(fallback)')}`);
-        }
-      } catch { /* silently skip */ }
+    if (!stockTwitsSymbol) {
+      log.crowd('stocktwits', clr.dim(`skipped for ${ticker}`));
     }
 
-    // ── StockTwits ─────────────────────────────────────────────────────────────
-    try {
-      if (!stockTwitsSymbol) {
-        log.crowd('stocktwits', clr.dim(`skipped for ${ticker}`));
-      } else {
-        const stRes = await this.withRetry('stocktwits_stream', () =>
-          axios.get(
-            `https://api.stocktwits.com/api/2/streams/symbol/${stockTwitsSymbol}.json`,
-            { headers: stHeaders, httpsAgent: tlsAgent, timeout: 10_000 },
-          ),
-        );
-        if (stRes.data?.messages) {
-          const messages = stRes.data.messages as any[];
-          let bullish = 0, bearish = 0;
-          for (const m of messages) {
-            const basic = m.entities?.sentiment?.basic;
-            if (basic === 'Bullish') bullish++;
-            if (basic === 'Bearish') bearish++;
-          }
-          const total = bullish + bearish;
-          const sampleMessages = messages
-            .filter((m: any) => typeof m.body === 'string' && m.body.trim().length > 0)
-            .slice(0, 2)
-            .map((m: any) => ({
-              id: m.id,
-              body: htmlToPlainText(m.body),
-              sentiment: m.entities?.sentiment?.basic || null,
-              username: m.user?.username || 'Trader',
-              created_at: m.created_at,
-            }));
+    // The three providers are independent. Running them together makes the
+    // request cost the slowest provider instead of the sum of all three.
+    const [fearGreed, stockTwits, reddit] = await Promise.all([
+      fearGreedCache.get('market', () => this.fetchFearGreed(headers), {
+        shouldCache: value => value != null,
+      }),
+      stockTwitsSymbol
+        ? stockTwitsCache.get(stockTwitsSymbol, () => this.fetchStockTwits(stockTwitsSymbol, stHeaders), {
+            shouldCache: value => value != null,
+          })
+        : Promise.resolve(null),
+      this.fetchRedditBuzz(ticker),
+    ]);
 
-          crowd.stocktwits_data = {
-            bullish,
-            bearish,
-            total_with_sentiment: total,
-            total_messages: messages.length,
-            watchlist_count: stRes.data?.symbol?.watchlist_count ?? null,
-            sample_messages: sampleMessages,
-            // A zero labelled sample carries no signal — leave the ratio null so
-            // every downstream consumer renders "no read" instead of a 50/50 coin flip.
-            bull_ratio: total > 0 ? (bullish / total) * 100 : null,
-            source: 'StockTwits',
-            source_url: `https://api.stocktwits.com/api/2/streams/symbol/${stockTwitsSymbol}.json`,
-          };
-          const ratio      = crowd.stocktwits_data.bull_ratio ?? null;
-          const ratioColor = ratio == null ? clr.dim : ratio > 60 ? clr.green : ratio < 40 ? clr.red : clr.yellow;
-          log.crowd('stocktwits', `${ratio == null ? clr.dim('no labelled messages') : ratioColor(ratio.toFixed(0) + '% bullish')}  ${clr.dim(`bulls ${bullish} · bears ${bearish} · labelled ${total} of ${messages.length} sampled`)}`);
-        }
-      }
-    } catch (err) {
-      const status = (err as any)?.response?.status as number | undefined;
-      const msg = (err as Error).message;
-      // 403/429 from StockTwits is an expected provider WAF block (datacenter IP
-      // or missing app auth), not a code bug — degrade quietly, keep the warn
-      // channel for unexpected failures.
-      if (status === 403 || status === 429 || /status code 403/.test(msg)) {
-        log.crowd('stocktwits', clr.dim(`blocked (${status ?? 403}) for ${stockTwitsSymbol ?? ticker} — skipping`));
-      } else {
-        log.warn('crowd', `StockTwits ${stockTwitsSymbol ?? ticker} error: ${msg}`);
-      }
-    }
-
-    // ── Reddit Social Buzz ─────────────────────────────────────────────────────
-    // Uses native fetch() (Node's undici TLS stack) instead of axios.
-    // Cloudflare (which protects reddit.com) rejects Node's OpenSSL JA3 fingerprint
-    // with SSL alert 40. Undici has a different TLS fingerprint that passes the check.
-    const now = Date.now();
-    const cacheKey = ticker;
-    if ((global as any).__redditCache && (global as any).__redditCache[cacheKey] && now - (global as any).__redditCache[cacheKey].timestamp < 300000) {
-      const cached = (global as any).__redditCache[cacheKey];
-      crowd.social_buzz.push({
-        source: 'Reddit',
-        mentions: cached.mentions,
-        top_posts: cached.top_posts,
-        window: 'month',
-        source_url: `https://www.reddit.com/search.rss?q=${encodeURIComponent(buildSocialSearchQuery(ticker))}&sort=new&limit=100&t=month`,
-      });
-      log.crowd('reddit', clr.dim(`${cached.mentions} mentions (cached)`));
-    } else {
-      try {
-      const query    = encodeURIComponent(buildSocialSearchQuery(ticker));
-      const searchUrl = `https://www.reddit.com/search.rss?q=${query}&sort=new&limit=100&t=month`;
-
-      const res = await this.fetchWithRetry(searchUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept': 'application/rss+xml, application/xml, text/xml, */*',
-        },
-        signal: AbortSignal.timeout(10_000),
-      });
-
-      if (res.ok) {
-        const xml = await readBoundedFetchText(res);
-        const parser = new Parser();
-        const feed = await parser.parseString(xml);
-        const posts = feed.items || [];
-        const titles = posts
-          .map(p => p.title as string)
-          .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
-          .slice(0, 5);
-
-        if (posts.length > 0) {
-          // Report the actual RSS hit count. The feed is capped (~100); do not invent a larger number.
-          const mentions = posts.length;
-          crowd.social_buzz.push({
-            source: 'Reddit',
-            mentions,
-            top_posts: titles,
-            window: 'month',
-            capped: mentions >= 100,
-            source_url: searchUrl,
-          });
-          log.crowd('reddit', clr.dim(`${mentions} recent posts${mentions >= 100 ? ' (feed cap)' : ''}`));
-
-          if (!(global as any).__redditCache) (global as any).__redditCache = {};
-          (global as any).__redditCache[cacheKey] = { timestamp: now, mentions, top_posts: titles };
-        } else {
-          log.crowd('reddit', clr.dim('no recent posts found'));
-        }
-      } else {
-        if (process.env.DEBUG_CROWD) {
-          log.warn('crowd', `Reddit HTTP ${res.status} — skipping social buzz`);
-        }
-      }
-    } catch (err) {
-        if (process.env.DEBUG_CROWD) {
-          log.warn('crowd', `Reddit ${ticker} error: ${(err as Error).message}`);
-        }
-      }
-    }
+    crowd.fear_greed = fearGreed;
+    crowd.stocktwits_data = stockTwits;
+    if (reddit) crowd.social_buzz.push(reddit);
 
     // ── Summary ────────────────────────────────────────────────────────────────
     // Signals need a real labelled sample: a 50/50 default or an unaudited
