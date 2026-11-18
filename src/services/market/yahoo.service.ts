@@ -2,6 +2,8 @@ import YahooFinance from 'yahoo-finance2';
 export const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey', 'ripHistorical'] });
 import { Candle } from '../../types/types.js';
 import { log, clr } from '../../utils/logger.js';
+import { AsyncTtlCache, cloneCandles } from '../../utils/async-cache.js';
+import { sessionSnapshot } from '../../shared/market-calendar.js';
 
 type HistoricalOptions = {
   includePrePost?: boolean;
@@ -22,6 +24,60 @@ const NY_TIME = new Intl.DateTimeFormat('en-US', {
 
 const REGULAR_START_MINUTES = 9 * 60 + 30;
 const REGULAR_END_MINUTES = 16 * 60;
+
+const MINUTE_MS = 60_000;
+
+/**
+ * Candle series cache.
+ *
+ * A dashboard poll, a scanner page and a chat tool routinely ask for the same
+ * series within seconds, and a 420-day daily fetch is hundreds of kilobytes.
+ * The cache shares that work; `cloneCandles` keeps every caller's mutations
+ * (indicators, FX volume suppression) out of the master copy.
+ *
+ * TTL is session-aware: a daily bar only changes once per session, so the whole
+ * series can be reused much longer while the exchange is closed. Prices still
+ * come from the quote endpoint, so a longer candle TTL never freezes the price
+ * the user sees.
+ */
+const MAX_CACHED_SERIES = 96;
+const candleCache = new AsyncTtlCache<string, Candle[]>({
+  ttlMs: MINUTE_MS,
+  maxEntries: MAX_CACHED_SERIES,
+});
+
+/** Test hook: drop cached series so each suite starts from a clean slate. */
+export function clearYahooCandleCache(): void {
+  candleCache.clear();
+}
+
+function historicalCacheKey(
+  symbol: string,
+  period1: Date,
+  interval: string,
+  options?: HistoricalOptions,
+): string {
+  return [
+    symbol.toUpperCase(),
+    interval,
+    // Lookback starts are computed from `Date.now()` per request; bucketing to
+    // the UTC day lets those requests share one series without changing which
+    // bars are returned (the earliest window is always included).
+    period1.toISOString().slice(0, 10),
+    options?.includePrePost === false ? 'no-pre' : 'pre',
+    options?.regularHours ? 'rth' : 'all',
+    options?.resampleIntervalMinutes ?? 0,
+    options?.adjustPrices ? 'adj' : 'raw',
+  ].join('|');
+}
+
+function historicalTtlMs(interval: string): number {
+  const session = sessionSnapshot('us', Date.now(), undefined).state;
+  const trading = session === 'open' || session === 'pre';
+  if (interval === '1d' || interval === '1wk') return (trading ? 2 : 20) * MINUTE_MS;
+  if (interval === '1h' || interval === '4h') return (trading ? 1 : 10) * MINUTE_MS;
+  return trading ? 30_000 : 5 * MINUTE_MS;
+}
 
 function getNyParts(date: Date): { dayKey: string; minutes: number } {
   const parts = NY_TIME.formatToParts(date);
@@ -86,6 +142,34 @@ function resampleCandles(
 
 export class YahooService {
   async getHistoricalData(
+    symbol: string,
+    period1: Date,
+    interval: '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1wk' = '1h',
+    logRealtime: boolean = true,
+    options?: HistoricalOptions,
+  ): Promise<Candle[]> {
+    // `logRealtime` is the interactive path (it also fetches a live quote and
+    // narrates it), so it stays uncached. Every request-serving caller passes
+    // false and gets the shared series.
+    if (logRealtime) {
+      return this.fetchHistoricalData(symbol, period1, interval, logRealtime, options);
+    }
+
+    const key = historicalCacheKey(symbol, period1, interval, options);
+    const candles = await candleCache.get(
+      key,
+      () => this.fetchHistoricalData(symbol, period1, interval, logRealtime, options),
+      {
+        ttlMs: historicalTtlMs(interval),
+        // A provider failure resolves to [] — retry it next call instead of
+        // caching an outage for the whole TTL.
+        shouldCache: (value) => value.length > 0,
+      },
+    );
+    return cloneCandles(candles);
+  }
+
+  private async fetchHistoricalData(
     symbol: string,
     period1: Date,
     interval: '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1wk' = '1h',

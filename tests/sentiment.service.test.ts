@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SentimentService } from '../src/services/market/sentiment.service.js';
+import { SentimentService, clearSentimentCaches } from '../src/services/market/sentiment.service.js';
 
 const mockState = vi.hoisted(() => ({
   ticker: 'BTC-USD',
@@ -36,14 +36,14 @@ vi.mock('../src/utils/logger.js', () => ({
 
 describe('SentimentService', () => {
   beforeEach(() => {
-    delete (globalThis as { __redditCache?: unknown }).__redditCache;
+    clearSentimentCaches();
   });
 
   afterEach(() => {
     mockState.ticker = 'BTC-USD';
     mockState.get.mockReset();
     vi.unstubAllGlobals();
-    delete (globalThis as { __redditCache?: unknown }).__redditCache;
+    clearSentimentCaches();
   });
 
   it('normalizes Yahoo crypto symbols for StockTwits and Reddit', async () => {
@@ -96,5 +96,41 @@ describe('SentimentService', () => {
         return false;
       }
     })).toBe(false);
+  }, 30000);
+
+  it('reuses the market-wide fear & greed read across calls', async () => {
+    mockState.get.mockImplementation(async (url: string) => {
+      const host = new URL(url).hostname;
+      if (host === 'production.dataviz.cnn.io') {
+        return { data: { fear_and_greed: { score: 61.2, rating: 'Greed' } } };
+      }
+      if (host === 'api.stocktwits.com') {
+        return { data: { messages: [], symbols: [] } };
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })));
+
+    const service = new SentimentService();
+    const first = await service.fetchCrowdSentiment();
+    const second = await service.fetchCrowdSentiment();
+
+    const cnnCalls = mockState.get.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('production.dataviz.cnn.io'));
+    expect(cnnCalls).toHaveLength(1);
+    expect(second.fear_greed).toEqual(first.fear_greed);
+  }, 30000);
+
+  it('returns the same shape when a provider fails', async () => {
+    mockState.get.mockImplementation(async () => { throw new Error('offline'); });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })));
+
+    const crowd = await new SentimentService().fetchCrowdSentiment();
+
+    expect(crowd.fear_greed).toBeNull();
+    expect(crowd.stocktwits_data).toBeNull();
+    expect(crowd.social_buzz).toEqual([]);
+    expect(crowd.summary.overall_signals).toEqual(['NEUTRAL']);
   }, 30000);
 });

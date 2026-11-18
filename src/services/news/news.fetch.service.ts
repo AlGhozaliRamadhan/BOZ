@@ -1,9 +1,11 @@
 // ─── services/news.fetch.service.ts ──────────────────────────────────────────
 import axios            from 'axios';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
+import { mkdir, rename, writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
 import Parser           from 'rss-parser';
 import { log }          from '../../utils/logger.js';
+import { mapWithConcurrency } from '../../utils/concurrency.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,6 +65,13 @@ export interface StockTwitSymbol {
 
 // ─── NewsFetchService ─────────────────────────────────────────────────────────
 
+interface CacheEntry {
+  time: number;
+  /** TTL in seconds the entry was stored with, so pruning can honour it. */
+  ttl?: number;
+  data: any;
+}
+
 export class NewsFetchService {
   private readonly parser  = new Parser();
   private readonly headers = {
@@ -72,8 +81,13 @@ export class NewsFetchService {
   private readonly retryableStatuses = new Set([429, 500, 502, 503, 504]);
   private readonly retryableCodes = new Set(['ECONNABORTED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND']);
 
-  private cache: Record<string, { time: number; data: any }> = {};
+  private cache: Record<string, CacheEntry> = {};
   private cacheLoaded = false;
+  /** One fetch per key at a time; concurrent callers await the same promise. */
+  private readonly cacheInflight = new Map<string, Promise<any>>();
+  private diskSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private diskSaving = false;
+  private diskDirty = false;
   private readonly cacheTTL: Record<string, number> = {
     crypto_news:        300,
     stock_news:         300,
@@ -82,6 +96,13 @@ export class NewsFetchService {
     indonesia_news:     180,   // fresher TTL — Indonesian market moves fast
     crowd_sentiment:    600,
   };
+
+  /** Hard ceiling so per-ticker search keys cannot grow without bound. */
+  private static readonly MAX_CACHE_ENTRIES = 160;
+  private static readonly MAX_CACHE_BYTES = 8_000_000;
+  private static readonly DEFAULT_TTL_SECONDS = 300;
+  /** Writes are coalesced: a burst of fetches produces one disk write. */
+  private static readonly DISK_SAVE_DEBOUNCE_MS = 1_500;
 
   private cacheFile(): string {
     const cacheDir =
@@ -163,36 +184,122 @@ export class NewsFetchService {
   private async getCached<T>(
     key:        string,
     fetchFn:    () => Promise<T>,
-    defaultTTL = 300,
+    defaultTTL = NewsFetchService.DEFAULT_TTL_SECONDS,
   ): Promise<T> {
     this.ensureCacheLoaded();
     const now = Date.now();
-    const ttl = (this.cacheTTL[key] ?? defaultTTL) * 1000;
-    if (this.cache[key] && now - this.cache[key].time < ttl) {
-      return this.cache[key].data as T;
+    const ttl = (this.cacheTTL[key] ?? defaultTTL);
+    const entry = this.cache[key];
+    if (entry && now - entry.time < ttl * 1000) {
+      return entry.data as T;
     }
-    const data = await fetchFn();
-    this.cache[key] = { time: now, data };
-    this.saveDiskCache();
-    return data;
-  }
+    if (entry) delete this.cache[key];
 
-  private loadDiskCache(): Record<string, { time: number; data: any }> {
-    try {
-      const cacheFile = this.cacheFile();
-      if (existsSync(cacheFile)) {
-        return JSON.parse(readFileSync(cacheFile, 'utf8'));
+    const pending = this.cacheInflight.get(key);
+    if (pending) return pending as Promise<T>;
+
+    const promise = (async () => {
+      try {
+        const data = await fetchFn();
+        this.cache[key] = { time: Date.now(), ttl, data };
+        this.pruneCache();
+        this.scheduleDiskSave();
+        return data;
+      } finally {
+        this.cacheInflight.delete(key);
       }
-    } catch {}
-    return {};
+    })();
+    this.cacheInflight.set(key, promise);
+    return promise;
   }
 
-  private saveDiskCache(): void {
+  /** Drops expired entries, then the oldest survivors once the cap is hit. */
+  private pruneCache(now = Date.now()): void {
+    for (const [key, entry] of Object.entries(this.cache)) {
+      const ttl = entry?.ttl ?? this.cacheTTL[key] ?? NewsFetchService.DEFAULT_TTL_SECONDS;
+      if (!entry || typeof entry.time !== 'number' || now - entry.time >= ttl * 1000) {
+        delete this.cache[key];
+      }
+    }
+
+    const keys = Object.keys(this.cache);
+    const overflow = keys.length - NewsFetchService.MAX_CACHE_ENTRIES;
+    if (overflow <= 0) return;
+    keys
+      .sort((left, right) => (this.cache[left]?.time ?? 0) - (this.cache[right]?.time ?? 0))
+      .slice(0, overflow)
+      .forEach(key => delete this.cache[key]);
+  }
+
+  private loadDiskCache(): Record<string, CacheEntry> {
     try {
       const cacheFile = this.cacheFile();
-      mkdirSync(dirname(cacheFile), { recursive: true });
-      writeFileSync(cacheFile, JSON.stringify(this.cache), 'utf8');
-    } catch {}
+      if (!existsSync(cacheFile)) return {};
+      const raw = readFileSync(cacheFile, 'utf8');
+      if (raw.length > NewsFetchService.MAX_CACHE_BYTES) return {};
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      const entries: Record<string, CacheEntry> = {};
+      for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+        if (!value || typeof value !== 'object') continue;
+        const candidate = value as CacheEntry;
+        if (typeof candidate.time !== 'number' || Number.isNaN(candidate.time)) continue;
+        entries[key] = {
+          time: candidate.time,
+          ttl: typeof candidate.ttl === 'number' ? candidate.ttl : undefined,
+          data: candidate.data,
+        };
+      }
+      // Persisted entries are only as fresh as their own TTL.
+      for (const [key, entry] of Object.entries(entries)) {
+        const ttl = entry.ttl ?? this.cacheTTL[key] ?? NewsFetchService.DEFAULT_TTL_SECONDS;
+        if (Date.now() - entry.time >= ttl * 1000) delete entries[key];
+      }
+      return entries;
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Best-effort persistence.
+   *
+   * This used to be a synchronous write on every fetch, which blocked the event
+   * loop for a payload that now includes several months of ticker headlines.
+   * Writes are now debounced and async (temp file + rename); losing the last
+   * few seconds of cache on a hard kill only costs one refetch.
+   */
+  private scheduleDiskSave(): void {
+    this.diskDirty = true;
+    if (this.diskSaveTimer) return;
+    this.diskSaveTimer = setTimeout(() => {
+      this.diskSaveTimer = null;
+      void this.flushDiskCache();
+    }, NewsFetchService.DISK_SAVE_DEBOUNCE_MS);
+    // Never keep the process alive just to persist a cache.
+    this.diskSaveTimer.unref?.();
+  }
+
+  private async flushDiskCache(): Promise<void> {
+    if (this.diskSaving) return;
+    this.diskSaving = true;
+    try {
+      while (this.diskDirty) {
+        this.diskDirty = false;
+        this.pruneCache();
+        const cacheFile = this.cacheFile();
+        const temporary = `${cacheFile}.${process.pid}.tmp`;
+        const payload = JSON.stringify(this.cache);
+        if (payload.length > NewsFetchService.MAX_CACHE_BYTES) return;
+        await mkdir(dirname(cacheFile), { recursive: true });
+        await writeFile(temporary, payload, 'utf8');
+        await rename(temporary, cacheFile);
+      }
+    } catch {
+      // Cache persistence is an optimisation, never a correctness requirement.
+    } finally {
+      this.diskSaving = false;
+    }
   }
 
   // ─── RSS XML sanitizer ─────────────────────────────────────────────────
@@ -225,20 +332,25 @@ export class NewsFetchService {
       oil: [], forex: [], economy: [], indonesia: [], all: [],
     };
 
-    log.info('news', 'Fetching crypto news...');
-    data.cryptocurrency = await this.fetchCryptoNews();
+    // Every category (and the crowd read) is an independent provider set.
+    // Awaiting them one by one made `fetchAll` cost the sum of all of them.
+    log.info('news', 'Fetching news feeds...');
+    const [cryptocurrency, stocks, economy, indonesia, broad, crowdSentiment] = await Promise.all([
+      this.fetchCryptoNews(),
+      this.fetchStockNews(),
+      this.fetchMacroNews(),
+      this.fetchIndonesiaNews(),
+      this.fetchBroadMarketNews(),
+      withCrowdSentiment ? this.fetchCrowdSentiment() : Promise.resolve(null),
+    ]);
 
-    log.info('news', 'Fetching stock news...');
-    data.stocks = await this.fetchStockNews();
+    // The cached arrays are shared with every other request, so copy before
+    // appending the broad-market rows into them.
+    data.cryptocurrency = [...cryptocurrency];
+    data.stocks = [...stocks];
+    data.economy = [...economy];
+    data.indonesia = [...indonesia];
 
-    log.info('news', 'Fetching macro news...');
-    data.economy = await this.fetchMacroNews();
-
-    log.info('news', 'Fetching Indonesian market news...');
-    data.indonesia = await this.fetchIndonesiaNews();
-
-    log.info('news', 'Fetching broad market RSS...');
-    const broad = await this.fetchBroadMarketNews();
     for (const item of broad) {
       const cat = item.category.toLowerCase();
       if ((data as any)[cat]) (data as any)[cat].push(item);
@@ -246,10 +358,7 @@ export class NewsFetchService {
       else data.stocks.push(item);
     }
 
-    if (withCrowdSentiment) {
-      log.info('news', 'Fetching crowd sentiment...');
-      data.crowd_sentiment = await this.fetchCrowdSentiment();
-    }
+    if (crowdSentiment) data.crowd_sentiment = crowdSentiment;
 
     data.all = [
       ...data.indonesia, ...data.cryptocurrency, ...data.stocks,
@@ -274,46 +383,54 @@ export class NewsFetchService {
 
   public async fetchIndonesiaNews(): Promise<NewsItem[]> {
     return this.getCached('indonesia_news', async () => {
-      const items: NewsItem[] = [];
       const highKw = ['ihsg', 'idx', 'bi rate', 'bank indonesia', 'rupiah', 'idr',
                       'bursa', 'saham', 'crash', 'rally', 'koreksi', 'naik', 'turun',
                       'record', 'all time', 'tertinggi', 'terendah', 'inflasi'];
       const medKw  = ['bbca', 'bbri', 'bmri', 'tlkm', 'asii', 'goto', 'emiten',
                       'dividen', 'laba', 'pendapatan', 'ekspor', 'impor'];
 
-      for (const url of this.marketRssFeeds.indonesia) {
-        try {
-          const feed = await this.parseURLSafe(url);
-          for (const entry of (feed.items ?? []).slice(0, 12)) {
-            const title = (entry.title ?? '').toLowerCase();
-            const snippet = (entry.contentSnippet ?? entry.content ?? '').toLowerCase();
-            const blob = title + ' ' + snippet;
-            const impact: 'high' | 'medium' | 'low' =
-              highKw.some(k => blob.includes(k)) ? 'high' :
-              medKw.some(k => blob.includes(k))  ? 'medium' : 'low';
-            items.push({
-              category:  'indonesia',
-              type:      'news',
-              impact,
-              title:     entry.title ?? '',
-              details:   (entry.contentSnippet ?? '').substring(0, 500),
-              source:    feed.title ?? new URL(url).hostname,
-              url:       entry.link,
-              timestamp: entry.pubDate ?? new Date().toISOString(),
-              assets:    ['IHSG', '^JKSE'],
-            });
+      // The five feeds are independent; fetch them together and keep registry
+      // order so the output does not reshuffle between refreshes.
+      const perFeed = await mapWithConcurrency(
+        this.marketRssFeeds.indonesia,
+        5,
+        async (url): Promise<NewsItem[]> => {
+          const feedItems: NewsItem[] = [];
+          try {
+            const feed = await this.parseURLSafe(url);
+            for (const entry of (feed.items ?? []).slice(0, 12)) {
+              const title = (entry.title ?? '').toLowerCase();
+              const snippet = (entry.contentSnippet ?? entry.content ?? '').toLowerCase();
+              const blob = title + ' ' + snippet;
+              const impact: 'high' | 'medium' | 'low' =
+                highKw.some(k => blob.includes(k)) ? 'high' :
+                medKw.some(k => blob.includes(k))  ? 'medium' : 'low';
+              feedItems.push({
+                category:  'indonesia',
+                type:      'news',
+                impact,
+                title:     entry.title ?? '',
+                details:   (entry.contentSnippet ?? '').substring(0, 500),
+                source:    feed.title ?? new URL(url).hostname,
+                url:       entry.link,
+                timestamp: entry.pubDate ?? new Date().toISOString(),
+                assets:    ['IHSG', '^JKSE'],
+              });
+            }
+            log.info('news', `Indonesian RSS (${new URL(url).hostname}): ${feed.items?.length ?? 0} items`);
+          } catch (e: any) {
+            const status = e?.response?.status as number | undefined;
+            if (status === 404)
+              log.warn('news', `Indonesian RSS 404 — feed may have moved: ${url}`);
+            else if (status === 403 || status === 429)
+              log.info('news', `Indonesian RSS blocked (${status}): ${url}`);
+            else
+              log.warn('news', `Indonesian RSS (${url}): ${e.message}`);
           }
-          log.info('news', `Indonesian RSS (${new URL(url).hostname}): ${feed.items?.length ?? 0} items`);
-        } catch (e: any) {
-          const status = e?.response?.status as number | undefined;
-          if (status === 404)
-            log.warn('news', `Indonesian RSS 404 — feed may have moved: ${url}`);
-          else if (status === 403 || status === 429)
-            log.info('news', `Indonesian RSS blocked (${status}): ${url}`);
-          else
-            log.warn('news', `Indonesian RSS (${url}): ${e.message}`);
-        }
-      }
+          return feedItems;
+        },
+      );
+      const items = perFeed.flat();
 
       // Sort: high-impact first, then by recency
       items.sort((a, b) => {
@@ -525,7 +642,6 @@ export class NewsFetchService {
 
   public async fetchBroadMarketNews(): Promise<NewsItem[]> {
     return this.getCached('news_broad_market', async () => {
-      const items: NewsItem[] = [];
       const highKw = ['breaking', 'urgent', 'crash', 'surge', 'billion', 'regulation', 'approved', 'banned', 'record', 'historic'];
       const medKw  = ['announces', 'launches', 'partnership', 'update', 'report', 'forecasts', 'warns'];
 
@@ -538,34 +654,44 @@ export class NewsFetchService {
         economy:     this.marketRssFeeds.economy,
       };
 
-      for (const [category, feeds] of Object.entries(feedsToFetch)) {
-        for (const url of feeds) {
-          try {
-            const feed = await this.parseURLSafe(url);
-            for (const entry of (feed.items ?? []).slice(0, 10)) {
-              const title  = (entry.title ?? '').toLowerCase();
-              const impact: 'high' | 'medium' | 'low' =
-                highKw.some(k => title.includes(k)) ? 'high' :
-                medKw.some(k => title.includes(k))  ? 'medium' : 'low';
-              items.push({
-                category, type: 'news', impact,
-                title:     entry.title ?? '',
-                details:   (entry.contentSnippet ?? '').substring(0, 500),
-                source:    feed.title ?? 'RSS Feed',
-                url:       entry.link,
-                timestamp: entry.pubDate ?? new Date().toISOString(),
-              });
-            }
-          } catch (e: any) {
-            const status = e?.response?.status as number | undefined;
-            if (status === 404) log.warn('news', `RSS ${category}: 404 — URL may have moved (${url})`);
-            else if (status === 403 || status === 429 || status === 503)
-              log.info('news', `RSS ${category}: blocked/unavailable (${status}) — skipping ${url}`);
-            else log.warn('news', `RSS ${category}: ${e.message}`);
+      // Nine feeds across five categories. Awaiting them serially meant the
+      // slowest feed decided the whole refresh; they are independent, so fetch
+      // them together and let `mapWithConcurrency` keep the burst bounded.
+      const tasks = Object.entries(feedsToFetch).flatMap(([category, feeds]) =>
+        feeds.map(url => ({ category, url })),
+      );
+
+      const perFeed = await mapWithConcurrency(tasks, 6, async ({ category, url }) => {
+        const feedItems: NewsItem[] = [];
+        try {
+          const feed = await this.parseURLSafe(url);
+          for (const entry of (feed.items ?? []).slice(0, 10)) {
+            const title  = (entry.title ?? '').toLowerCase();
+            const impact: 'high' | 'medium' | 'low' =
+              highKw.some(k => title.includes(k)) ? 'high' :
+              medKw.some(k => title.includes(k))  ? 'medium' : 'low';
+            feedItems.push({
+              category, type: 'news', impact,
+              title:     entry.title ?? '',
+              details:   (entry.contentSnippet ?? '').substring(0, 500),
+              source:    feed.title ?? 'RSS Feed',
+              url:       entry.link,
+              timestamp: entry.pubDate ?? new Date().toISOString(),
+            });
           }
+        } catch (e: any) {
+          const status = e?.response?.status as number | undefined;
+          if (status === 404) log.warn('news', `RSS ${category}: 404 — URL may have moved (${url})`);
+          else if (status === 403 || status === 429 || status === 503)
+            log.info('news', `RSS ${category}: blocked/unavailable (${status}) — skipping ${url}`);
+          else log.warn('news', `RSS ${category}: ${e.message}`);
         }
-      }
-      return items;
+        return feedItems;
+      });
+
+      // Registry order is preserved by `mapWithConcurrency`, so the cached row
+      // order stays stable between refreshes.
+      return perFeed.flat();
     });
   }
 
@@ -580,82 +706,20 @@ export class NewsFetchService {
         summary:             {},
       };
 
-      try {
-        const res = await this.withRetry('fear_greed_altme', () =>
-          axios.get('https://api.alternative.me/fng/?limit=7', { headers: this.headers, timeout: 5000 }),
-        );
-        const data = res.data?.data ?? [];
-        if (data.length > 0) {
-          // A vendor row without a value must not become a fabricated 50: the
-          // index only exists when the payload actually carries one, so
-          // malformed rows are dropped and an unusable payload is skipped.
-          const latestValue = parseInt(data[0].value, 10);
-          const values: number[] = data
-            .map((d: any) => parseInt(d.value, 10))
-            .filter((v: number) => !Number.isNaN(v));
-          if (!Number.isNaN(latestValue) && values.length > 0) {
-            const avg7d = values.reduce((a, b) => a + b, 0) / values.length;
-            crowd.fear_greed = {
-              value:    latestValue,
-              label:    data[0].value_classification ?? 'Neutral',
-              avg_7d:   Math.round(avg7d * 10) / 10,
-              trend_7d: values,
-              momentum:
-                values[0] > avg7d + 5 ? 'RISING_GREED' :
-                values[0] < avg7d - 5 ? 'RISING_FEAR'  : 'STABLE',
-            };
-          }
-        }
-      } catch (e: any) { log.warn('news', `Fear & Greed alt.me: ${e.message}`); }
+      // Three unrelated providers. The fear&greed pair has a real ordering
+      // requirement (alt.me, then CNN only when alt.me failed), so that stays
+      // one task; CoinGecko and StockTwits are independent and now overlap it.
+      const [fearGreed, coingecko, stocktwits] = await Promise.all([
+        this.fetchFearGreed(),
+        this.fetchCoinGeckoCommunity(),
+        this.fetchStockTwitsTrending(),
+      ]);
 
-      if (!crowd.fear_greed) {
-        try {
-          const res = await this.withRetry('fear_greed_cnn', () =>
-            axios.get('https://production.dataviz.cnn.io/index/fearandgreed/graphdata', { headers: this.headers, timeout: 5000 }),
-          );
-          const score  = res.data?.fear_and_greed?.score;
-          const rating = res.data?.fear_and_greed?.rating;
-          if (score !== undefined) {
-            crowd.fear_greed = { value: Math.round(score), label: rating ?? 'Unknown', momentum: 'N/A', avg_7d: null, trend_7d: [] };
-          }
-        } catch { /* silent */ }
-      }
-
-      try {
-        const res = await this.withRetry('coingecko_markets', () =>
-          axios.get('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1&sparkline=false&price_change_percentage=24h', { headers: this.headers, timeout: 5000 }),
-        );
-        let bull = 0, bear = 0;
-        for (const coin of (res.data ?? [])) {
-          const chg = coin.price_change_percentage_24h ?? 0;
-          if (chg > 0) bull++; else bear++;
-          crowd.coingecko_community.push({
-            symbol: (coin.symbol ?? '').toUpperCase(), name: coin.name,
-            price: coin.current_price, change_24h: Math.round(chg * 100) / 100,
-            crowd_sentiment: chg > 0 ? 'bullish' : 'bearish',
-          });
-        }
-        crowd.summary.crypto_crowd = `${bull} of top 10 coins bullish, ${bear} bearish in last 24h`;
-      } catch (e: any) { log.warn('news', `CoinGecko community: ${e.message}`); }
-
-      try {
-        const res = await this.withRetry('stocktwits_trending', () =>
-          axios.get('https://api.stocktwits.com/api/2/trending/symbols.json', {
-            headers: {
-              ...this.headers,
-              Accept: 'application/json',
-              Referer: 'https://stocktwits.com/',
-              Origin: 'https://stocktwits.com',
-            },
-            timeout: 5000,
-          }),
-        );
-        for (const sym of (res.data?.symbols ?? []).slice(0, 15)) {
-          crowd.stocktwits_trending.push({ symbol: sym.symbol, title: sym.title, watchlist_count: sym.watchlist_count });
-        }
-        const top5 = (res.data?.symbols ?? []).slice(0, 5).map((s: any) => s.symbol);
-        if (top5.length > 0) crowd.summary.stocktwits_hot = `Top trending: ${top5.join(', ')}`;
-      } catch (e: any) { log.warn('news', `StockTwits: ${e.message}`); }
+      if (fearGreed) crowd.fear_greed = fearGreed;
+      if (coingecko.items.length > 0) crowd.coingecko_community = coingecko.items;
+      if (coingecko.summary) crowd.summary.crypto_crowd = coingecko.summary;
+      if (stocktwits.items.length > 0) crowd.stocktwits_trending = stocktwits.items;
+      if (stocktwits.summary) crowd.summary.stocktwits_hot = stocktwits.summary;
 
       const fg = crowd.fear_greed;
       if (fg) {
@@ -670,6 +734,105 @@ export class NewsFetchService {
 
       return crowd;
     });
+  }
+
+  /** alt.me first; CNN is only asked when alt.me produced nothing usable. */
+  private async fetchFearGreed(): Promise<FearGreed | null> {
+    try {
+      const res = await this.withRetry('fear_greed_altme', () =>
+        axios.get('https://api.alternative.me/fng/?limit=7', { headers: this.headers, timeout: 5000 }),
+      );
+      const data = res.data?.data ?? [];
+      if (data.length > 0) {
+        // A vendor row without a value must not become a fabricated 50: the
+        // index only exists when the payload actually carries one, so
+        // malformed rows are dropped and an unusable payload is skipped.
+        const latestValue = parseInt(data[0].value, 10);
+        const values: number[] = data
+          .map((d: any) => parseInt(d.value, 10))
+          .filter((v: number) => !Number.isNaN(v));
+        if (!Number.isNaN(latestValue) && values.length > 0) {
+          const avg7d = values.reduce((a, b) => a + b, 0) / values.length;
+          return {
+            value:    latestValue,
+            label:    data[0].value_classification ?? 'Neutral',
+            avg_7d:   Math.round(avg7d * 10) / 10,
+            trend_7d: values,
+            momentum:
+              values[0] > avg7d + 5 ? 'RISING_GREED' :
+              values[0] < avg7d - 5 ? 'RISING_FEAR'  : 'STABLE',
+          };
+        }
+      }
+    } catch (e: any) { log.warn('news', `Fear & Greed alt.me: ${e.message}`); }
+
+    try {
+      const res = await this.withRetry('fear_greed_cnn', () =>
+        axios.get('https://production.dataviz.cnn.io/index/fearandgreed/graphdata', { headers: this.headers, timeout: 5000 }),
+      );
+      const score  = res.data?.fear_and_greed?.score;
+      const rating = res.data?.fear_and_greed?.rating;
+      if (score !== undefined) {
+        return { value: Math.round(score), label: rating ?? 'Unknown', momentum: 'N/A', avg_7d: null, trend_7d: [] };
+      }
+    } catch { /* silent */ }
+
+    return null;
+  }
+
+  private async fetchCoinGeckoCommunity(): Promise<{ items: CoinSentiment[]; summary: string | null }> {
+    const items: CoinSentiment[] = [];
+    try {
+      const res = await this.withRetry('coingecko_markets', () =>
+        axios.get('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1&sparkline=false&price_change_percentage=24h', { headers: this.headers, timeout: 5000 }),
+      );
+      let bull = 0, bear = 0;
+      for (const coin of (res.data ?? [])) {
+        const chg = coin.price_change_percentage_24h ?? 0;
+        if (chg > 0) bull++; else bear++;
+        items.push({
+          symbol: (coin.symbol ?? '').toUpperCase(), name: coin.name,
+          price: coin.current_price, change_24h: Math.round(chg * 100) / 100,
+          crowd_sentiment: chg > 0 ? 'bullish' : 'bearish',
+        });
+      }
+      return {
+        items,
+        summary: `${bull} of top 10 coins bullish, ${bear} bearish in last 24h`,
+      };
+    } catch (e: any) {
+      log.warn('news', `CoinGecko community: ${e.message}`);
+      return { items, summary: null };
+    }
+  }
+
+  private async fetchStockTwitsTrending(): Promise<{ items: StockTwitSymbol[]; summary: string | null }> {
+    const items: StockTwitSymbol[] = [];
+    try {
+      const res = await this.withRetry('stocktwits_trending', () =>
+        axios.get('https://api.stocktwits.com/api/2/trending/symbols.json', {
+          headers: {
+            ...this.headers,
+            Accept: 'application/json',
+            Referer: 'https://stocktwits.com/',
+            Origin: 'https://stocktwits.com',
+          },
+          timeout: 5000,
+        }),
+      );
+      const symbols = res.data?.symbols ?? [];
+      for (const sym of symbols.slice(0, 15)) {
+        items.push({ symbol: sym.symbol, title: sym.title, watchlist_count: sym.watchlist_count });
+      }
+      const top5 = symbols.slice(0, 5).map((s: any) => s.symbol);
+      return {
+        items,
+        summary: top5.length > 0 ? `Top trending: ${top5.join(', ')}` : null,
+      };
+    } catch (e: any) {
+      log.warn('news', `StockTwits: ${e.message}`);
+      return { items, summary: null };
+    }
   }
 
   // ─── Utility ──────────────────────────────────────────────────────────
