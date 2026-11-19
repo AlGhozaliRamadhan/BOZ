@@ -440,7 +440,7 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
               onClick={() => setIsAboutOpen(true)}
               title="About BOZ"
             >
-              v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.9.0'}
+              v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.9.1'}
             </button>
           </div>
         )}

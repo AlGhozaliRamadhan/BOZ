@@ -4,7 +4,7 @@ import { useEffect, useId } from 'react';
 import styles from './AboutModal.module.css';
 
 /** Fallback mirrors the sidebar footer; the build rewrites both at package time. */
-const CURRENT_VERSION = process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.9.0';
+const CURRENT_VERSION = process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.9.1';
 
 interface AboutModalProps {
   onClose: () => void;
