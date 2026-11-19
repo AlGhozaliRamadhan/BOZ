@@ -47,7 +47,7 @@
     "@tauri-apps/plugin-updater": "2.14.0",
     "ajv": "^8.17.1",
     "axios": "^1.18.1",
-    "dotenv": "^18.0.8",
+    "dotenv": "^18.0.9",
     "isomorphic-dompurify": "^4.6.0",
     "marked": "^18.0.5",
     "openai": "^7.28.0",
