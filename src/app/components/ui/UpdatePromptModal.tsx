@@ -14,7 +14,7 @@ interface UpdatePromptModalProps {
 }
 
 /** Installed build: the "from" side of the version change. */
-const CURRENT_VERSION = process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.9.0';
+const CURRENT_VERSION = process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.9.1';
 
 function phaseTitle(phase: HostUpdateStatus['phase']): string {
   switch (phase) {
