@@ -90,6 +90,50 @@ describe('isPlainQuestion — a first message is still a question', () => {
   });
 });
 
+describe('isPlainQuestion — reading what the message asks for', () => {
+  // The reported exchange: a follow-up asked a question in a long, typo-ridden
+  // sentence. The old classifier counted words, saw 42, and treated the reply
+  // as a commission for a fresh report — which re-derived the instrument and
+  // repeated a ticker correction the previous answer had already made.
+  const RAMBLING_FOLLOW_UP =
+    'but in future waht your opinion of that shares? will it sky rocket cus i belive the ai at least '
+    + 'LLM its already at its peak beacuse right now they trained ai by ai with dataset by ai taht with ai knowledge';
+
+  it('classifies the reported rambling follow-up as a question', () => {
+    expect(isPlainQuestion(RAMBLING_FOLLOW_UP, HISTORY)).toBe(true);
+    // Nothing changes with the turn it arrives on: the signal is what the
+    // message asks for, not whether something precedes it.
+    expect(isPlainQuestion(RAMBLING_FOLLOW_UP, [])).toBe(true);
+  });
+
+  it('does not turn length into a brief', () => {
+    const long = `${'I keep going back and forth on the setup and the levels '.repeat(8)}what would invalidate it`;
+    expect(isPlainQuestion(long, HISTORY)).toBe(true);
+  });
+
+  it('recognises a brief by the work it orders, however short', () => {
+    for (const message of [
+      'full breakdown on NVDA',
+      'give me the complete picture on BBCA',
+      'walk me through the levels',
+      'pull the dashboard for MSFT',
+      '- trend first\n- then the levels',
+    ]) {
+      expect(isPlainQuestion(message, HISTORY), message).toBe(false);
+    }
+  });
+
+  it('does not treat a passing subject noun as an order', () => {
+    // "the jobs report" names the subject; it is not a requested artefact.
+    expect(isPlainQuestion('the jobs report came in hot, what does that mean?', HISTORY)).toBe(true);
+    expect(isPlainQuestion("what's your read on the jobs report?", HISTORY)).toBe(true);
+    // Nor does a phrase the previous answer used, quoted back in a question.
+    expect(isPlainQuestion('is the deep dive still valid?', HISTORY)).toBe(true);
+    expect(isPlainQuestion('is the full report still valid?', HISTORY)).toBe(true);
+    expect(isPlainQuestion("what does 'complete picture' mean here?", HISTORY)).toBe(true);
+  });
+});
+
 describe('isPlainQuestion — asking for a new report is never a plain question', () => {
   it('rejects slash commands, with or without history', () => {
     expect(isPlainQuestion('/intraday NVDA', [])).toBe(false);
@@ -108,13 +152,15 @@ describe('isPlainQuestion — asking for a new report is never a plain question'
     }
   });
 
-  it('rejects a long structured request', () => {
+  it('rejects a structured request, whatever its length', () => {
     const long = `Give me a complete intraday breakdown of NVDA covering the moving averages, `
       + `the RSI and MACD readings, the OBV divergence, the volume participation versus the `
       + `twenty day average, the macro regime, the support and resistance levels, the ATR `
       + `and the sizing for a risk defined position with explicit entry stop and targets.`;
-    expect(long.split(/\s+/).length).toBeGreaterThan(40);
+    // Rejected because it orders a breakdown — not because of how many words
+    // the order took to write.
     expect(isPlainQuestion(long, HISTORY)).toBe(false);
+    expect(isPlainQuestion('give me a breakdown on NVDA', HISTORY)).toBe(false);
   });
 
   it('rejects an empty message', () => {

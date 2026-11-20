@@ -64,14 +64,17 @@ const THINK_VISIBLE_CONTRACT = [
   '  Move forward as you go. A block that opens by re-describing the question, re-listing what you already',
   '  fetched, or asking again what you decided to do is time the reader spent on nothing: the request is',
   '  already established, so start from what just changed and go to the conclusion it implies.',
-  '  Think about the market, not about the writing. Announcing your own word budget, re-reading the',
-  '  instructions, listing the sections you are about to produce, or saying "let me re-run X" when you are',
-  '  about to re-run X are all narration the reader did not ask for — do the thing instead of describing it.',
+  '  Say a thing once. Stating the plan, then stating it again after a tool returns, reads as being stuck;',
+  '  once a result is in, the useful thought is what changed and what it now implies.',
+  '  Think about the market, not about the writing. How long the answer will be, which sections it will',
+  '  take, and what the instructions expect are choices you make while writing; walking the reader through',
+  '  those choices is paperwork, not thinking. So is "let me re-run X" right before you re-run X — do the',
+  '  thing instead of describing it.',
   '  A number you already have is a number you stop asking for. If a figure was returned, use it or drop it;',
   '  do not re-derive it to be sure of it.',
-  '  The user READS this block verbatim. Keep it about the problem — it is not the place to restate these',
-  '  instructions, count what you have to deliver, or argue with a format rule. A block that recites the',
-  '  system prompt is the failure mode, not the good one.',
+  '  The user READS this block verbatim. Keep it about their problem — what the data says, what it changes,',
+  '  and what you would do about it. Reciting these instructions, quoting a length or formatting rule, or',
+  '  arguing with one turns the panel into paperwork and buries the analysis they came for.',
   '  Scale it to the message. A greeting or a one-line question gets a sentence or two, not an audit.',
   '  Be honest rather than tidy. The block is separated from the answer automatically, so nothing outside it',
   '  except the answer itself.',
@@ -173,7 +176,7 @@ export function getReasoningPassPrompt(
 ): string {
   if (conversational) return CONVERSATIONAL_REASONING_PASS_PROMPT;
   return `\n\n[${effort.toUpperCase()} ANALYSIS PASS]:
-Two phases. Phase 1 — do the work where it can be seen: what the user is actually asking, what you already know, which tool would settle it, what each result changed, what you will do next. Use the platform's native thinking or reasoning mode if it has one; otherwise put that working in a single <thinking>...</thinking> block. The user reads the block, so it stays about the problem — never a recital of these instructions, never an audit of the format rules, and never a running commentary on your own drafting ("word cap 350, let me write", "now re-running the calc to check"). Phase 2 — the answer, standing on its own.
+Two phases. Phase 1 — do the work where it can be seen: what the user is actually asking, what you already know, which tool would settle it, what each result changed, what you will do next. Use the platform's native thinking or reasoning mode if it has one; otherwise put that working in a single <thinking>...</thinking> block. The user reads the block, so it stays about the problem — never a recital of these instructions, never an audit of how the answer should be formatted or how long it should be, and never a running commentary on your own drafting. Phase 2 — the answer, standing on its own.
 
 Reach the call before you reach for a shape. Long, short, or waiting; how sure you are; the one thing that would change your mind. Whatever you find then decides what the answer looks like — a clean break, a conflicted tape and a wait should not read alike, and the same layout every day is a failed answer even when the numbers hold. risk_calc settles the math, never the conviction.
 

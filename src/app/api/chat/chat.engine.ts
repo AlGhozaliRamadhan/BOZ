@@ -37,6 +37,7 @@ import {
   extractFxSessionsFact,
 } from '@/tools/fx.tool';
 import { RUNTIME_SYSTEM_PROMPT } from '@/shared/runtime-prompt';
+import { currentDate, currentDatePrompt } from '@/shared/current-date';
 import {
   executeFetchGlobalMarketSnapshot,
   fetchGlobalMarketSnapshotDefinition,
@@ -629,7 +630,11 @@ export class WebChatEngine {
       // narrating the run it was told not to think out loud.
       const turnThought = thinkingEnabled ? turnReasoning(aiMessage) : '';
       if (turnThought) {
-        this.forwardReasoning(turnThought);
+        // One channel only. This event is serialized to the SSE `reasoning`
+        // stream; sending the same text through `forwardReasoning` as well
+        // delivered the identical block twice, and the client appends both
+        // into one step, so the panel showed it glued to itself with no
+        // separator. The generator is the single owner of a turn's thought.
         yield { type: 'reasoning', data: { text: turnThought } };
       }
 
@@ -812,9 +817,9 @@ export class WebChatEngine {
     // The turn that ended the loop reasoned too, and that working belongs in the
     // panel: the reader should see what the model settled before the answer it
     // settled. Same gate as the tool turns — no narration when deep think is off.
+    // Same single channel as above: the yielded event, never also the sink.
     const finalThought = thinkingEnabled ? turnReasoning(aiMessage) : '';
     if (finalThought) {
-      this.forwardReasoning(finalThought);
       yield { type: 'reasoning', data: { text: finalThought } };
     }
 
@@ -953,9 +958,12 @@ export class WebChatEngine {
         }
         // ── Answer gate: deterministic post-generation check ────────────────
         // answerCheck only passes/fails — it never modifies text. On FAIL,
-        // regenerate once with the mechanical findings appended. On a second
-        // FAIL, stamp FAILED VALIDATION with the issue list — never silently
-        // ship a failing answer.
+        // regenerate once with the mechanical findings appended. If the second
+        // pass still fails, log the residual issues and ship the best draft:
+        // stamping the rule names into the reply ("FAILED VALIDATION: likely-
+        // path table missing separated ENTRY column") told the reader nothing
+        // about the market and made a working answer look broken. The gate's
+        // one job is the forced fix above; the report belongs in our logs.
         let gate = answerCheck(finalAnswer, this.buildAnswerCheckLog(messages), { plainQuestion });
         if (!gate.pass) {
           console.warn(
@@ -1001,7 +1009,13 @@ export class WebChatEngine {
             console.warn('[chat.engine] gate regeneration failed, keeping draft:', regenErr instanceof Error ? regenErr.message : String(regenErr));
           }
           if (!gate.pass) {
-            finalAnswer = `${finalAnswer}\n\nFAILED VALIDATION: ${gate.issues.join('; ')}.`;
+            // Internal only. The forced fix above already ran; the residual
+            // issue list is QA vocabulary ("missing separated ENTRY column"),
+            // not an answer, so it goes to the log and never into the reply.
+            console.error(
+              `[chat.engine] answer gate still failing after regeneration (${gate.issues.length}):`,
+              gate.issues.join('; '),
+            );
           }
         }
         const words = finalAnswer.split(/(\s+)/);
@@ -1065,6 +1079,8 @@ export class WebChatEngine {
     // bull/base/bear branching, a merge/synthesis step, or hand-computed R:R.
     return [
       RUNTIME_SYSTEM_PROMPT,
+      '',
+      currentDatePrompt(),
       prefs,
       facts,
       '',
@@ -1208,6 +1224,10 @@ export class WebChatEngine {
           name: 'web_search',
           description: [
             'Search the live web for current information.',
+            // The query is the model's own construction, so the year has to be
+            // in front of it: without a date the model anchors on its training
+            // period and returns last year's material as if it were today's.
+            `Today is ${currentDate().iso}; when the answer depends on recency, put ${currentDate().year} in the query so results describe now rather than a past year.`,
             'Use when other tools return empty or insufficient results.',
             'Useful for: market news, sector analysis, macro events, company news.',
           ].join(' '),
@@ -1986,6 +2006,9 @@ export class WebChatEngine {
             '  Do not restate or re-summarize what you already told them. Do not re-emit the likely-path table',
             '    or My take unless they ask for the plan again. Do not re-run the dashboard/search/calc pipeline',
             '    to answer a question about numbers you already reported.',
+            '  A correction already made stays made. If the previous answer settled what instrument is meant,',
+            '    resolved a ticker, or named a figure, that premise is not the question — repeating it turns their',
+            '    new question into a re-argument they already heard and leaves it unanswered.',
             '  Numbers you repeat from your previous answer are quotes of your own prior statement, not new claims.',
             '    Anything NEW still has to trace to a tool result.',
           ]
@@ -2234,6 +2257,8 @@ export class WebChatEngine {
     const reasoningSystemPrompt = [
       'You are BOZ, a senior quantitative analyst and discretionary trader. Think in probabilities but deliver one committed read.',
       'Reason privately; the user sees conclusions, not branching. Never write symmetric bull/base/bear sections.',
+      '',
+      currentDatePrompt(),
       '',
       'JUDGMENT RULES:',
       '  - The dashboard bias score is a claim to test, not a conclusion. Agree or push back explicitly.',
