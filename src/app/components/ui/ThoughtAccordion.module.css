@@ -317,27 +317,36 @@
 .web-search-source-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 2px;
+  gap: 4px;
+  margin-top: 6px;
 }
 
-/* Sources are plain text links, not cards: no background, no border, no
- * padding — the title IS the link, with the publisher's name riding along.
- * Colors come from the theme-adaptive text ramp (--accent-cyan is #ffffff in
- * both themes and would vanish on the light background). Hover and keyboard
- * focus do the accent work with an underline and an outline respectively. */
+/* Sources are compact rows on the panel's own surface, not browser-default
+ * controls. The first version of this list left the "Show more" element as a
+ * bare <button> and styled only its text, so Chromium painted its UA control —
+ * the light grey box that clashed with the dark theme. Every part is now
+ * explicit: theme border and radius, the adaptive text ramp (--accent-cyan is
+ * #ffffff in both themes and would vanish on a light background), a hover that
+ * tints the row rather than inventing a colour, and a focus ring for keyboard
+ * users. Tokens carry the light theme, so both modes stay readable. */
 .web-search-source {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   max-width: 100%;
   min-width: 0;
-  padding: 0;
-  border: none;
-  border-radius: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
   background: transparent;
   color: inherit;
   text-decoration: none;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.web-search-source:hover {
+  border-color: var(--border-glass-hover);
+  background: var(--bg-tertiary);
 }
 
 .web-search-source:hover .web-search-source-title {
@@ -348,7 +357,7 @@
 
 .web-search-source:focus-visible {
   outline: 1px solid var(--text-primary, #ffffff);
-  outline-offset: 3px;
+  outline-offset: 2px;
 }
 
 .web-search-source:global(.is-unlinked) {
@@ -358,12 +367,12 @@
 .web-search-source-favicon {
   display: grid;
   place-items: center;
-  flex: 0 0 16px;
-  width: 16px;
-  height: 16px;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
   overflow: hidden;
-  border-radius: 3px;
-  background: rgba(127, 127, 154, 0.16);
+  border-radius: 4px;
+  background: var(--bg-tertiary, rgba(127, 127, 154, 0.16));
 }
 
 .web-search-source-favicon img {
@@ -389,22 +398,30 @@
 
 .web-search-source-title {
   color: var(--text-secondary, #a3a3b0);
-  font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.3;
 }
 
 .web-search-source-publisher {
   color: var(--text-muted, #737387);
-  font-size: 10px;
+  font-size: 10.5px;
   line-height: 1.25;
 }
 
+/* A real <button> needs a real reset. Without one the browser supplies its own
+ * background, border and padding, which is exactly the white control the list
+ * used to show. */
 .web-search-source-toggle {
   align-self: flex-start;
-  transition: color 120ms ease;
-  color: var(--text-secondary, #a3a3b0);
+  margin: 2px 0 0;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
   font-size: 11px;
+  color: var(--text-secondary, #a3a3b0);
+  cursor: pointer;
+  transition: color 120ms ease;
 }
 
 .web-search-source-toggle:hover {
@@ -415,7 +432,7 @@
 
 .web-search-source-toggle:focus-visible {
   outline: 1px solid var(--text-primary, #ffffff);
-  outline-offset: 3px;
+  outline-offset: 2px;
   border-radius: 2px;
 }
 

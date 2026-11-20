@@ -3,6 +3,7 @@ import { WebChatEngine } from '../src/app/api/chat/chat.engine.js';
 import { EFFORT_PASSES } from '../src/app/api/chat/effort-passes.js';
 import { describeReasoningSupport, providerHonorsReasoningEffort, reasoningEffortTransport } from '../src/shared/reasoning-support.js';
 import { streamingReasoningPreview, settledReasoningPreview } from '../src/app/components/ui/reasoning-preview';
+import { currentDate } from '../src/shared/current-date.js';
 
 // These are BEHAVIOURAL pins for invariants that were previously only asserted
 // by grepping source text for banned strings. A grep proxy passes while the
@@ -216,6 +217,31 @@ describe('the panel opens on what the model was trying to do', () => {
     expect(types).not.toContain('reasoning');
     expect(types).toContain('tool_start');
   }, 20000);
+
+  it('delivers a turn\'s reasoning exactly once, not through two channels', async () => {
+    // The reported duplicate was literal: the same sentence appeared twice,
+    // glued with no separator. The engine yielded the thought (serialized to
+    // SSE `reasoning`) AND forwarded it through the reasoning sink, which the
+    // route turned into another `reasoning` event; the client appends both to
+    // one step. One owner per thought is the invariant.
+    const engine = scriptToolRun();
+    const forwarded: string[] = [];
+    (engine as any).onReasoningDelta = (text: string) => forwarded.push(text);
+    const reasoning: string[] = [];
+    for await (const event of (engine as any).run({
+      message: 'hi',
+      history: [],
+      effort: 'Low',
+      thinking: true,
+      model: 'test-model',
+    })) {
+      if (event.type === 'reasoning') reasoning.push(String(event.data?.text ?? ''));
+    }
+
+    const phrase = 'No ticker was named';
+    expect(reasoning.join(' ').split(phrase).length - 1).toBe(1);
+    expect(forwarded.join('')).not.toContain(phrase);
+  }, 20000);
 });
 
 // ─── Only the drafting pass is shown ─────────────────────────────────────────
@@ -344,6 +370,54 @@ describe('a social message gets no toolbox and no analysis contract', () => {
     })) events.push(event);
 
     expect(sentTools?.length).toBeGreaterThan(0);
+  }, 20000);
+});
+
+// ─── The model knows what day it is ──────────────────────────────────────────
+
+describe('the model is told today\'s date', () => {
+  it('puts the date in the system prompt and explains why recency is the default', async () => {
+    // Without a date the model anchors on its training period and writes search
+    // queries in that year, so "latest" comes back as last year's material.
+    const engine = new WebChatEngine();
+    let system = '';
+    let tools: Array<{ function?: { name?: string; description?: string } }> = [];
+    (engine as any).llm = {
+      callWithTools: async (opts: {
+        messages: Array<{ role: string; content: string }>;
+        tools: Array<{ function?: { name?: string; description?: string } }>;
+      }) => {
+        system = opts.messages.find((m) => m.role === 'system')?.content ?? '';
+        tools = opts.tools ?? [];
+        return { role: 'assistant', content: 'Because the invalidation printed.' };
+      },
+      callTextStream: async function* () {
+        yield { type: 'text', text: 'unused' };
+      },
+    };
+    (engine as any).checkProviderSetup = () => null;
+
+    for await (const _event of (engine as any).run({
+      message: 'why did you say that?',
+      history: [
+        { role: 'user', content: 'intraday nvda' },
+        { role: 'assistant', content: 'Waiting for the pullback.' },
+      ],
+      effort: 'Medium',
+      thinking: true,
+      model: 'test-model',
+    })) { /* drain */ }
+
+    const today = currentDate();
+    expect(system).toContain('CURRENT DATE');
+    expect(system).toContain(today.iso);
+    expect(system).toContain(String(today.year));
+    // The guidance is a default with its reason attached, not a ban: historical
+    // questions still belong to historical sources.
+    expect(system).toMatch(/historical/i);
+
+    const webSearch = tools.find((tool) => tool.function?.name === 'web_search');
+    expect(webSearch?.function?.description).toContain(String(today.year));
   }, 20000);
 });
 

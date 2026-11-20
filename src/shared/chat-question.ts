@@ -19,9 +19,6 @@ export interface ChatQuestionHistory {
   content: string;
 }
 
-/** A question about something already answered is a sentence or two, not a brief. */
-const QUESTION_MAX_WORDS = 40;
-
 /**
  * How people actually open a question about something already answered: either
  * a question word ("why…") or the discourse connective that comes with one
@@ -35,11 +32,60 @@ const QUESTION_WORD =
   /\b(?:why|how|what|when|where|which|who|whose|is|are|was|were|do|does|did|can|could|should|would|will|explain|clarify|sure|certain|confident|mean|think|feel|really|still|again|instead|unless|if)\b/i;
 
 /**
+ * Language that orders an artefact, as opposed to asking about a subject.
+ *
+ * This is the distinction the classifier actually needs, and length was only
+ * ever a proxy for it — a bad one. A user reacting to an answer writes a long
+ * sentence with typos and half a thesis, and it is still a question; a short
+ * message can commission a whole report ("full breakdown on NVDA"). Counting
+ * words made the first case look like the second: the reported follow-up ran
+ * four words over a threshold, so the engine rebuilt the entire instrument
+ * analysis and repeated a correction the previous answer had already made.
+ *
+ * So the signal is what the message asks BOZ to PRODUCE:
+ *   - an artefact being ordered ("give me a breakdown", "your analysis"),
+ *   - a qualifier inside that order ("give me the complete picture", "a fresh
+ *     analysis"),
+ *   - an imperative that frames work for BOZ ("walk me through", "lay out",
+ *     "run the numbers", "pull the dashboard"),
+ *   - a multi-item list, which is a brief's structure arriving already formed.
+ *
+ * A passing mention of a subject noun is not an order: "the jobs report came
+ * in hot, what does that mean?" has the word "report" and is still a question.
+ * That is why the artefact names only count when something in the sentence is
+ * pointing them at BOZ.
+ *
+ * None of this forbids tools or depth: a question still gets whatever the
+ * answer needs. It only decides whether the report shape is expected.
+ */
+const REQUESTS_A_REPORT = new RegExp(
+  [
+    // An imperative pointed at an artefact: the message is ordering work.
+    String.raw`\b(?:give me|show me|send|write|run|pull|prepare|make|do)\b(?:\s+\S+){0,5}?\s+(?:a|an|the|your)?\s*(?:full\s+|complete\s+|detailed\s+|thorough\s+|fresh\s+|new\s+)?(?:analysis|breakdown|report|write-?up|deep\s+dive|teardown|picture|review)\b`,
+    // The artefact claimed as BOZ's output ("your analysis of …"), which is a
+    // request for one even without an imperative.
+    String.raw`\byour\s+(?:full\s+|complete\s+)?(?:analysis|breakdown|report)\b`,
+    // Work ordered that names no artefact.
+    String.raw`\b(?:walk me through|lay (?:it |this )?out|break (?:it|this|that) down|run the numbers|run a|pull (?:the|up)|analyse|analyze|give me the (?:full|whole))\b`,
+    // Structure already formed: any line that starts a list item.
+    String.raw`^[ \t]*(?:[-*•]|\d+[.)])[ \t]+\S`,
+  ].join('|'),
+  'im',
+);
+
+/**
  * Asking for the whole thing again. The user WANTS a fresh brief here, so the
  * full pipeline and the brief shape are exactly right.
+ *
+ * Only unambiguous orders belong here. Phrases that merely name an artefact
+ * ("full report", "deep dive") used to sit in this list, which made "is the
+ * deep dive still valid?" a report request — the same subject-noun mistake the
+ * commission pattern is careful to avoid. A request that names an artefact
+ * without ordering one is either question-shaped (and is a question) or is a
+ * bare request, which the default already treats as a report.
  */
 const WANTS_NEW_REPORT =
-  /\b(?:re-?run|start over|from scratch|scratch|new analysis|fresh analysis|full analysis|full brief|full report|again please|redo|re-?do|update the|update it|re-?analyz|re-?analyse|deep dive|start a new)\b/i;
+  /\b(?:re-?run|start over|start a new|from scratch|again please|redo|re-?do|update the|update it|re-?analyz|re-?analyse)\b/i;
 
 /** Greetings are short by nature; anything longer is probably a real request. */
 const SOCIAL_MAX_WORDS = 8;
@@ -66,21 +112,27 @@ export function lastAnswer(history: readonly ChatQuestionHistory[] | undefined):
  * Requires ALL of:
  *  - no slash command (a `/skill` invocation always wants the full brief),
  *  - no "run it again" phrasing,
- *  - short enough to be a question, not a request,
+ *  - no commission for an artefact (a breakdown, a full report, ordered work,
+ *    or a list — see `REQUESTS_A_REPORT`),
  *  - question-shaped (a question mark, a question opener, or a question word).
  *
- * A previous answer is deliberately NOT required. It used to be, on the theory
- * that a question needs something to ask about. In practice that requirement
- * only ever read as "not the first message of a chat", and the first message is
- * exactly where a user opens with the question they most want answered:
- * "what you think about those idx that keep going down" got the full brief
- * shape — 554 words, a scan inventory and a manufactured short plan — because
- * there was no prior turn to be a follow-up to. Question-shape and length are
- * the real signal for whether someone wants a reply or a report.
+ * A previous answer is deliberately NOT required to classify a question. It
+ * used to be, on the theory that a question needs something to ask about. In
+ * practice that requirement only ever read as "not the first message of a
+ * chat", and the first message is exactly where a user opens with the question
+ * they most want answered: "what you think about those idx that keep going
+ * down" got the full brief shape — 554 words, a scan inventory and a
+ * manufactured short plan — because there was no prior turn to be a follow-up
+ * to. Question shape, plus whether the message orders an artefact, is the real
+ * signal for whether someone wants a reply or a report.
  *
- * `history` is kept in the signature so call sites keep reading the way they
- * do, and because `lastAnswer` is what carries the previous answer into the
- * drafting pass. Classification no longer depends on it.
+ * Length is no longer consulted. It was a proxy for "is this a brief?", and
+ * the reported follow-up broke it by writing four words more than the cutoff
+ * while asking a question; a brief is identified by the work it orders now,
+ * not by how many words the order took to write.
+ *
+ * `history` still has a role outside this function: `lastAnswer` is what the
+ * drafting pass carries when the message turns out to be a question.
  */
 export function isPlainQuestion(
   message: string,
@@ -90,7 +142,7 @@ export function isPlainQuestion(
   if (!text) return false;
   if (text.startsWith('/')) return false;
   if (WANTS_NEW_REPORT.test(text)) return false;
-  if (wordCount(text) > QUESTION_MAX_WORDS) return false;
+  if (REQUESTS_A_REPORT.test(text)) return false;
   if (text.includes('?')) return true;
   if (QUESTION_OPENER.test(text)) return true;
   return QUESTION_WORD.test(text);

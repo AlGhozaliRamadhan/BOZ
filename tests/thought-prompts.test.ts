@@ -144,8 +144,8 @@ describe('analysis prompts', () => {
     const efforts: ThoughtEffort[] = ['Low', 'Medium', 'High', 'Extra', 'Max'];
     for (const effort of efforts) {
       const prompt = THOUGHT_PROMPTS[effort];
-      expect(prompt).toContain('Keep it about the problem');
-      expect(prompt).toContain('not the place to restate these');
+      expect(prompt).toContain('Keep it about their problem');
+      expect(prompt).toContain('Reciting these instructions');
       expect(prompt).toMatch(/Scale it to the message/);
       // A checklist for a one-line message is the failure this replaced.
       expect(prompt).toMatch(/a sentence or two, not an audit/);
@@ -160,9 +160,17 @@ describe('analysis prompts', () => {
       // data-native stop" — the model describing the writing instead of doing
       // the analysis, and repeating both because it kept re-entering the phase.
       expect(prompt).toContain('Think about the market, not about the writing');
-      expect(prompt).toMatch(/Announcing your own word budget/);
+      // Length and sectioning are choices made while writing, not subject
+      // matter for the visible block.
+      expect(prompt).toMatch(/How long the answer will be/);
       expect(prompt).toMatch(/let me re-run X/);
+      // No exact word-count target for the model to quote back at the reader.
+      expect(prompt).not.toMatch(/\d+\s*[-–]\s*\d+\s*words/i);
+      expect(prompt).not.toMatch(/word cap/i);
       expect(prompt).toContain('A number you already have is a number you stop asking for');
+      // The repeat the panel showed: the plan restated after every tool call.
+      expect(prompt).toContain('Say a thing once');
+      expect(prompt).toMatch(/stating it again after a tool returns/);
     }
   });
 

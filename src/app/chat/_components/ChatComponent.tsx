@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import styles from './ChatComponent.module.css';
 import Composer from './Composer';
 import EmptyState from './EmptyState';
@@ -8,6 +8,12 @@ import MessageList from './MessageList';
 import { useChatHistory } from '../_hooks/useChatHistory';
 import { useChatStream } from '../_hooks/useChatStream';
 import { useSetupState } from '../_hooks/useSetupState';
+import {
+  clearChatDraft,
+  defaultDraftStorage,
+  readChatDraft,
+  writeChatDraft,
+} from '../_lib/chat-draft';
 import { getRandomGreeting, MARKET_QUOTES } from '../_lib/greetings';
 import { takeChatPrefill } from '@/shared/discover';
 import type { MarketQuote } from '../_lib/chat-types';
@@ -18,9 +24,30 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
   const { messages, setMessages, persistSession, requestSessionTitle, resetSignal } =
     useChatHistory(chatId);
   const { setup } = useSetupState();
-  const [input, setInput] = useState('');
+  const [input, setInputState] = useState('');
   const [greeting, setGreeting] = useState('How can I help you today?');
   const [currentQuote, setCurrentQuote] = useState<MarketQuote | null>(null);
+
+  // The composer is keyed by conversation, not by this component instance.
+  // The draft store is the source of truth for unsent text: a remount (the
+  // first send swaps /chat for /chat/<id>, replacing the page component) or a
+  // host reload re-reads it instead of starting from an empty box.
+  const chatIdRef = useRef<string | undefined>(chatId);
+  chatIdRef.current = chatId;
+  const inputRef = useRef('');
+  // Distinguishes the first send (an id appears under text that belongs to
+  // this new conversation) from switching between existing conversations
+  // (the box should load that conversation's own draft).
+  const previousChatIdRef = useRef<string | undefined>(chatId);
+
+  const setInput = useCallback<Dispatch<SetStateAction<string>>>((value) => {
+    const next = typeof value === 'function'
+      ? (value as (current: string) => string)(inputRef.current)
+      : value;
+    inputRef.current = next;
+    setInputState(next);
+    writeChatDraft(defaultDraftStorage(), chatIdRef.current, next);
+  }, []);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -83,28 +110,49 @@ export default function ChatComponent({ chatId }: { chatId?: string }) {
   useEffect(() => {
     setGreeting(getRandomGreeting(displayNameRef.current));
     setCurrentQuote(MARKET_QUOTES[Math.floor(Math.random() * MARKET_QUOTES.length)]);
+    // Restore what the user had typed in this conversation before they were
+    // interrupted. The unsaved /chat composer has its own key, so starting a
+    // new chat never inherits the previous conversation's draft.
+    const previousChatId = previousChatIdRef.current;
+    previousChatIdRef.current = chatId;
+    // The first send turns /chat into /chat/<id>. Text typed while that request
+    // was in flight belongs to the conversation that was just created, so it
+    // carries over; reading the new key there would blank the box under the
+    // user's cursor. Every other route change loads that conversation's draft.
+    const createdConversation = previousChatId === undefined && chatId !== undefined;
+    let draft = createdConversation
+      ? inputRef.current
+      : readChatDraft(defaultDraftStorage(), chatId);
     // Discover's agent strip stashes a one-shot prompt in sessionStorage.
     // Pick it up on fresh /chat so the user lands with their question ready.
     if (!chatId) {
       try {
         const prefill = takeChatPrefill(window.sessionStorage);
-        if (prefill) setInput(prefill);
+        if (prefill) draft = prefill;
       } catch {
         // Prefill is best-effort.
       }
     }
+    inputRef.current = draft;
+    setInputState(draft);
+    // Writing here also persists a prefill (or the carried-over text) under the
+    // current key, so a route change mid-edit cannot strand it.
+    if (draft) writeChatDraft(defaultDraftStorage(), chatId, draft);
   }, [chatId]);
 
   useEffect(() => {
     const handleNewChat = () => {
       setInput('');
+      // A fresh chat should not resurrect text left in the unsaved composer
+      // from an earlier visit to /chat.
+      clearChatDraft(defaultDraftStorage(), undefined);
       setGreeting(getRandomGreeting(displayNameRef.current));
       setCurrentQuote(MARKET_QUOTES[Math.floor(Math.random() * MARKET_QUOTES.length)]);
       textareaRef.current?.focus();
     };
     window.addEventListener(NEW_CHAT_EVENT, handleNewChat);
     return () => window.removeEventListener(NEW_CHAT_EVENT, handleNewChat);
-  }, []);
+  }, [setInput]);
 
   useEffect(() => {
     if (textareaRef.current) {
