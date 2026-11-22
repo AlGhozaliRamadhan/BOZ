@@ -74,4 +74,11 @@ describe('sidebar update wiring (source inspection)', () => {
     // status publish.
     expect(sidebar).toContain("'clear_update_open_request'");
   });
+
+  it('offers a manual check even when no update is known yet', () => {
+    // The row must not be gated on `updateAvailable`: before a check finishes
+    // there is nothing to show, and that was exactly the dead end.
+    expect(sidebar).toContain("'check_updates_now'");
+    expect(sidebar).toContain('Check for updates');
+  });
 });

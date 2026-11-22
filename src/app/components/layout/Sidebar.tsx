@@ -375,6 +375,27 @@ export default function Sidebar({ collapsed, mobileOpen, onToggle }: SidebarProp
                   <span>About BOZ</span>
                 </div>
               </button>
+              {/* Always available, not only when a build is waiting: a check
+                  that silently never runs is indistinguishable from one that
+                  found nothing. The host surfaces the outcome in the prompt
+                  (available, up to date, or the error). */}
+              {isDesktop && (
+                <button
+                  className="profile-popover-item"
+                  onClick={() => {
+                    setIsProfileMenuOpen(false);
+                    void invoke('check_updates_now').catch(() => undefined);
+                  }}
+                >
+                  <div className="profile-popover-item-left">
+                    <i className="fa-solid fa-arrow-rotate-right"></i>
+                    <span>Check for updates</span>
+                  </div>
+                  <div className="profile-popover-item-right">
+                    v{process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.9.1'}
+                  </div>
+                </button>
+              )}
               {/* Last row, and only while a build is actually waiting: an
                   "Update" entry with nothing to install is a dead end. A
                   snoozed version arrives as idle, so it stays hidden too. */}
