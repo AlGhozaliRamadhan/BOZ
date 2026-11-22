@@ -1,7 +1,7 @@
 ; BOZ custom NSIS template.
 ;
-; Vendored from Tauri CLI 2.12.4 (`crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi`,
-; tag `tauri-cli-v2.12.4`) and kept byte-for-byte otherwise. Every edit is marked
+; Vendored from Tauri CLI 2.12.6 (`crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi`,
+; tag `tauri-cli-v2.12.6`) and kept byte-for-byte otherwise. Every edit is marked
 ; with `BOZ:` and exists for one reason:
 ;
 ;   A setup executable started by hand over an existing BOZ installation is an
