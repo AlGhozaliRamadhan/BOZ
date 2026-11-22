@@ -7,7 +7,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{
         Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
     thread,
     time::{Duration, Instant},
@@ -30,9 +30,23 @@ const BOZ_ORIGIN: &str = "http://127.0.0.1:21526";
 const HEALTH_PATH: &str = "/api/desktop/health";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const DESKTOP_LOG_LIMIT_BYTES: u64 = 256 * 1024;
+const SIDECAR_LOG_LIMIT_BYTES: u64 = 2 * 1024 * 1024;
 const BOZ_TRAY_ID: &str = "boz-primary-tray";
 /// After this long, the boot screen says so instead of looking frozen.
 const BOZ_SLOW_START_AFTER: Duration = Duration::from_secs(8);
+/// A crashed sidecar is restarted automatically this many times before the
+/// host asks the user what to do.
+const MAX_AUTO_RESTARTS: u32 = 3;
+/// Uptime that clears the crash counter, so an occasional crash months apart
+/// is still recovered silently.
+const STABLE_UPTIME: Duration = Duration::from_secs(60);
+/// How often an alive sidecar is probed for health.
+const HEALTH_PROBE_INTERVAL: Duration = Duration::from_secs(5);
+/// Consecutive failed probes that mean the process is alive but not serving.
+const HEALTH_PROBE_FAILURES: u32 = 3;
+/// Silent update checks repeat this often, so a long-running app still learns
+/// about a release published after launch.
+const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 
 #[derive(Default)]
 struct DesktopRuntime {
@@ -41,6 +55,10 @@ struct DesktopRuntime {
     server_ready: AtomicBool,
     recovery_dialog_open: AtomicBool,
     tray_initialized: AtomicBool,
+    /// Token the current sidecar was started with; the health watchdog needs it.
+    health_token: Mutex<Option<String>>,
+    /// Consecutive automatic restarts since the last stable uptime.
+    restart_attempts: AtomicU32,
     /// One silent update check per app session. Without this every sidecar
     /// restart (crash recovery, manual Retry) re-prompted the user.
     update_checked: AtomicBool,
@@ -61,6 +79,13 @@ struct BootProgress {
 fn lock_child(state: &DesktopRuntime) -> std::sync::MutexGuard<'_, Option<Child>> {
     state
         .child
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn lock_health_token(state: &DesktopRuntime) -> std::sync::MutexGuard<'_, Option<String>> {
+    state
+        .health_token
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
@@ -101,6 +126,31 @@ fn desktop_log<R: Runtime>(app: &AppHandle<R>, message: &str) {
         });
     if let Some(log_path) = log_path {
         append_desktop_log(&log_path, message);
+    }
+}
+
+/// Captures the sidecar's own stdout/stderr next to the desktop log.
+///
+/// A server that exits by itself leaves nothing behind otherwise: the host only
+/// sees "the process is gone", and the Next.js stack trace that explains why is
+/// discarded. The file is rotated on the same best-effort basis as the desktop
+/// log and never blocks startup if it cannot be opened.
+fn sidecar_output(log_path: &std::path::Path) -> (Stdio, Stdio) {
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if log_path
+        .metadata()
+        .is_ok_and(|metadata| metadata.len() >= SIDECAR_LOG_LIMIT_BYTES)
+    {
+        let _ = std::fs::remove_file(log_path);
+    }
+    match OpenOptions::new().create(true).append(true).open(log_path) {
+        Ok(file) => match file.try_clone() {
+            Ok(copy) => (Stdio::from(file), Stdio::from(copy)),
+            Err(_) => (Stdio::from(file), Stdio::null()),
+        },
+        Err(_) => (Stdio::null(), Stdio::null()),
     }
 }
 
@@ -356,6 +406,7 @@ fn terminate_sidecar<R: Runtime>(app: &AppHandle<R>) {
     let state = app.state::<DesktopRuntime>();
     state.stopping.store(true, Ordering::SeqCst);
     state.server_ready.store(false, Ordering::SeqCst);
+    *lock_health_token(&state) = None;
     let child = lock_child(&state).take();
 
     if let Some(mut child) = child {
@@ -553,6 +604,7 @@ fn launch_sidecar<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     std::fs::create_dir_all(&config_dir)
         .map_err(|error| format!("Could not create the BOZ configuration directory: {error}"))?;
     let token = Uuid::new_v4().to_string();
+    let (stdout, stderr) = sidecar_output(&config_dir.join("sidecar.log"));
 
     let mut command = Command::new(node);
     command
@@ -564,8 +616,8 @@ fn launch_sidecar<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         .env("BOZ_CONFIG_DIR", config_dir)
         .env("BOZ_DESKTOP_HEALTH_TOKEN", &token)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stdout(stdout)
+        .stderr(stderr);
     hide_process_window(&mut command);
     let child = command
         .spawn()
@@ -575,6 +627,7 @@ fn launch_sidecar<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     let state = app.state::<DesktopRuntime>();
     state.stopping.store(false, Ordering::SeqCst);
     state.server_ready.store(false, Ordering::SeqCst);
+    *lock_health_token(&state) = Some(token.clone());
     *lock_child(&state) = Some(child);
 
     if let Err(error) = wait_for_server(app, &token) {
@@ -742,36 +795,52 @@ fn install_available_update<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
     if state.update_running.load(Ordering::SeqCst) {
         return Err("An update is already in progress.".to_string());
     }
+    // Claim the slot before the async check so two rapid clicks cannot start
+    // two installs. A failed check releases it again below.
+    state.update_running.store(true, Ordering::SeqCst);
 
     let runtime = app.clone();
     tauri::async_runtime::spawn(async move {
+        let updater_app = runtime.clone();
         let before_exit_app = runtime.clone();
-        let updater = runtime
-            .updater_builder()
-            .on_before_exit(move || terminate_sidecar(&before_exit_app))
-            .build()
-            .map_err(|error| error.to_string())?;
+        let outcome: Result<(), String> = async move {
+            let updater = updater_app
+                .updater_builder()
+                .on_before_exit(move || terminate_sidecar(&before_exit_app))
+                .build()
+                .map_err(|error| error.to_string())?;
 
-        match updater.check().await {
-            Ok(Some(update)) => {
-                install_update(runtime, update);
-                Ok(())
+            match updater.check().await {
+                Ok(Some(update)) => {
+                    install_update(updater_app.clone(), update);
+                    Ok(())
+                }
+                Ok(None) => {
+                    set_update_status(&updater_app, UpdateStatus::default());
+                    Err("You are already running the latest version of BOZ.".to_string())
+                }
+                Err(error) => Err(error.to_string()),
             }
-            Ok(None) => {
-                set_update_status(&runtime, UpdateStatus::default());
-                Err("You are already running the latest version of BOZ.".to_string())
-            }
-            Err(error) => {
-                set_update_status(
-                    &runtime,
-                    UpdateStatus {
-                        phase: "error",
-                        message: Some(error.to_string()),
-                        ..Default::default()
-                    },
-                );
-                Err(error.to_string())
-            }
+        }
+        .await;
+
+        // `?` inside a spawned task used to end the task silently, leaving the
+        // prompt stuck on "Update now" with no explanation. Every failure now
+        // reaches the webview as an error phase.
+        if let Err(error) = outcome {
+            runtime
+                .state::<DesktopRuntime>()
+                .update_running
+                .store(false, Ordering::SeqCst);
+            desktop_log(&runtime, &format!("Update could not start: {error}"));
+            set_update_status(
+                &runtime,
+                UpdateStatus {
+                    phase: "error",
+                    message: Some(error),
+                    ..Default::default()
+                },
+            );
         }
     });
 
@@ -898,6 +967,12 @@ fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
             }
             Err(error) => {
                 desktop_log(&app, &format!("Update check failed: {error}"));
+                // Let a later periodic or restart-triggered check try again;
+                // a launch-time network hiccup must not hide updates for the
+                // rest of the session.
+                app.state::<DesktopRuntime>()
+                    .update_checked
+                    .store(false, Ordering::SeqCst);
                 if manual {
                     show_main_window(&app);
                     set_update_status(
@@ -913,6 +988,29 @@ fn check_for_updates<R: Runtime>(app: AppHandle<R>, manual: bool) {
                     set_update_status(&app, UpdateStatus::default());
                 }
             }
+        }
+    });
+}
+
+/// Webview entry point for the profile menu's "Check for updates" row. The
+/// host still owns the check; this only asks it to run now.
+#[tauri::command]
+fn check_updates_now<R: Runtime>(app: AppHandle<R>) {
+    check_for_updates(app, true);
+}
+
+/// A long-running session still learns about a release published after launch.
+fn schedule_update_checks<R: Runtime>(app: AppHandle<R>) {
+    thread::spawn(move || {
+        loop {
+            thread::sleep(UPDATE_CHECK_INTERVAL);
+            let state = app.state::<DesktopRuntime>();
+            if state.stopping.load(Ordering::SeqCst) {
+                break;
+            }
+            state.update_checked.store(false, Ordering::SeqCst);
+            drop(state);
+            check_for_updates(app.clone(), false);
         }
     });
 }
@@ -1009,8 +1107,54 @@ fn install_update<R: Runtime>(app: AppHandle<R>, update: tauri_plugin_updater::U
     });
 }
 
+fn sidecar_exit_label(status: &std::process::ExitStatus) -> String {
+    match status.code() {
+        Some(code) => format!("exit code {code}"),
+        None => "terminated by a signal".to_string(),
+    }
+}
+
+/// Backoff before an automatic restart. Kept short: the boot screen is already
+/// gone, so the user is looking at the last page until the server returns.
+fn restart_delay(attempt: u32) -> Duration {
+    match attempt {
+        0 | 1 => Duration::from_secs(1),
+        2 => Duration::from_secs(3),
+        _ => Duration::from_secs(6),
+    }
+}
+
+/// Reloads the main window on the page it is already showing.
+///
+/// The server was restarted underneath the webview, so a fresh request is the
+/// only way back. Keeping the current URL preserves the user's place; a window
+/// that never reached BOZ (boot screen) falls back to the origin.
+fn reload_main_window<R: Runtime>(app: &AppHandle<R>) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let current = window
+        .url()
+        .ok()
+        .filter(|url| url.as_str().starts_with(BOZ_ORIGIN));
+    match current {
+        Some(url) => {
+            let _ = window.navigate(url);
+        }
+        None => {
+            if let Ok(url) = BOZ_ORIGIN.parse() {
+                let _ = window.navigate(url);
+            }
+        }
+    }
+}
+
 fn monitor_sidecar<R: Runtime>(app: AppHandle<R>) {
     thread::spawn(move || {
+        let mut healthy_since: Option<Instant> = None;
+        let mut last_probe = Instant::now();
+        let mut failed_probes = 0u32;
+
         loop {
             thread::sleep(Duration::from_secs(1));
             let state = app.state::<DesktopRuntime>();
@@ -1018,28 +1162,104 @@ fn monitor_sidecar<R: Runtime>(app: AppHandle<R>) {
                 break;
             }
 
-            let stopped = {
+            let mut stopped_reason: Option<String> = None;
+            {
                 let mut child = lock_child(&state);
                 match child.as_mut().map(Child::try_wait) {
-                    Some(Ok(Some(_))) | Some(Err(_)) => {
+                    Some(Ok(Some(status))) => {
                         child.take();
-                        true
+                        stopped_reason =
+                            Some(format!("sidecar exited ({})", sidecar_exit_label(&status)));
                     }
-                    None if state.server_ready.load(Ordering::SeqCst) => true,
-                    _ => false,
+                    Some(Err(error)) => {
+                        child.take();
+                        stopped_reason = Some(format!("sidecar could not be monitored: {error}"));
+                    }
+                    Some(Ok(None)) => {}
+                    None if state.server_ready.load(Ordering::SeqCst) => {
+                        stopped_reason = Some("sidecar process handle is missing".to_string());
+                    }
+                    None => {}
                 }
-            };
-            if !stopped {
-                continue;
             }
 
+            // A live process can still stop serving: probe it on a slow cadence
+            // so a wedged Next.js server is recovered the same way a crash is.
+            if stopped_reason.is_none()
+                && state.server_ready.load(Ordering::SeqCst)
+                && last_probe.elapsed() >= HEALTH_PROBE_INTERVAL
+            {
+                last_probe = Instant::now();
+                let token = lock_health_token(&state).clone();
+                if token.as_deref().is_some_and(probe_health) {
+                    failed_probes = 0;
+                    if healthy_since.is_none() {
+                        healthy_since = Some(Instant::now());
+                    }
+                } else {
+                    failed_probes += 1;
+                    if failed_probes >= HEALTH_PROBE_FAILURES {
+                        stopped_reason = Some(format!(
+                            "sidecar failed {failed_probes} consecutive health checks"
+                        ));
+                    }
+                }
+            }
+
+            let Some(reason) = stopped_reason else {
+                if healthy_since.is_some_and(|since| since.elapsed() >= STABLE_UPTIME) {
+                    state.restart_attempts.store(0, Ordering::SeqCst);
+                }
+                continue;
+            };
+
+            desktop_log(&app, &format!("BOZ server stopped: {reason}"));
             state.server_ready.store(false, Ordering::SeqCst);
+            *lock_health_token(&state) = None;
+            // A wedged child must be gone before the port is reused.
+            if let Some(mut child) = lock_child(&state).take() {
+                #[cfg(windows)]
+                terminate_process_tree(child.id());
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            healthy_since = None;
+            failed_probes = 0;
+
+            let attempt = state.restart_attempts.fetch_add(1, Ordering::SeqCst) + 1;
+            if attempt <= MAX_AUTO_RESTARTS {
+                desktop_log(
+                    &app,
+                    &format!(
+                        "Restarting the BOZ server automatically (attempt {attempt} of {MAX_AUTO_RESTARTS})"
+                    ),
+                );
+                thread::sleep(restart_delay(attempt));
+                if state.stopping.load(Ordering::SeqCst) {
+                    break;
+                }
+                match launch_sidecar(&app) {
+                    Ok(()) => {
+                        desktop_log(&app, "BOZ server restarted automatically");
+                        reload_main_window(&app);
+                        last_probe = Instant::now();
+                        continue;
+                    }
+                    Err(error) => {
+                        desktop_log(&app, &format!("Automatic server restart failed: {error}"));
+                    }
+                }
+            }
+
+            // Automatic recovery is exhausted. Ask once instead of leaving the
+            // user with a dead page and no explanation.
+            state.restart_attempts.store(0, Ordering::SeqCst);
             if state.recovery_dialog_open.swap(true, Ordering::SeqCst) {
                 break;
             }
             let dialog_app = app.clone();
             app.dialog()
-                .message("The BOZ server stopped unexpectedly. Restart it?")
+                .message("The BOZ server stopped unexpectedly and could not restart. Restart it?")
                 .title("BOZ server stopped")
                 .kind(MessageDialogKind::Error)
                 .buttons(MessageDialogButtons::OkCancelCustom(
@@ -1065,11 +1285,7 @@ fn monitor_sidecar<R: Runtime>(app: AppHandle<R>) {
 fn start_server_async<R: Runtime>(app: AppHandle<R>) {
     thread::spawn(move || match launch_sidecar(&app) {
         Ok(()) => {
-            if let Some(window) = app.get_webview_window("main") {
-                if let Ok(url) = BOZ_ORIGIN.parse() {
-                    let _ = window.navigate(url);
-                }
-            }
+            reload_main_window(&app);
             if !is_autostart_launch() {
                 show_main_window(&app);
             }
@@ -1201,6 +1417,7 @@ pub fn run() {
             update_status,
             snooze_update,
             install_available_update,
+            check_updates_now,
             clear_update_open_request
         ])
         .on_window_event(|window, event| {
@@ -1226,6 +1443,8 @@ pub fn run() {
             } else {
                 start_server_async(app.handle().clone());
             }
+
+            schedule_update_checks(app.handle().clone());
 
             Ok(())
         });

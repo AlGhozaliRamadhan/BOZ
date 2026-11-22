@@ -15,7 +15,6 @@ import { OPENAI_MODELS } from '@/config/openai.config';
 import { ANTHROPIC_MODELS } from '@/config/anthropic.config';
 import { GROQ_MODELS } from '@/config/groq.config';
 import { OPENROUTER_MODELS } from '@/config/openrouter.config';
-import { parseCustomModels } from '@/config/custom.config';
 import { describeReasoningSupport } from '@/shared/reasoning-support';
 import {
   settingsRepository,
@@ -23,6 +22,12 @@ import {
   type SettingsEnvKey,
   type SettingsEnvUpdates,
 } from '@/services/settings/env-settings.repository';
+import {
+  ensureCustomModel,
+  readCustomModels,
+  writeCustomModels,
+} from '@/services/settings/custom-models.service';
+import { MAX_CUSTOM_MODELS } from '@/services/settings/custom-models.store';
 import { memoryService } from '@/services/memory.service';
 import {
   UnsafeOutboundUrlError,
@@ -120,8 +125,10 @@ function parseSettingsUpdate(input: unknown): SettingsUpdate {
 
   let customModels: string[] | undefined;
   if (input.customModels !== undefined) {
-    if (!Array.isArray(input.customModels) || input.customModels.length > 100) {
-      throw new SettingsInputError('customModels must be an array with at most 100 items');
+    if (!Array.isArray(input.customModels) || input.customModels.length > MAX_CUSTOM_MODELS) {
+      throw new SettingsInputError(
+        `customModels must be an array with at most ${MAX_CUSTOM_MODELS} items`,
+      );
     }
     const unique = new Set<string>();
     for (const value of input.customModels) {
@@ -152,16 +159,6 @@ function parseSettingsUpdate(input: unknown): SettingsUpdate {
     customUrl: optionalString(input, 'customUrl', 2_048),
     customModels,
   };
-}
-
-function customModelsPayload() {
-  const persisted = parseCustomModels(process.env.CUSTOM_AI_MODELS);
-  const current = config.custom.model;
-  const list = [...persisted];
-  if (current && !list.some((model) => model.id === current)) {
-    list.unshift({ id: current, label: current });
-  }
-  return list;
 }
 
 function withCurrentModel(
@@ -203,8 +200,8 @@ function providerSetupState(): ProviderSetupState {
   return { configured: issue === null, issue };
 }
 
-function settingsPayload() {
-  const customModels = customModelsPayload();
+async function settingsPayload() {
+  const customModels = await readCustomModels();
   const providerModels: Record<AIProvider, { id: string; label: string }[]> = {
     github: withCurrentModel(GITHUB_MODELS, config.github.model),
     nvidia: withCurrentModel(NVIDIA_MODELS, config.nvidia.model),
@@ -264,7 +261,7 @@ function publicSettingsError(error: unknown): { message: string; status: number 
 
 export async function GET() {
   try {
-    return jsonResponse(settingsPayload());
+    return jsonResponse(await settingsPayload());
   } catch (error) {
     log.error('settings', error instanceof Error ? error.message : 'Unknown settings read error');
     return errorResponse('Unable to load settings');
@@ -295,12 +292,13 @@ export async function PUT(request: NextRequest) {
       envUpdates.OFFLINE_AI_URL = offlineEndpoint;
     }
 
-    let customModelIds = body.customModels ?? parseCustomModels(process.env.CUSTOM_AI_MODELS).map((model) => model.id);
-    if (body.model && targetProvider === 'custom' && !customModelIds.includes(body.model)) {
-      customModelIds = [...customModelIds, body.model];
-    }
-    if (body.customModels !== undefined || (body.model && targetProvider === 'custom')) {
-      envUpdates.CUSTOM_AI_MODELS = customModelIds.join(',');
+    if (body.customModels !== undefined) {
+      // The catalog lives in its own JSON file: a connected router can list far
+      // more models than `.env` can hold on one line, and the old env write
+      // silently rejected anything past 8 KB.
+      await writeCustomModels(body.customModels);
+    } else if (body.model && targetProvider === 'custom') {
+      await ensureCustomModel(body.model);
     }
 
     if (body.provider !== undefined) envUpdates.AI_PROVIDER = body.provider;
@@ -334,9 +332,6 @@ export async function PUT(request: NextRequest) {
 
     if (customEndpoint !== undefined) config.setCustomEndpoint(customEndpoint);
     if (offlineEndpoint !== undefined) config.setOfflineEndpoint(offlineEndpoint);
-    if (body.customModels !== undefined || (body.model && targetProvider === 'custom')) {
-      config.custom.models = parseCustomModels(customModelIds.join(','));
-    }
     if (body.provider !== undefined) config.setAIProvider(body.provider);
     if (body.model !== undefined) config.setAIModel(body.model, targetProvider);
     if (body.ticker !== undefined) config.setTicker(body.ticker);
@@ -349,7 +344,7 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    return jsonResponse({ message: 'Settings updated', ...settingsPayload() });
+    return jsonResponse({ message: 'Settings updated', ...(await settingsPayload()) });
   } catch (error) {
     const response = publicSettingsError(error);
     if (response.status === 500) {

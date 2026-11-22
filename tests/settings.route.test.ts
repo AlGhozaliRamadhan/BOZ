@@ -17,6 +17,7 @@ describe('settings route security boundary', { concurrent: false }, () => {
     groqKey: process.env.GROQ_API_KEY,
     openrouterKey: process.env.OPENROUTER_API_KEY,
     offlineUrl: process.env.OFFLINE_AI_URL,
+    customModels: process.env.CUSTOM_AI_MODELS,
     provider: config.aiProvider,
     model: config.aiModel,
   };
@@ -47,6 +48,7 @@ describe('settings route security boundary', { concurrent: false }, () => {
     restore('GROQ_API_KEY', original.groqKey);
     restore('OPENROUTER_API_KEY', original.openrouterKey);
     restore('OFFLINE_AI_URL', original.offlineUrl);
+    restore('CUSTOM_AI_MODELS', original.customModels);
     config.setOfflineEndpoint(original.offlineUrl ?? '');
     config.setAIModel(original.model, original.provider);
     config.setAIProvider(original.provider);
@@ -221,5 +223,80 @@ describe('settings route security boundary', { concurrent: false }, () => {
     expect(process.env.CUSTOM_AI_KEY).toBeUndefined();
     expect(await readFile(join(configDirectory, '.env'), 'utf8')).toContain('CUSTOM_AI_URL=http://localhost:20128/v2');
     expect(await readFile(join(configDirectory, '.env'), 'utf8')).not.toContain('CUSTOM_AI_KEY=');
+  });
+
+  it('persists a selected custom model the router did not list', async () => {
+    const response = await PUT(new Request('http://localhost/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'custom', model: 'vendor/manual-model' }),
+    }) as never);
+
+    expect(response.status).toBe(200);
+    const catalog = JSON.parse(
+      await readFile(join(configDirectory, 'custom-models.json'), 'utf8'),
+    );
+    expect(catalog.models.map((model: { id: string }) => model.id)).toContain(
+      'vendor/manual-model',
+    );
+    expect(await readFile(join(configDirectory, '.env'), 'utf8')).toContain(
+      'CUSTOM_AI_MODEL=vendor/manual-model\n',
+    );
+
+    // Survives a fresh read, which is what a restart does.
+    const payload = await (await GET()).json();
+    expect(payload.availableModels.map((model: { id: string }) => model.id)).toContain(
+      'vendor/manual-model',
+    );
+  });
+
+  it('persists a catalog far larger than the old 100-item cap', async () => {
+    const ids = Array.from({ length: 250 }, (_, index) => `router/model-${index}`);
+    const response = await PUT(new Request('http://localhost/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'custom', customModels: ids }),
+    }) as never);
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    const returned = payload.availableModels.map((model: { id: string }) => model.id);
+    expect(returned).toEqual(expect.arrayContaining(ids));
+    // The active model is pinned on top of the saved catalog, so the list can
+    // be one longer than the catalog itself.
+    expect(returned.length).toBeGreaterThanOrEqual(250);
+
+    const catalog = JSON.parse(
+      await readFile(join(configDirectory, 'custom-models.json'), 'utf8'),
+    );
+    expect(catalog.models).toHaveLength(250);
+
+    // The catalog must not be crammed back into `.env`: that was the write
+    // that failed past 8 KB.
+    const env = await readFile(join(configDirectory, '.env'), 'utf8');
+    expect(env).not.toContain('router/model-0');
+
+    const readBack = await (await GET()).json();
+    expect(readBack.availableModels.map((model: { id: string }) => model.id)).toEqual(
+      expect.arrayContaining(ids),
+    );
+  });
+
+  it('merges hand-pinned CUSTOM_AI_MODELS entries into the picker list', async () => {
+    // A known saved entry, so this test does not rely on the catalog the
+    // previous case happened to leave behind.
+    await PUT(new Request('http://localhost/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'custom', customModels: ['saved/known'] }),
+    }) as never);
+    process.env.CUSTOM_AI_MODELS = 'pinned/one,pinned/two';
+    try {
+      const payload = await (await GET()).json();
+      const ids = payload.availableModels.map((model: { id: string }) => model.id);
+      expect(ids).toEqual(expect.arrayContaining(['pinned/one', 'pinned/two', 'saved/known']));
+    } finally {
+      delete process.env.CUSTOM_AI_MODELS;
+    }
   });
 });

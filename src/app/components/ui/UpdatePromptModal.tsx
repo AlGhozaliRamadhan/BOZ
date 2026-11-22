@@ -16,8 +16,8 @@ interface UpdatePromptModalProps {
 /** Installed build: the "from" side of the version change. */
 const CURRENT_VERSION = process.env.NEXT_PUBLIC_BOZ_VERSION ?? '2.9.1';
 
-function phaseTitle(phase: HostUpdateStatus['phase']): string {
-  switch (phase) {
+function phaseTitle(status: HostUpdateStatus): string {
+  switch (status.phase) {
     case 'available':
       return 'Update available';
     case 'downloading':
@@ -25,7 +25,9 @@ function phaseTitle(phase: HostUpdateStatus['phase']): string {
     case 'installing':
       return 'Installing update';
     case 'error':
-      return 'Update did not finish';
+      // A check that never reached the update server has no version behind it;
+      // "did not finish" implied a download the user never started.
+      return status.version ? 'Update did not finish' : 'Could not check for updates';
     default:
       return "You're up to date";
   }
@@ -171,7 +173,7 @@ export default function UpdatePromptModal({ status, install, snooze, isDesktop, 
         </header>
 
         <div className={styles.body}>
-          <h2 id={titleId} className={styles.title}>{phaseTitle(status.phase)}</h2>
+          <h2 id={titleId} className={styles.title}>{phaseTitle(status)}</h2>
 
           {showsVersion ? (
             <div className={styles.versions} aria-label={`Version ${CURRENT_VERSION} to ${status.version}`}>

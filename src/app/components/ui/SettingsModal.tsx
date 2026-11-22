@@ -25,6 +25,7 @@ import {
   readProfile,
   writeProfile,
 } from '../layout/profile-state';
+import ModelPicker from './ModelPicker';
 
 interface SettingsConfig {
   provider: string;
@@ -704,17 +705,19 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
   const fetchCustomModels = async () => {
     setFetchingCustomModels(true);
     try {
-      const res = await fetch('/api/custom-models');
+      // `refresh=1` asks the router and persists the merged catalog on the
+      // server. The client never posts the whole list back: a 9router catalog
+      // is far larger than the settings endpoint's payload budget.
+      const res = await fetch('/api/custom-models?refresh=1');
       const data = await res.json();
       const models = Array.isArray(data.models) ? data.models : [];
       setCustomModels(models);
-      if (models.length > 0) {
-        await updateConfig(
-          { customModels: models.map((m: { id: string }) => m.id) },
-          `Loaded ${models.length} models from 9router`,
-        );
-      } else {
+      if (models.length === 0) {
         showToast('No models returned. Add one below.');
+      } else if (data.source === 'live') {
+        showToast(`Loaded ${models.length} models from 9router`);
+      } else {
+        showToast('Showing the saved catalog. 9router did not respond.');
       }
     } catch {
       setError('Could not reach 9router /models');
@@ -731,7 +734,9 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
       : [...customModels, { id: trimmed, label: trimmed }];
     setCustomModels(next);
     setCustomModelDraft('');
-    await updateConfig({ customModels: next.map((m) => m.id), model: trimmed, provider: 'custom' }, `Model ${trimmed} saved`);
+    // The server appends the active model to the persisted catalog; sending
+    // the full list here is what used to overflow the settings payload.
+    await updateConfig({ model: trimmed, provider: 'custom' }, `Model ${trimmed} saved`);
   };
 
   const testConnection = async () => {
@@ -1123,38 +1128,15 @@ export default function SettingsModal({ isOpen, initialTab = 'profile', onClose 
                                           </div>
                                         </div>
                                         <div>
-                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                            <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600, margin: 0 }}>Models</label>
-                                            <button
-                                              onClick={fetchCustomModels}
-                                              disabled={fetchingCustomModels}
-                                              style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', cursor: 'pointer' }}
-                                            >
-                                              {fetchingCustomModels ? 'Loading...' : 'Fetch /v1/models'}
-                                            </button>
-                                          </div>
-                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
-                                            {customModels.length === 0 ? (
-                                              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No models yet. Fetch from 9router or add one.</span>
-                                            ) : customModels.map((m) => (
-                                              <button
-                                                key={m.id}
-                                                onClick={() => updateConfig({ provider: 'custom', model: m.id }, `${m.id} set as active`)}
-                                                style={{
-                                                  background: config?.model === m.id ? 'var(--text-primary)' : 'rgba(255,255,255,0.04)',
-                                                  color: config?.model === m.id ? 'var(--bg-primary)' : 'var(--text-secondary)',
-                                                  border: '1px solid rgba(255,255,255,0.1)',
-                                                  padding: '4px 8px',
-                                                  borderRadius: '4px',
-                                                  fontSize: '11px',
-                                                  cursor: 'pointer',
-                                                }}
-                                              >
-                                                {m.id}
-                                              </button>
-                                            ))}
-                                          </div>
-                                          <div style={{ display: 'flex', gap: '8px' }}>
+                                          <ModelPicker
+                                            models={customModels}
+                                            activeId={config?.model}
+                                            onSelect={(id) => updateConfig({ provider: 'custom', model: id }, `${id} set as active`)}
+                                            onRefresh={fetchCustomModels}
+                                            refreshing={fetchingCustomModels}
+                                            disabled={saving}
+                                          />
+                                          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                                             <input
                                               type="text"
                                               value={customModelDraft}

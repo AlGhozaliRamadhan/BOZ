@@ -6,8 +6,8 @@ import { OPENAI_MODELS } from '@/config/openai.config';
 import { ANTHROPIC_MODELS } from '@/config/anthropic.config';
 import { GROQ_MODELS } from '@/config/groq.config';
 import { OPENROUTER_MODELS } from '@/config/openrouter.config';
-import { parseCustomModels } from '@/config/custom.config';
 import { getProviderModelsCached } from '@/services/ai/provider-models.client';
+import { readCustomModels } from '@/services/settings/custom-models.service';
 import { log } from '@/utils/logger';
 
 const PROVIDERS: AIProvider[] = [
@@ -15,17 +15,12 @@ const PROVIDERS: AIProvider[] = [
 ];
 
 function persistedCustomModels() {
-  const list = parseCustomModels(process.env.CUSTOM_AI_MODELS);
-  const current = config.custom.model;
-  if (current && !list.some((model) => model.id === current)) {
-    list.unshift({ id: current, label: current });
-  }
-  return list;
+  return readCustomModels();
 }
 
 // Same per-provider view the settings payload serves; the live listing
 // replaces this when the catalog fetch succeeds.
-function curatedModels(provider: AIProvider): { id: string; label: string }[] {
+async function curatedModels(provider: AIProvider): Promise<{ id: string; label: string }[]> {
   switch (provider) {
     case 'github': return GITHUB_MODELS;
     case 'nvidia': return NVIDIA_MODELS;
@@ -72,7 +67,8 @@ export async function GET(request: Request) {
 
   try {
     const live = await getProviderModelsCached(provider);
-    const models = withCurrentModel(live ? live.models : curatedModels(provider), current);
+    const fallback = live ? live.models : await curatedModels(provider);
+    const models = withCurrentModel(fallback, current);
     return jsonResponse({ provider, models, source: live ? 'live' : 'persisted' });
   } catch (error) {
     log.error('models', error instanceof Error ? error.message : 'Unknown models listing error');
